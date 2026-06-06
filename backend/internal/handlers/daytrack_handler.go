@@ -15,6 +15,7 @@ import (
 
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/middleware"
+	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 	"github.com/gorilla/mux"
 )
 
@@ -279,19 +280,43 @@ func (h *DayTrackHandler) Summarize(w http.ResponseWriter, r *http.Request) {
 		sb.WriteString("\n")
 	}
 
-	systemPrompt := `You are a professional standup report writer. The user gives you a list of work items they did today, grouped loosely by category.
-Your job: rewrite them as a concise, natural standup update grouped by category.
-Rules:
-- Keep the category headers exactly as given (bold them with **)
-- Merge related items into flowing sentences — don't just list them
-- Preserve durations in brackets like (2h 30m)
-- Do NOT invent or add anything not in the input
-- Output only the final text, no preamble or explanation
-- Keep it professional and first-person`
+	systemPrompt := `You are a work log editor. Fix grammar and clarity only — do NOT change structure, tone, or length.
 
-	userPrompt := "Work items for " + req.DateLabel + ":\n" + sb.String() + "\nWrite the standup summary:"
+RULES (non-negotiable):
+- Every input bullet → exactly one output bullet starting with "- "
+- NEVER merge two bullets into one. NEVER split one bullet into two.
+- NEVER write paragraphs. NEVER add intros or closing lines.
+- Keep entries SHORT and direct — 1 line per bullet, no filler words
+- Do not add "I" at the start. Keep lowercase action verbs.
+- Expand abbreviations: FE→Frontend, BE→Backend, MC→Mission Control, SW/Studio→Studio-Web, UI→UI app
+- Omit Sign In, Sign Off, and break entries entirely
 
-	body, err := callGroqChat(r.Context(), groqKey, "llama-3.1-8b-instant", systemPrompt, userPrompt)
+TONE — casual and direct (not formal):
+  BAD:  "investigated and resolved the Postman running issue on Rohit's laptop"
+  GOOD: "fixed Postman issue on Rohit's laptop"
+
+  BAD:  "gave a KT session to Rohit on how to create a JSON collection in Postman"
+  GOOD: "gave KT to Rohit on creating JSON collection in Postman"
+
+  BAD:  "tested and validated SCORM scraping behaviour on the DEV environment"
+  GOOD: "tested SCORM scraping on DEV"
+
+EXAMPLE (input → output, bullet-for-bullet):
+Input:
+- [Testing] Tested SCORM scraping on DEV and STAGE
+- [Testing] ARD-1700: Verified publish flow on Studio-Web
+- [Meetings] KT to Rohit on Voiden
+
+Output:
+- tested SCORM scraping on DEV and STAGE
+- verified publish flow on Studio-Web (ARD-1700)
+- gave KT to Rohit on Voiden
+
+Output only the bullets — nothing else.`
+
+	userPrompt := "Work entries for " + req.DateLabel + ":\n" + sb.String() + "\nOutput one bullet per entry:"
+
+	body, err := callGroqChat(r.Context(), groqKey, "llama-3.3-70b-versatile", systemPrompt, userPrompt)
 	if err != nil {
 		http.Error(w, "AI call failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -299,14 +324,20 @@ Rules:
 	dtJSON(w, map[string]string{"summary": body})
 }
 
-func callGroqChat(ctx context.Context, apiKey, model, system, user string) (string, error) {
+func callGroqChat(ctx context.Context, apiKey, model, system, user string, maxTokens ...int) (string, error) {
+	tokens := 1024
+	if len(maxTokens) > 0 && maxTokens[0] > 0 {
+		tokens = maxTokens[0]
+	}
 	payload := map[string]interface{}{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": system},
 			{"role": "user", "content": user},
 		},
-		"stream": false,
+		"stream":      false,
+		"temperature": 0,
+		"max_tokens":  tokens,
 	}
 	b, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.groq.com/openai/v1/chat/completions", bytes.NewReader(b))
@@ -604,4 +635,93 @@ func (h *DayTrackHandler) DeleteCategory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// daytracBuildSlackSections builds structured sections from DayTrack entries for Slack posting.
+// Uses original category names as-is and correctly separates yt-tested entries into "Tickets Tested".
+func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName string) PersonUpdate {
+	skipCat := map[string]bool{
+		"sign in": true, "sign off": true, "signing in": true, "signing off": true,
+		"time on": true, "time off": true, "time on/off": true,
+		"break": true, "breaks": true,
+		"meeting": true, "meetings": true,
+	}
+
+	sectionMap := map[string][]string{}
+	var order []string
+
+	for _, e := range entries {
+		if e.ParentEntryID != nil && *e.ParentEntryID != "" {
+			continue
+		}
+		cat := strings.ToLower(strings.TrimSpace(e.Category))
+		if skipCat[cat] {
+			continue
+		}
+
+		// yt-tested entries live in Testing category in DB; separate them here
+		sec := e.Category
+		if strings.HasPrefix(e.ExternalRef, "yt-tested-") {
+			sec = "Tickets Tested"
+		} else if sec == "Tickets" {
+			sec = "Tickets Created" // legacy category name from older YouTrack sync
+		}
+
+		if _, seen := sectionMap[sec]; !seen {
+			order = append(order, sec)
+		}
+		item := e.Name
+		if e.Notes != "" {
+			item += " — " + e.Notes
+		}
+		sectionMap[sec] = append(sectionMap[sec], item)
+	}
+
+	var sections []UpdateSection
+	for _, label := range order {
+		if len(sectionMap[label]) > 0 {
+			sections = append(sections, UpdateSection{Label: label, Items: sectionMap[label]})
+		}
+	}
+	return PersonUpdate{DisplayName: displayName, Sections: sections}
+}
+
+// PostToSlack formats DayTrack entries for a given date and posts to the configured destination channel.
+func (h *DayTrackHandler) PostToSlack(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	cfg, err := h.repo.GetSlackConfig(r.Context(), user.ID)
+	if err != nil || cfg.DestChannelID == "" {
+		http.Error(w, "no destination channel configured", http.StatusBadRequest)
+		return
+	}
+	var reqBody struct {
+		Date string `json:"date"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&reqBody)
+	date := strings.TrimSpace(reqBody.Date)
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	entries, err := h.repo.GetEntries(r.Context(), user.ID, date)
+	if err != nil || len(entries) == 0 {
+		http.Error(w, "no entries for "+date, http.StatusBadRequest)
+		return
+	}
+	ownerUpdate := daytracBuildSlackSections(entries, "")
+	ownerUpdate.IsOwner = true
+	if len(ownerUpdate.Sections) == 0 {
+		http.Error(w, "no entries for "+date, http.StatusBadRequest)
+		return
+	}
+	text := standupFormatMrkdwn([]PersonUpdate{ownerUpdate})
+	slackSvc := slacksvc.NewService()
+	if err := slackSvc.PostMessage(r.Context(), user.ID, cfg.DestChannelID, text); err != nil {
+		http.Error(w, "failed to post: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dtJSON(w, map[string]bool{"ok": true})
 }

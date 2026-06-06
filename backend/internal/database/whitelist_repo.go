@@ -186,3 +186,57 @@ func (r *WhitelistRepository) RemoveAllowedDomain(ctx context.Context, domainID 
 	_, err := pool.Exec(ctx, `DELETE FROM allowed_domains WHERE id = $1`, domainID)
 	return err
 }
+
+// --- Denied Emails ---
+
+// IsEmailDenied returns true if the email is on the deny list
+func (r *WhitelistRepository) IsEmailDenied(ctx context.Context, email string) bool {
+	pool := GetPool()
+	var id string
+	err := pool.QueryRow(ctx, `SELECT id FROM denied_emails WHERE email = $1`, strings.ToLower(email)).Scan(&id)
+	return err == nil
+}
+
+// AddDeniedEmail adds an email to the deny list
+func (r *WhitelistRepository) AddDeniedEmail(ctx context.Context, email, reason, addedBy string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO denied_emails (email, reason, added_by)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (email) DO UPDATE SET reason = $2, added_by = $3
+	`, strings.ToLower(email), reason, addedBy)
+	return err
+}
+
+// RemoveDeniedEmail removes an email from the deny list
+func (r *WhitelistRepository) RemoveDeniedEmail(ctx context.Context, email string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx, `DELETE FROM denied_emails WHERE email = $1`, strings.ToLower(email))
+	return err
+}
+
+// GetDeniedEmails returns all denied emails
+func (r *WhitelistRepository) GetDeniedEmails(ctx context.Context) ([]map[string]interface{}, error) {
+	pool := GetPool()
+	rows, err := pool.Query(ctx, `SELECT email, reason, added_by, created_at FROM denied_emails ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		var email, reason, addedBy string
+		var createdAt time.Time
+		if err := rows.Scan(&email, &reason, &addedBy, &createdAt); err != nil {
+			return nil, err
+		}
+		result = append(result, map[string]interface{}{
+			"email":      email,
+			"reason":     reason,
+			"added_by":   addedBy,
+			"created_at": createdAt,
+		})
+	}
+	return result, nil
+}

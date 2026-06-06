@@ -110,7 +110,7 @@ export function KanbanBoard({
             style={{ opacity: 0.9, boxShadow: '0 8px 25px rgba(0,0,0,0.3)', transform: 'rotate(3deg)' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-              <span style={{ color: '#8250df', fontSize: '0.75rem', fontWeight: 600 }}>{activeIssue.id}</span>
+              <span style={{ color: '#8250df', fontSize: '0.75rem', fontWeight: 600 }}>{activeIssue.idReadable || activeIssue.id}</span>
             </div>
             <h4 className="task-title">{activeIssue.summary}</h4>
             <div className="task-meta">

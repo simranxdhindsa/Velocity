@@ -76,7 +76,7 @@ func (r *SlackRepository) GetAllMentions(ctx context.Context, userID string, lim
 
 	rows, err := pool.Query(ctx, `
 		SELECT id, user_id, slack_user_id, message_ts, thread_ts, channel_id, message_text,
-		       sender_name, COALESCE(sender_avatar, ''), requires_reply, replied, reply_checked_at, snoozed_until, created_at
+		       sender_name, COALESCE(sender_avatar, ''), requires_reply, replied, reply_checked_at, snoozed_until, COALESCE(pinned, false), created_at
 		FROM slack_mentions
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -92,7 +92,36 @@ func (r *SlackRepository) GetAllMentions(ctx context.Context, userID string, lim
 		var m models.SlackMention
 		err := rows.Scan(&m.ID, &m.UserID, &m.SlackUserID, &m.MessageTS, &m.ThreadTS,
 			&m.ChannelID, &m.MessageText, &m.SenderName, &m.SenderAvatar, &m.RequiresReply,
-			&m.Replied, &m.ReplyCheckedAt, &m.SnoozedUntil, &m.CreatedAt)
+			&m.Replied, &m.ReplyCheckedAt, &m.SnoozedUntil, &m.Pinned, &m.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		mentions = append(mentions, m)
+	}
+	return mentions, nil
+}
+
+// GetPinnedMentions returns only pinned mentions for a user, newest first.
+func (r *SlackRepository) GetPinnedMentions(ctx context.Context, userID string) ([]models.SlackMention, error) {
+	pool := GetPool()
+	rows, err := pool.Query(ctx, `
+		SELECT id, user_id, slack_user_id, message_ts, thread_ts, channel_id, message_text,
+		       sender_name, COALESCE(sender_avatar, ''), requires_reply, replied, reply_checked_at, snoozed_until, COALESCE(pinned, false), created_at
+		FROM slack_mentions
+		WHERE user_id = $1 AND pinned = true
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var mentions []models.SlackMention
+	for rows.Next() {
+		var m models.SlackMention
+		err := rows.Scan(&m.ID, &m.UserID, &m.SlackUserID, &m.MessageTS, &m.ThreadTS,
+			&m.ChannelID, &m.MessageText, &m.SenderName, &m.SenderAvatar, &m.RequiresReply,
+			&m.Replied, &m.ReplyCheckedAt, &m.SnoozedUntil, &m.Pinned, &m.CreatedAt)
 		if err != nil {
 			return nil, err
 		}

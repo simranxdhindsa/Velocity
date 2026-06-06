@@ -266,9 +266,19 @@ func (h *SettingsHandler) SaveYouTrackIntegration(w http.ResponseWriter, r *http
 		return
 	}
 
-	if req.BaseURL == "" || req.Token == "" || req.ProjectID == "" {
-		http.Error(w, "base_url, token, and project_id are required", http.StatusBadRequest)
+	if req.BaseURL == "" || req.ProjectID == "" {
+		http.Error(w, "base_url and project_id are required", http.StatusBadRequest)
 		return
+	}
+
+	// Token is optional on update — reuse the existing saved token if not provided
+	if req.Token == "" {
+		existing, err := h.settingsRepo.GetYouTrackIntegration(r.Context(), userID)
+		if err != nil || existing == nil || existing.Token == "" {
+			http.Error(w, "token is required for new connections", http.StatusBadRequest)
+			return
+		}
+		req.Token = existing.Token
 	}
 
 	// Validate credentials before saving

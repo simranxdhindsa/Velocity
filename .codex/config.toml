@@ -1,0 +1,10 @@
+[mcp_servers.code-review-graph]
+command = "code-review-graph"
+args = ["serve"]
+
+[mcp_servers.shadcn]
+command = "npx"
+args = [
+    "shadcn@latest",
+    "mcp",
+]

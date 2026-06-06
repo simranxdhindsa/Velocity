@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { dayTrackApi, api, type DayTrackEntry, type DayTrackPlanned, type DayTrackSlackConfig, type DayTrackKWRule, DEFAULT_KEYWORD_RULES } from '../services/api'
+import { CalendarPicker } from '../components/CalendarPicker'
 import '../styles/pages/daytrack.css'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -191,90 +192,7 @@ function MonthPicker({ value, onChange }: { value: string; onChange: (m: string)
   )
 }
 
-// ── Reusable calendar date picker ────────────────────────────────────────────
-
-function CalendarPicker({ value, onChange, label }: { value: string; onChange: (d: string) => void; label: string }) {
-  const [open, setOpen] = useState(false)
-  const [calDate, setCalDate] = useState(() => value ? new Date(value + 'T00:00:00') : new Date())
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const dropRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const t = e.target as Node
-      if (!triggerRef.current?.contains(t) && !dropRef.current?.contains(t)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December']
-  const todayStr = toDateStr(new Date())
-
-  const fmtDisplay = (d: string) => {
-    if (!d) return 'Select date'
-    const obj = new Date(d + 'T00:00:00')
-    return obj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  }
-
-  return (
-    <div className="form-group">
-      <label className="form-label">{label}</label>
-      <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-        <button ref={triggerRef} className="dr-cal-trigger" style={{ width: '100%', justifyContent: 'flex-start' }}
-          onClick={() => {
-            if (triggerRef.current) {
-              const r = triggerRef.current.getBoundingClientRect()
-              setPos({ top: r.bottom + 6, left: r.left })
-            }
-            if (value) setCalDate(new Date(value + 'T00:00:00'))
-            setOpen(o => !o)
-          }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-          <span>{fmtDisplay(value)}</span>
-        </button>
-        {open && pos && createPortal(
-          <div ref={dropRef} className="dr-cal-dropdown glass-card"
-            style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999, minWidth: 240, padding: 12 }}>
-            <div className="calendar-nav">
-              <button onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
-              </button>
-              <span className="calendar-month-label">{monthNames[calDate.getMonth()]} {calDate.getFullYear()}</span>
-              <button onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </div>
-            <div className="calendar-grid">
-              <div className="calendar-header-row">
-                {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => <span key={d}>{d}</span>)}
-              </div>
-              <div className="calendar-body">
-                {Array.from({ length: new Date(calDate.getFullYear(), calDate.getMonth(), 1).getDay() }).map((_, i) => <span key={`e${i}`}/>)}
-                {Array.from({ length: new Date(calDate.getFullYear(), calDate.getMonth() + 1, 0).getDate() }).map((_, i) => {
-                  const dayStr = `${calDate.getFullYear()}-${String(calDate.getMonth()+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`
-                  return (
-                    <button key={i}
-                      className={`calendar-day${dayStr === value ? ' selected' : ''}${dayStr === todayStr ? ' today' : ''}`}
-                      onClick={() => { onChange(dayStr); setOpen(false) }}>
-                      {i + 1}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-            <div style={{ textAlign: 'center', marginTop: 6 }}>
-              <button className="dt-btn dt-btn-ghost dt-btn-sm" style={{ fontSize: 11 }}
-                onClick={() => { onChange(todayStr); setOpen(false) }}>Today</button>
-            </div>
-          </div>,
-          document.body
-        )}
-      </div>
-    </div>
-  )
-}
+// CalendarPicker is imported from src/components/CalendarPicker.tsx
 
 function CategoryChips({ value, onChange, categories }: {
   value: string
@@ -407,6 +325,7 @@ function MicButton({ onResult, onError }: {
   const [state, setState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
   const mrRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const startTimeRef = useRef<number>(0)
 
   function startBrowserFallback() {
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
@@ -438,18 +357,30 @@ function MicButton({ onResult, onError }: {
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
+        const duration = Date.now() - startTimeRef.current
+        if (duration < 400) {
+          onError?.('Recording too short — please hold and speak, then tap to stop')
+          setState('idle')
+          return
+        }
         setState('transcribing')
         const blob = new Blob(chunksRef.current, { type: mr.mimeType })
         try {
           const res = await dayTrackApi.transcribe(blob)
           if (res?.text) onResult(res.text.trim())
-          else onError?.('Empty transcription')
-        } catch {
-          onError?.('Transcription failed')
+          else onError?.('No speech detected — please try again')
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : ''
+          if (msg.includes('400') || msg.includes('empty') || msg.includes('no audio')) {
+            onError?.('No audio detected — please try again')
+          } else {
+            onError?.('Transcription failed — please try again')
+          }
         }
         setState('idle')
       }
       mr.start()
+      startTimeRef.current = Date.now()
       mrRef.current = mr
       setState('recording')
     } catch {
@@ -483,6 +414,23 @@ function MicButton({ onResult, onError }: {
   )
 }
 
+// Isolated clock component — keeps 1-second re-renders scoped to this tiny node
+// instead of re-rendering the entire DayTrackPage tree.
+const ClockDisplay = memo(function ClockDisplay() {
+  const [clock, setClock] = useState(() => {
+    const n = new Date()
+    return n.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  })
+  useEffect(() => {
+    const id = setInterval(() => {
+      const n = new Date()
+      setClock(n.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [])
+  return <>{clock}</>
+})
+
 export function DayTrackPage() {
   const [date, setDate] = useState<string>(toDateStr(new Date()))
   const [entries, setEntries] = useState<DayTrackEntry[]>([])
@@ -505,6 +453,10 @@ export function DayTrackPage() {
   const [slackChanOpen, setSlackChanOpen] = useState(false)
   const slackChanRef = useRef<HTMLButtonElement>(null)
   const [slackChanPos, setSlackChanPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const [destChanOpen, setDestChanOpen] = useState(false)
+  const destChanRef = useRef<HTMLButtonElement>(null)
+  const [destChanPos, setDestChanPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const [posting, setPosting] = useState(false)
   const [openRuleCatIdx, setOpenRuleCatIdx] = useState<number | null>(null)
   const [ruleCatPos, setRuleCatPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const ruleCatRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -512,17 +464,29 @@ export function DayTrackPage() {
   const [ruleTypePos, setRuleTypePos] = useState<{ top: number; left: number; width: number } | null>(null)
   const ruleTypeRefs = useRef<(HTMLButtonElement | null)[]>([])
 
-  // Manual form
-  const [mName, setMName] = useState('')
-  const [mCat, setMCat] = useState('')
-  const [mStart, setMStart] = useState('')
-  const [mEnd, setMEnd] = useState('')
-  const [mNotes, setMNotes] = useState('')
+  // Draft persistence helpers
+  const DRAFT_KEY = 'dt-draft'
+  function saveDraft() {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      mName, mCat, mStart, mEnd, mNotes,
+      tName, tCat, tNotes,
+      pName, pCat, pTime, pWhen, pNotes,
+    }))
+  }
+  function clearDraft() { localStorage.removeItem(DRAFT_KEY) }
 
-  // Timer form
-  const [tName, setTName] = useState('')
-  const [tCat, setTCat] = useState('')
-  const [tNotes, setTNotes] = useState('')
+  // Manual form — restored from draft on mount
+  const _draft = (() => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null') } catch { return null } })()
+  const [mName, setMName] = useState(_draft?.mName ?? '')
+  const [mCat, setMCat] = useState(_draft?.mCat ?? '')
+  const [mStart, setMStart] = useState(_draft?.mStart ?? '')
+  const [mEnd, setMEnd] = useState(_draft?.mEnd ?? '')
+  const [mNotes, setMNotes] = useState(_draft?.mNotes ?? '')
+
+  // Timer form — restored from draft
+  const [tName, setTName] = useState(_draft?.tName ?? '')
+  const [tCat, setTCat] = useState(_draft?.tCat ?? '')
+  const [tNotes, setTNotes] = useState(_draft?.tNotes ?? '')
   const [timerRunning, setTimerRunning] = useState(false)
   const [timerPaused, setTimerPaused] = useState(false)
   const [timerDisplay, setTimerDisplay] = useState('00:00:00')
@@ -532,12 +496,12 @@ export function DayTrackPage() {
   const pauseStartRef = useRef<number>(0)
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Plan form
-  const [pName, setPName] = useState('')
-  const [pCat, setPCat] = useState('')
-  const [pTime, setPTime] = useState('')
-  const [pWhen, setPWhen] = useState<'today'|'tomorrow'>('today')
-  const [pNotes, setPNotes] = useState('')
+  // Plan form — restored from draft
+  const [pName, setPName] = useState(_draft?.pName ?? '')
+  const [pCat, setPCat] = useState(_draft?.pCat ?? '')
+  const [pTime, setPTime] = useState(_draft?.pTime ?? '')
+  const [pWhen, setPWhen] = useState<'today'|'tomorrow'>(_draft?.pWhen ?? 'today')
+  const [pNotes, setPNotes] = useState(_draft?.pNotes ?? '')
 
   // Export modal
   const [exportOpen, setExportOpen] = useState(false)
@@ -548,6 +512,9 @@ export function DayTrackPage() {
   const [exportLoading, setExportLoading] = useState(false)
   const [exportBreaks, setExportBreaks] = useState(true)
   const [exportSummarise, setExportSummarise] = useState(false)
+  const [exportCopyLoading, setExportCopyLoading] = useState(false)
+  const [exportAISummary, setExportAISummary] = useState<string | null>(null)
+  const [exportAILoading, setExportAILoading] = useState(false)
 
   // Category manager
   const [newCat, setNewCat] = useState('')
@@ -605,8 +572,7 @@ export function DayTrackPage() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
 
-  // Live clock
-  const [clock, setClock] = useState('')
+  // Live clock rendered by isolated ClockDisplay component above
 
   // Close dropdowns / calendar on outside click
   useEffect(() => {
@@ -616,6 +582,7 @@ export function DayTrackPage() {
       if (!inTrigger) setOpenDrop(null)
       if (!calTriggerRef.current?.contains(t) && !calDropRef.current?.contains(t)) setCalOpen(false)
       if (!slackChanRef.current?.contains(t)) { setSlackChanOpen(false) }
+      if (!destChanRef.current?.contains(t)) { setDestChanOpen(false) }
       const inRuleCat = ruleCatRefs.current.some(r => r?.contains(t))
       if (!inRuleCat) setOpenRuleCatIdx(null)
       const inRuleType = ruleTypeRefs.current.some(r => r?.contains(t))
@@ -623,16 +590,6 @@ export function DayTrackPage() {
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  useEffect(() => {
-    const tick = () => {
-      const n = new Date()
-      setClock(n.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
-    }
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
   }, [])
 
   const toast = useCallback((msg: string, type: ToastType = 'success') => {
@@ -666,14 +623,24 @@ export function DayTrackPage() {
 
   useEffect(() => {
     dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
+    loadSlackConfig()
   }, [])
 
-  // Default category to first in list
+  // Default category to first in list (only if not restored from draft)
   useEffect(() => {
     if (categories.length > 0 && !mCat) setMCat(categories[0])
     if (categories.length > 0 && !tCat) setTCat(categories[0])
     if (categories.length > 0 && !pCat) setPCat(categories[0])
   }, [categories]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save draft whenever any form field changes; clear on unmount so stale drafts don't persist forever
+  useEffect(() => {
+    saveDraft()
+  }, [mName, mCat, mStart, mEnd, mNotes, tName, tCat, tNotes, pName, pCat, pTime, pWhen, pNotes]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => { saveDraft() }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Timer tick
   useEffect(() => {
@@ -708,6 +675,7 @@ export function DayTrackPage() {
       })
       const nextStart = mEnd ? addMinute(mEnd) : ''
       setMName(''); setMStart(nextStart); setMEnd(''); setMNotes('')
+      clearDraft()
       await loadAll()
       dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
       toast(`"${mName.trim()}" logged`)
@@ -763,6 +731,7 @@ export function DayTrackPage() {
     setTimerRunning(false); setTimerPaused(false); setTimerStatus('idle')
     setTimerDisplay('00:00:00')
     setTName(''); setTNotes('')
+    clearDraft()
   }
 
   async function addPlanned() {
@@ -778,6 +747,7 @@ export function DayTrackPage() {
         status: 'planned',
       })
       setPName(''); setPTime(''); setPNotes('')
+      clearDraft()
       await loadAll()
       toast(`"${pName.trim()}" scheduled for ${pWhen}`)
     } catch { toast('Failed to schedule task', 'warn') }
@@ -896,15 +866,15 @@ export function DayTrackPage() {
     const dur = calcDuration(eStart, eEnd)
     const newStatus = (eStart && eEnd) ? 'done' : editEntry.status
     try {
-      await dayTrackApi.updateEntry(editEntry.id, {
+      const updated = await dayTrackApi.updateEntry(editEntry.id, {
         name: eName || editEntry.name,
         category: eCat,
         start_time: eStart, end_time: eEnd,
         duration_mins: dur, notes: eNotes,
         status: newStatus,
       })
+      setEntries(prev => prev.map(e => e.id === updated.id ? updated : e))
       setEditEntry(null)
-      await loadAll()
       toast('Entry updated')
     } catch { toast('Failed to update', 'warn') }
   }
@@ -995,7 +965,7 @@ export function DayTrackPage() {
       const cfg = await dayTrackApi.getSlackConfig()
       setSlackCfg(cfg.keyword_rules?.length ? cfg : { ...cfg, keyword_rules: DEFAULT_KEYWORD_RULES })
     } catch {
-      setSlackCfg({ channel_id: '', channel_name: '', slack_user_id: '', keyword_rules: DEFAULT_KEYWORD_RULES, enabled: true })
+      setSlackCfg({ channel_id: '', channel_name: '', slack_user_id: '', keyword_rules: DEFAULT_KEYWORD_RULES, enabled: true, dest_channel_id: '', dest_channel_name: '', timezone: 'Asia/Kolkata' })
     } finally {
       setSlackCfgLoading(false)
     }
@@ -1041,15 +1011,25 @@ export function DayTrackPage() {
   async function scanYouTrackTickets() {
     setYtScanning(true)
     try {
-      const res = await dayTrackApi.scanYouTrackTickets()
-      if (res.added > 0) {
-        toast(`Synced ${res.added} YouTrack ticket${res.added !== 1 ? 's' : ''} to DayTrack`, 'success')
-        await loadAll()
+      const res = await dayTrackApi.scanYouTrackTickets(date)
+      const parts: string[] = []
+      if (res.added > 0)   parts.push(`${res.added} created`)
+      if (res.tested > 0)  parts.push(`${res.tested} tested`)
+      if (parts.length > 0) {
+        toast(`Synced ${parts.join(' · ')} from YouTrack`, 'success')
       } else {
-        toast('No new tickets found for today', 'info')
+        toast(`No new YouTrack activity found for ${date}`, 'info')
       }
     } catch { toast('YouTrack sync failed', 'warn') }
     finally { setYtScanning(false) }
+
+    // Also reset + trigger Slack scan so fresh messages are picked up
+    try {
+      await dayTrackApi.resetSlackScanWindow()
+      await dayTrackApi.triggerSlackScan()
+    } catch { /* Slack not configured — silently skip */ }
+
+    await loadAll()
   }
 
   async function resolveSlackUser() {
@@ -1062,6 +1042,19 @@ export function DayTrackPage() {
         toast('Could not resolve Slack user — check your email', 'warn')
       }
     } catch { toast('Failed to resolve Slack user', 'warn') }
+  }
+
+  async function postToSlack() {
+    setPosting(true)
+    try {
+      await dayTrackApi.postToSlack(date)
+      toast('Posted to Slack!', 'success')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to post'
+      toast(msg, 'warn')
+    } finally {
+      setPosting(false)
+    }
   }
 
   function updateKWRule(idx: number, field: keyof DayTrackKWRule, value: string | string[]) {
@@ -1085,68 +1078,152 @@ export function DayTrackPage() {
   }
 
   async function copyStandup() {
-    let text = buildStandup()
-    if (exportSummarise) {
-      const visibleEntries = entries.filter(e =>
-        !e.parent_entry_id &&
-        e.entry_source !== 'youtrack' &&
-        e.category !== 'Tickets' &&
-        (exportBreaks || e.category !== 'Breaks')
-      )
-      const lines = visibleEntries.map(e => ({
-        category: e.category,
-        name: e.name,
-        duration: e.duration_mins != null ? minsLabel(e.duration_mins) : '',
-        notes: e.notes || ''
-      }))
-      if (lines.length > 0) {
-        try {
-          const res = await dayTrackApi.summarize({ date_label: fmtDate(new Date(date + 'T00:00:00')), lines })
-          if (res.summary) text = res.summary + '\n\n' + text
-        } catch { /* proceed without AI */ }
-      }
-    }
-    navigator.clipboard.writeText(text).then(() => toast('Standup copied!'))
+    // Use • for Slack compatibility (- renders as literal text in Slack)
+    const text = buildStandup().replace(/^- /gm, '• ')
+    navigator.clipboard.writeText(text).then(() => toast('DayTrack report copied!'))
   }
 
-  async function runExport(format: 'pdf' | 'doc') {
-    setExportLoading(true)
-    try {
-      let start: string, end: string
-      if (exportMode === 'today') {
-        start = date; end = date
-      } else if (exportMode === 'month') {
-        start = `${exportMonth}-01`
-        const [y, m] = exportMonth.split('-').map(Number)
-        const last = new Date(y, m, 0).getDate()
-        end = `${exportMonth}-${String(last).padStart(2, '0')}`
-      } else {
-        start = exportStart; end = exportEnd
-      }
+  // Parse AI output into a map of entryId → rephrased name, matched positionally
+  function buildAINameMap(allEntries: DayTrackEntry[], aiSummary: string): Map<number, string> {
+    const nameMap = new Map<number, string>()
+    // AI omits Sign In / Sign Off / Breaks / YouTrack entries — filter to keep positions in sync
+    const sentEntries = allEntries
+      .filter(e => !e.parent_entry_id)
+      .filter(e => !['Sign In', 'Sign Off', 'Breaks'].includes(e.category))
+      .filter(e => e.entry_source !== 'youtrack')
+    const rephrasedLines = aiSummary
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.startsWith('- ') || l.startsWith('• '))
+      .map(l => l.replace(/^[-•]\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1').trim())
+    sentEntries.forEach((e, i) => {
+      if (i < rephrasedLines.length && rephrasedLines[i]) nameMap.set(e.id, rephrasedLines[i])
+    })
+    return nameMap
+  }
 
+  // Build the full structured report (same layout as buildStandup) with • bullets.
+  // nameMap optionally substitutes AI-rephrased text for each entry's name.
+  function buildReportText(sourceEntries: DayTrackEntry[], nameMap: Map<number, string>): string {
+    const today = fmtDate(new Date(date))
+    const parents = sourceEntries.filter(e => !e.parent_entry_id)
+
+    const catHeading = (cat: string): string => {
+      const map: Record<string, string> = {
+        'Tickets': 'Tickets Created', 'Testing': 'Testing',
+        'Project Management': 'Project Management', 'Meetings': 'Meetings',
+        'Breaks': 'Breaks', 'Sign In': 'Sign In', 'Sign Off': 'Sign Off',
+      }
+      return map[cat] ?? cat
+    }
+    const isDoneInReport = (e: DayTrackEntry) =>
+      e.status === 'done' || (e.status === 'active' && !e.start_time && !e.end_time)
+    const getName = (e: DayTrackEntry) => nameMap.get(e.id) ?? e.name
+
+    const testedEntries = parents.filter(e => e.external_ref?.startsWith('yt-tested-'))
+    const testedIDs = new Set(testedEntries.map(e => e.id))
+
+    const doneByCategory = new Map<string, DayTrackEntry[]>()
+    parents.filter(e => isDoneInReport(e) && !testedIDs.has(e.id)).forEach(e => {
+      const list = doneByCategory.get(e.category) ?? []
+      list.push(e)
+      doneByCategory.set(e.category, list)
+    })
+
+    let doneBlock = ''
+    doneByCategory.forEach((items, cat) => {
+      doneBlock += `*${catHeading(cat)}:*\n`
+      items.forEach(e => {
+        doneBlock += `• ${getName(e)}${e.duration_mins != null ? ` (${minsLabel(e.duration_mins)})` : ''}\n`
+      })
+      doneBlock += '\n'
+    })
+
+    const activeList = parents
+      .filter(e => e.status === 'active' && (e.start_time || e.end_time))
+      .map(e => `• ${getName(e)} (${e.category})`).join('\n')
+    const planList = planned.filter(p => p.when_type === 'today')
+      .map(p => `• ${p.name} (${p.category})`).join('\n')
+    const testedBlock = testedEntries.length > 0
+      ? testedEntries.map(e => `• ${getName(e)}`).join('\n') + '\n'
+      : '• (none)\n'
+
+    let text = `📋 DayTrack Report – ${today}\n`
+    text += `⏱ Total: ${totalMins ? minsLabel(totalMins) : '—'} | Focus Rate: ${focusRate != null ? focusRate + '%' : '—'}\n\n`
+    text += `✅ *Done Today:*\n\n${doneBlock || '• (none)\n\n'}`
+    text += `🧪 *Tickets Tested:*\n${testedBlock}\n`
+    if (activeList) text += `🔄 In Progress:\n${activeList}\n\n`
+    text += `📌 Planned / Upcoming:\n${planList || '• (none)'}\n\n`
+    text += `🚧 Blockers:\n• None`
+    return text
+  }
+
+  // Shared helper — fetches entries for the selected range, runs AI once and caches it
+  async function prepareExportData() {
+    let start: string, end: string, rangeLabel: string
+    if (exportMode === 'today') {
+      start = date; end = date
+      rangeLabel = fmtDate(new Date(date + 'T00:00:00'))
+    } else if (exportMode === 'month') {
+      start = `${exportMonth}-01`
+      const [y, m] = exportMonth.split('-').map(Number)
+      const last = new Date(y, m, 0).getDate()
+      end = `${exportMonth}-${String(last).padStart(2, '0')}`
+      rangeLabel = new Date(start + 'T00:00:00').toLocaleString('en-US', { month: 'long', year: 'numeric' })
+    } else {
+      start = exportStart; end = exportEnd
+      rangeLabel = `${start} to ${end}`
+    }
+
+    let allEntries: DayTrackEntry[]
+    if (exportMode === 'today') {
+      allEntries = [...entries]
+    } else {
       const token = localStorage.getItem('token')
       const res = await fetch(`${import.meta.env.VITE_API_URL}/daytrack/entries/range?start=${start}&end=${end}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (!res.ok) throw new Error('Failed to fetch range')
-      let allEntries: DayTrackEntry[] = await res.json()
+      allEntries = await res.json()
+    }
+    if (!exportBreaks) allEntries = allEntries.filter(e => e.category !== 'Breaks')
 
-      // Apply breaks filter
-      if (!exportBreaks) {
-        allEntries = allEntries.filter(e => e.category !== 'Breaks')
+    // Generate AI summary once and cache — reuse on subsequent button clicks
+    let aiSummary = exportAISummary
+    if (exportSummarise && !aiSummary) {
+      setExportAILoading(true)
+      const lines = allEntries
+        .filter(e => !e.parent_entry_id)
+        .filter(e => e.entry_source !== 'youtrack')
+        .map(e => ({
+          category: e.category,
+          name: e.name,
+          duration: e.duration_mins != null ? minsLabel(e.duration_mins) : '',
+          notes: e.notes || ''
+        }))
+      if (lines.length > 0) {
+        try {
+          const res2 = await dayTrackApi.summarize({ date_label: rangeLabel, lines })
+          if (res2.summary) { aiSummary = res2.summary; setExportAISummary(aiSummary) }
+        } catch { /* proceed without AI */ }
       }
+      setExportAILoading(false)
+    }
 
-      // Group by date, then by parent/subtask
+    return { allEntries, rangeLabel, start, end, aiSummary }
+  }
+
+  async function runExport(format: 'pdf' | 'doc') {
+    setExportLoading(true)
+    try {
+      const { allEntries, rangeLabel, start, end, aiSummary } = await prepareExportData()
+
       const byDate = new Map<string, DayTrackEntry[]>()
       allEntries.forEach(e => {
         if (!byDate.has(e.entry_date)) byDate.set(e.entry_date, [])
         byDate.get(e.entry_date)!.push(e)
       })
-
-      const fmtDateStr = (d: string) => {
-        const obj = new Date(d + 'T00:00:00')
-        return fmtDate(obj)
-      }
+      const fmtDateStr = (d: string) => fmtDate(new Date(d + 'T00:00:00'))
       const renderExportRows = (dayEntries: DayTrackEntry[]) => {
         const dayParents = dayEntries.filter(e => !e.parent_entry_id)
         const daySubs = new Map<string, DayTrackEntry[]>()
@@ -1173,49 +1250,19 @@ export function DayTrackPage() {
           return rows
         }).join('')
       }
-      const parentAllEntries = allEntries.filter(e => !e.parent_entry_id)
-      const subMapExport = new Map<string, DayTrackEntry[]>()
-      allEntries.filter(e => e.parent_entry_id).forEach(e => {
-        const list = subMapExport.get(e.parent_entry_id!) ?? []; list.push(e)
-        subMapExport.set(e.parent_entry_id!, list)
-      })
 
+      const parentAllEntries = allEntries.filter(e => !e.parent_entry_id)
       const totalAll = parentAllEntries.reduce((a, e) => a + (e.duration_mins ?? 0), 0)
       const doneAll = parentAllEntries.filter(e => e.status === 'done').length
       const focusAll = parentAllEntries.filter(e => !['Meetings','Breaks'].includes(e.category)).reduce((a, e) => a + (e.duration_mins ?? 0), 0)
-
       const catTotals: Record<string, number> = {}
       parentAllEntries.forEach(e => { if (e.duration_mins) catTotals[e.category] = (catTotals[e.category] || 0) + e.duration_mins })
 
-      const rangeLabel = exportMode === 'today'
-        ? fmtDate(new Date(date + 'T00:00:00'))
-        : exportMode === 'month'
-          ? new Date(start + 'T00:00:00').toLocaleString('en-US', { month: 'long', year: 'numeric' })
-          : `${start} to ${end}`
-
-      // AI summarise: only non-ticket parent entries
-      let aiSummaryBlock = ''
-      if (exportSummarise) {
-        const lines = parentAllEntries
-          .filter(e => e.entry_source !== 'youtrack' && e.category !== 'Tickets')
-          .map(e => ({
-            category: e.category,
-            name: e.name,
-            duration: e.duration_mins != null ? minsLabel(e.duration_mins) : '',
-            notes: e.notes || ''
-          }))
-        if (lines.length > 0) {
-          try {
-            const res2 = await dayTrackApi.summarize({ date_label: rangeLabel, lines })
-            if (res2.summary) {
-              aiSummaryBlock = `<div class="summary-box" style="margin-top:20px">
-  <h3 style="color:#7c3aed">AI Summary</h3>
-  <div style="white-space:pre-wrap;font-size:13px;line-height:1.6">${res2.summary.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')}</div>
-</div>`
-            }
-          } catch { /* AI unavailable — proceed without summary */ }
-        }
-      }
+      const aiSummaryBlock = aiSummary
+        ? `<div class="summary-box" style="margin-top:20px">
+  <h3 style="color:#7c3aed">✨ AI Summary</h3>
+  <div style="white-space:pre-wrap;font-size:13px;line-height:1.6">${aiSummary.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')}</div>
+</div>` : ''
 
       const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -1276,18 +1323,30 @@ ${aiSummaryBlock}
         w.document.write(html)
         w.document.close()
         w.focus()
-        setTimeout(() => { w.print(); }, 400)
       } else {
         const blob = new Blob([html], { type: 'application/msword' })
         const a = document.createElement('a')
         a.href = URL.createObjectURL(blob)
-        a.download = `daytrack-${exportMode === 'month' ? exportMonth : `${exportStart}-to-${exportEnd}`}.doc`
+        a.download = `daytrack-${exportMode === 'month' ? exportMonth : `${start}-to-${end}`}.doc`
         a.click()
       }
       setExportOpen(false)
-      toast(`Export ready`, 'success')
+      setExportAISummary(null)
+      toast('Export ready', 'success')
     } catch { toast('Export failed', 'warn') }
     finally { setExportLoading(false) }
+  }
+
+  async function copyExportSummary() {
+    setExportCopyLoading(true)
+    try {
+      const { allEntries, aiSummary } = await prepareExportData()
+      const nameMap = aiSummary ? buildAINameMap(allEntries, aiSummary) : new Map<number, string>()
+      const text = buildReportText(allEntries, nameMap)
+      await navigator.clipboard.writeText(text)
+      toast('Summary copied!', 'success')
+    } catch { toast('Copy failed', 'warn') }
+    finally { setExportCopyLoading(false) }
   }
 
   function exportCSV() {
@@ -1334,19 +1393,64 @@ ${aiSummaryBlock}
 
   function buildStandup(): string {
     const today = fmtDate(new Date(date))
-    const visibleEntries = exportBreaks ? entries : entries.filter(e => e.category !== 'Breaks')
-    const doneList = visibleEntries.filter(e => e.status === 'done')
-      .map(e => `  ✅ ${e.name} (${e.category}) – ${minsLabel(e.duration_mins)}`).join('\n')
-    const activeList = visibleEntries.filter(e => e.status === 'active')
-      .map(e => `  🔄 ${e.name} (${e.category})`).join('\n')
+    const parents = entries.filter(e => !e.parent_entry_id)
+
+    const catHeading = (cat: string): string => {
+      const map: Record<string, string> = {
+        'Tickets':            'Tickets Created',
+        'Testing':            'Testing',
+        'Project Management': 'Project Management',
+        'Meetings':           'Meetings',
+        'Breaks':             'Breaks',
+        'Sign In':            'Sign In',
+        'Sign Off':           'Sign Off',
+      }
+      return map[cat] ?? cat
+    }
+
+    const isDoneInReport = (e: DayTrackEntry) =>
+      e.status === 'done' || (e.status === 'active' && !e.start_time && !e.end_time)
+
+    // Separate tickets-tested entries (yt-tested-*) from the rest
+    const testedEntries = parents.filter(e => e.external_ref?.startsWith('yt-tested-'))
+    const testedIDs = new Set(testedEntries.map(e => e.id))
+
+    // Group done entries by category, preserving insertion order (exclude tested entries — shown separately)
+    const doneByCategory = new Map<string, DayTrackEntry[]>()
+    parents.filter(e => isDoneInReport(e) && !testedIDs.has(e.id)).forEach(e => {
+      const list = doneByCategory.get(e.category) ?? []
+      list.push(e)
+      doneByCategory.set(e.category, list)
+    })
+
+    let doneBlock = ''
+    doneByCategory.forEach((items, cat) => {
+      doneBlock += `*${catHeading(cat)}:*\n`
+      items.forEach(e => {
+        doneBlock += `- ${e.name}${e.duration_mins != null ? ` (${minsLabel(e.duration_mins)})` : ''}\n`
+      })
+      doneBlock += '\n'
+    })
+
+    const activeList = parents
+      .filter(e => e.status === 'active' && (e.start_time || e.end_time))
+      .map(e => `- ${e.name} (${e.category})`)
+      .join('\n')
     const planList = planned.filter(p => p.when_type === 'today')
-      .map(p => `  📌 ${p.name} (${p.category})`).join('\n')
-    let text = `📋 Daily Standup – ${today}\n`
+      .map(p => `- ${p.name} (${p.category})`)
+      .join('\n')
+
+    const testedBlock = testedEntries.length > 0
+      ? testedEntries.map(e => `- ${e.name}`).join('\n') + '\n'
+      : '- (none)\n'
+
+    let text = `📋 DayTrack Report – ${today}\n`
     text += `⏱ Total: ${totalMins ? minsLabel(totalMins) : '—'} | Focus Rate: ${focusRate != null ? focusRate + '%' : '—'}\n\n`
-    text += `✅ Done Today:\n${doneList || '  (none)'}\n\n`
+    text += `✅ *Done Today:*\n\n${doneBlock || '- (none)\n\n'}`
+    text += `🧪 *Tickets Tested:*\n${testedBlock}\n`
     if (activeList) text += `🔄 In Progress:\n${activeList}\n\n`
-    text += `📌 Planned / Upcoming:\n${planList || '  (none)'}\n\n`
-    text += `🚧 Blockers:\n  None`
+    text += `📌 Planned / Upcoming:\n${planList || '- (none)'}\n\n`
+    text += `🚧 Blockers:\n- None`
     return text
   }
 
@@ -1451,7 +1555,7 @@ ${aiSummaryBlock}
             </div>
           </div>
 
-          <div className="dt-clock">{clock}</div>
+          <div className="dt-clock"><ClockDisplay /></div>
           <button className="dt-header-settings-btn" title="Sync YouTrack tickets created today"
             onClick={scanYouTrackTickets} disabled={ytScanning}
             style={{ marginRight: 4 }}>
@@ -1459,6 +1563,29 @@ ${aiSummaryBlock}
               ? <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
               : <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
             }
+          </button>
+          <button
+            className="dt-post-slack-btn"
+            style={{ marginRight: 6, padding: '5px 11px', fontSize: 12 }}
+            onClick={() => {
+              if (!slackCfg?.dest_channel_id) {
+                setSettingsOpen(true)
+                if (!slackCfg) loadSlackConfig()
+                if (slackChannels.length === 0) loadSlackChannels()
+                toast('Set a Destination Channel in settings first', 'info')
+                return
+              }
+              postToSlack()
+            }}
+            disabled={posting}
+            title={slackCfg?.dest_channel_id ? `Post today's updates to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}` : 'Configure destination channel in settings'}
+          >
+            {posting ? (
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: 'spin 1s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            )}
+            {posting ? 'Posting…' : slackCfg?.dest_channel_id ? `Post to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}` : 'Post to Slack'}
           </button>
           <button className="dt-header-settings-btn" title="Slack auto-log settings"
             onClick={() => {
@@ -1960,7 +2087,7 @@ ${aiSummaryBlock}
             <div className="dt-divider" />
 
             <div className="dt-standup-box">
-              <h4>Standup Summary – Copy to Clipboard</h4>
+              <h4>DayTrack Summary</h4>
               <pre>{buildStandup()}</pre>
             </div>
 
@@ -1973,7 +2100,7 @@ ${aiSummaryBlock}
                 <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/>
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                 </svg>
-                Copy Standup
+                Copy DayTrack
               </button>
               <button className="dt-btn dt-btn-ghost dt-btn-sm" onClick={exportCSV}>
                 <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -2055,8 +2182,47 @@ ${aiSummaryBlock}
                   </div>
                 </div>
 
+                {/* Timezone */}
+                <div className="form-group" style={{ margin: '8px 0 0' }}>
+                  <label className="form-label" style={{ fontSize: 11 }}>Your Timezone</label>
+                  <input className="form-input" style={{ fontSize: 12, padding: '5px 8px' }}
+                    value={slackCfg.timezone || 'Asia/Kolkata'}
+                    onChange={e => setSlackCfg(c => c ? { ...c, timezone: e.target.value } : c)}
+                    placeholder="Asia/Kolkata" />
+                  <div style={{ fontSize: 10, opacity: 0.55, marginTop: 3 }}>IANA name — used to convert Slack timestamps to your local time</div>
+                </div>
+
+                {/* Destination channel for Post to Slack */}
+                <div className="form-group" style={{ margin: '8px 0 0' }}>
+                  <label className="form-label" style={{ fontSize: 11 }}>Destination Channel <span style={{ opacity: 0.6, fontWeight: 400 }}>(Post to Slack)</span></label>
+                  <div className="dt-slack-user-row">
+                    <button
+                      ref={destChanRef}
+                      className="pm-custom-dropdown-trigger"
+                      style={{ flex: 1, justifyContent: 'space-between', fontSize: 12, padding: '5px 10px' }}
+                      onClick={() => {
+                        if (destChanOpen) { setDestChanOpen(false); return }
+                        if (destChanRef.current) {
+                          const r = destChanRef.current.getBoundingClientRect()
+                          setDestChanPos({ top: r.bottom + 4, left: r.left, width: r.width })
+                        }
+                        setDestChanOpen(true)
+                      }}>
+                      <span>{slackCfg.dest_channel_name ? `#${slackCfg.dest_channel_name}` : 'Select…'}</span>
+                      <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
+                    <input
+                      className="form-input"
+                      style={{ fontSize: 12, padding: '5px 8px', width: 120, flexShrink: 0 }}
+                      placeholder="or Channel ID"
+                      value={slackCfg.dest_channel_id}
+                      onChange={e => setSlackCfg(c => c ? { ...c, dest_channel_id: e.target.value, dest_channel_name: e.target.value ? (c.dest_channel_name || '') : '' } : c)}
+                    />
+                  </div>
+                </div>
+
                 {/* Keyword rules */}
-                <div className="form-group">
+                <div className="form-group" style={{ marginTop: 16 }}>
                   <div className="dt-settings-rules-header">
                     <label className="form-label" style={{ margin: 0 }}>Keyword Rules</label>
                     <button className="dt-btn dt-btn-ghost dt-btn-sm" onClick={addKWRule}>+ Add Rule</button>
@@ -2239,9 +2405,9 @@ ${aiSummaryBlock}
 
             {/* Date range tabs */}
             <div className="dt-tabs" style={{ marginBottom: 16 }}>
-              <button className={`dt-tab ${exportMode === 'today' ? 'active' : ''}`} onClick={() => setExportMode('today')}>Today</button>
-              <button className={`dt-tab ${exportMode === 'month' ? 'active' : ''}`} onClick={() => setExportMode('month')}>By Month</button>
-              <button className={`dt-tab ${exportMode === 'custom' ? 'active' : ''}`} onClick={() => setExportMode('custom')}>Custom Range</button>
+              <button className={`dt-tab ${exportMode === 'today' ? 'active' : ''}`} onClick={() => { setExportMode('today'); setExportAISummary(null) }}>Today</button>
+              <button className={`dt-tab ${exportMode === 'month' ? 'active' : ''}`} onClick={() => { setExportMode('month'); setExportAISummary(null) }}>By Month</button>
+              <button className={`dt-tab ${exportMode === 'custom' ? 'active' : ''}`} onClick={() => { setExportMode('custom'); setExportAISummary(null) }}>Custom Range</button>
             </div>
 
             {exportMode === 'today' && (
@@ -2260,22 +2426,37 @@ ${aiSummaryBlock}
             {/* Export options */}
             <div className="dt-export-options">
               <label className="dt-export-toggle">
-                <input type="checkbox" checked={exportBreaks} onChange={e => setExportBreaks(e.target.checked)} />
+                <input type="checkbox" checked={exportBreaks} onChange={e => { setExportBreaks(e.target.checked); setExportAISummary(null) }} />
                 <span>Include Breaks</span>
               </label>
               <label className="dt-export-toggle">
-                <input type="checkbox" checked={exportSummarise} onChange={e => setExportSummarise(e.target.checked)} />
+                <input type="checkbox" checked={exportSummarise} onChange={e => { setExportSummarise(e.target.checked); setExportAISummary(null) }} />
                 <span>Summarise with AI <span className="dt-export-toggle-hint">(Groq · skips tickets)</span></span>
               </label>
             </div>
 
+            {/* AI summary preview — shown after first generation, reused by all buttons */}
+            {exportSummarise && exportAILoading && (
+              <div className="dt-export-ai-status">⏳ Generating AI summary…</div>
+            )}
+            {exportSummarise && exportAISummary && !exportAILoading && (
+              <div className="dt-export-ai-preview">
+                <div className="dt-export-ai-preview-label">✨ AI Summary Preview</div>
+                <pre className="dt-export-ai-preview-text">{exportAISummary}</pre>
+              </div>
+            )}
+
             <div className="dt-modal-footer" style={{ marginTop: 20 }}>
               <button className="dt-btn dt-btn-ghost" onClick={() => setExportOpen(false)}>Cancel</button>
-              <button className="dt-btn dt-btn-ghost dt-btn-sm" onClick={() => runExport('doc')} disabled={exportLoading}>
+              <button className="dt-btn dt-btn-ghost dt-btn-sm" onClick={copyExportSummary} disabled={exportCopyLoading || exportLoading}>
+                <svg viewBox="0 0 24 24" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                {exportCopyLoading ? 'Copying…' : 'Copy Summary'}
+              </button>
+              <button className="dt-btn dt-btn-ghost dt-btn-sm" onClick={() => runExport('doc')} disabled={exportLoading || exportCopyLoading}>
                 <svg viewBox="0 0 24 24" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 {exportLoading ? 'Generating…' : 'Export DOC'}
               </button>
-              <button className="dt-btn dt-btn-primary" onClick={() => runExport('pdf')} disabled={exportLoading}>
+              <button className="dt-btn dt-btn-primary" onClick={() => runExport('pdf')} disabled={exportLoading || exportCopyLoading}>
                 <svg viewBox="0 0 24 24" width="14" height="14"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 {exportLoading ? 'Generating…' : 'Export PDF'}
               </button>
@@ -2380,6 +2561,31 @@ ${aiSummaryBlock}
               onMouseDown={() => {
                 setSlackCfg(c => c ? { ...c, channel_id: ch.id, channel_name: ch.name } : c)
                 setSlackChanOpen(false)
+              }}>
+              #{ch.name}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+
+      {/* Portal dest channel dropdown */}
+      {destChanOpen && destChanPos && slackCfg && createPortal(
+        <div
+          className="pm-custom-dropdown-menu"
+          style={{ position: 'fixed', top: destChanPos.top, left: destChanPos.left, width: destChanPos.width, zIndex: 10000, maxHeight: 220, overflowY: 'auto' }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {channelsLoading ? (
+            <div className="pm-dropdown-item" style={{ pointerEvents: 'none', opacity: 0.6 }}>Loading channels…</div>
+          ) : slackChannels.length === 0 ? (
+            <div className="pm-dropdown-item" style={{ pointerEvents: 'none', opacity: 0.6 }}>No channels — connect Slack first</div>
+          ) : slackChannels.map(ch => (
+            <button key={ch.id}
+              className={`pm-dropdown-item${slackCfg.dest_channel_id === ch.id ? ' active' : ''}`}
+              onMouseDown={() => {
+                setSlackCfg(c => c ? { ...c, dest_channel_id: ch.id, dest_channel_name: ch.name } : c)
+                setDestChanOpen(false)
               }}>
               #{ch.name}
             </button>

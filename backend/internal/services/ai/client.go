@@ -597,8 +597,11 @@ func QueryWithHistory(ctx context.Context, systemPrompt string, history []ConvMe
 	default:
 		apiURL = "https://api.groq.com/openai/v1/chat/completions"
 		apiKey = os.Getenv("GROQ_API_KEY")
-		// llama-3.1-8b-instant: 131,072 TPM on Groq free tier — safety net for larger contexts
-		model = "llama-3.1-8b-instant"
+		// Allow overriding the Groq model via env var (useful when one model hits its daily quota)
+		model = os.Getenv("GROQ_MODEL")
+		if model == "" {
+			model = "llama-3.3-70b-versatile"
+		}
 	}
 
 	if apiKey == "" {
@@ -636,6 +639,22 @@ func QueryWithHistory(ctx context.Context, systemPrompt string, history []ConvMe
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Some providers (e.g. Gemini on quota error) return a JSON array instead of an object.
+	// Detect this and extract the error message before attempting struct unmarshal.
+	trimmed := strings.TrimSpace(string(body))
+	if strings.HasPrefix(trimmed, "[") {
+		var arrResp []struct {
+			Error *struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(body, &arrResp) == nil && len(arrResp) > 0 && arrResp[0].Error != nil {
+			return "", fmt.Errorf("API error: %s", arrResp[0].Error.Message)
+		}
+		return "", fmt.Errorf("unexpected array response from AI provider")
 	}
 
 	var openaiResp OpenAIResponse

@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import api from './api'
 import type { NotificationItem } from './api'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
+import { sseService } from './sseService'
 
 /**
  * React hook for real-time notifications via SSE + REST API.
@@ -83,10 +82,7 @@ export function useNotifications() {
     fetchNotifications()
     fetchUnreadCount()
 
-    const es = new EventSource(`${API_URL}/events`)
-    eventSourceRef.current = es
-
-    es.addEventListener('notification_new', (e: MessageEvent) => {
+    const unsubscribe = sseService.subscribe('notification_new', (e: MessageEvent) => {
       try {
         const notif: NotificationItem = JSON.parse(e.data)
         setNotifications(prev => [notif, ...prev])
@@ -96,12 +92,8 @@ export function useNotifications() {
       }
     })
 
-    es.onerror = () => {
-      // EventSource auto-reconnects
-    }
-
     return () => {
-      es.close()
+      unsubscribe()
       eventSourceRef.current = null
     }
   }, [fetchNotifications, fetchUnreadCount])

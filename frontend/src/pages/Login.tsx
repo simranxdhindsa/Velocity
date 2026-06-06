@@ -30,6 +30,7 @@ declare global {
 }
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+const IS_PROD = import.meta.env.VITE_ENVIRONMENT === 'production'
 
 export default function Login() {
   const { login, isLoading } = useAuth()
@@ -157,9 +158,8 @@ export default function Login() {
         <div className="login-card glass-static">
           <h2
             className="login-card-title"
-            onClick={() => setShowDevLogin(!showDevLogin)}
-            style={{ cursor: 'pointer', userSelect: 'none' }}
-            title="Click for dev login"
+            onClick={() => !IS_PROD && setShowDevLogin(!showDevLogin)}
+            style={!IS_PROD ? { cursor: 'pointer', userSelect: 'none' } : undefined}
           >
             Welcome Back
           </h2>

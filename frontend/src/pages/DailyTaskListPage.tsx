@@ -64,6 +64,7 @@ interface NextDayTaskList {
 // YouTrack Pull interfaces
 interface YTPullIssue {
   id: string
+  idReadable?: string
   summary: string
   priority_tag: string
   clean_title: string
@@ -885,7 +886,7 @@ export function DailyTaskListPage() {
                               </span>
                             )}
                             <span className="yt-issue-title">{issue.summary}</span>
-                            <span className="yt-issue-id">{issue.id}</span>
+                            <span className="yt-issue-id">{issue.idReadable || issue.id}</span>
                             <span className="yt-issue-status badge">{issue.status}</span>
                           </div>
                         ))}

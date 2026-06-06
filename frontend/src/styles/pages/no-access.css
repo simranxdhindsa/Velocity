@@ -1,0 +1,207 @@
+/* Page: No Access / Blocked (nap-*) */
+
+.nap-root {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-gradient);
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Background decorative blobs */
+.nap-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.nap-blob-1 {
+  width: 500px;
+  height: 500px;
+  top: -150px;
+  left: -150px;
+  background: radial-gradient(circle, rgba(239,68,68,0.12) 0%, transparent 70%);
+}
+
+.nap-blob-2 {
+  width: 400px;
+  height: 400px;
+  bottom: -100px;
+  right: -100px;
+  background: radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%);
+}
+
+/* Card */
+.nap-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07);
+  padding: 2.5rem 2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+  animation: napFadeUp 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+
+@keyframes napFadeUp {
+  from { opacity: 0; transform: translateY(24px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Wordmark */
+.nap-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  margin-bottom: 0.5rem;
+}
+
+/* Icon circle */
+.nap-icon-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+}
+
+.nap-icon-blocked {
+  background: radial-gradient(circle at 40% 35%, rgba(239,68,68,0.25) 0%, rgba(239,68,68,0.08) 100%);
+  border: 1px solid rgba(239,68,68,0.3);
+  color: #f87171;
+  box-shadow: 0 0 32px rgba(239,68,68,0.15);
+}
+
+.nap-icon-denied {
+  background: radial-gradient(circle at 40% 35%, rgba(245,158,11,0.22) 0%, rgba(245,158,11,0.07) 100%);
+  border: 1px solid rgba(245,158,11,0.28);
+  color: #fbbf24;
+  box-shadow: 0 0 32px rgba(245,158,11,0.12);
+}
+
+/* Heading */
+.nap-heading {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+/* Server message */
+.nap-message {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+  max-width: 320px;
+}
+
+/* Hint row */
+.nap-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  line-height: 1.5;
+  margin-top: 0.25rem;
+  width: 100%;
+}
+
+.nap-hint svg { flex-shrink: 0; margin-top: 1px; }
+
+/* Actions */
+.nap-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.nap-btn-try {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.7rem 1.25rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  background: rgba(99,102,241,0.12);
+  border: 1px solid rgba(99,102,241,0.25);
+  color: var(--color-primary-light);
+}
+
+.nap-btn-try:hover {
+  background: rgba(99,102,241,0.2);
+  border-color: rgba(99,102,241,0.4);
+}
+
+/* ── Light mode ──────────────────────────────────────────── */
+[data-theme="light"] .nap-root {
+  background: linear-gradient(160deg, #f0f4ff 0%, #f8fafc 50%, #fff1f0 100%);
+}
+
+[data-theme="light"] .nap-card {
+  background: rgba(255,255,255,0.85);
+  border-color: rgba(99,102,241,0.12);
+  box-shadow: 0 16px 48px rgba(99,102,241,0.1), 0 4px 16px rgba(0,0,0,0.06);
+}
+
+[data-theme="light"] .nap-heading { color: #0f172a; }
+[data-theme="light"] .nap-message { color: #475569; }
+[data-theme="light"] .nap-wordmark { color: #94a3b8; }
+
+[data-theme="light"] .nap-hint {
+  background: rgba(241,245,249,0.8);
+  border-color: rgba(99,102,241,0.1);
+  color: #64748b;
+}
+
+[data-theme="light"] .nap-btn-try {
+  background: rgba(99,102,241,0.07);
+  border-color: rgba(99,102,241,0.18);
+  color: #4f46e5;
+}
+
+[data-theme="light"] .nap-btn-try:hover {
+  background: rgba(99,102,241,0.13);
+  border-color: rgba(99,102,241,0.3);
+}
+
+[data-theme="light"] .nap-blob-1 {
+  background: radial-gradient(circle, rgba(239,68,68,0.08) 0%, transparent 70%);
+}
+
+[data-theme="light"] .nap-blob-2 {
+  background: radial-gradient(circle, rgba(99,102,241,0.07) 0%, transparent 70%);
+}

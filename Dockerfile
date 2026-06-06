@@ -27,6 +27,7 @@ WORKDIR /app/frontend
 
 ARG VITE_API_URL=/api
 ARG VITE_GOOGLE_CLIENT_ID=
+ARG VITE_ENVIRONMENT=production
 
 COPY frontend/package*.json ./
 RUN npm ci
@@ -34,7 +35,8 @@ RUN npm ci
 COPY frontend/ .
 
 ENV VITE_API_URL=$VITE_API_URL \
-    VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+    VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID \
+    VITE_ENVIRONMENT=$VITE_ENVIRONMENT
 
 RUN npm run build
 
@@ -48,8 +50,8 @@ RUN apk add --no-cache ca-certificates tzdata curl
 
 WORKDIR /app
 
-COPY --from=go-builder /app/server /app/server
-COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+COPY --from=go-builder /app/server .
+COPY --from=frontend-builder /app/frontend/dist ./public
 
 ENV PORT=8080 \
     ENVIRONMENT=production

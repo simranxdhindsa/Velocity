@@ -1,5 +1,14 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 
+export class GatewayError extends Error {
+  status: number
+  constructor(status: number) {
+    super(`Gateway error ${status}`)
+    this.name = 'GatewayError'
+    this.status = status
+  }
+}
+
 interface ApiResponse<T = unknown> {
   success: boolean
   message?: string
@@ -49,6 +58,10 @@ class ApiService {
       ...options,
       headers,
     })
+
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      throw new GatewayError(response.status)
+    }
 
     const text = await response.text()
     let data: any
@@ -207,6 +220,9 @@ class ApiService {
     return this.request<{
       connected: boolean
       configured: boolean
+      base_url?: string
+      project_id?: string
+      board_id?: string
       error?: string
     }>('/youtrack/status')
   }
@@ -348,14 +364,40 @@ class ApiService {
     return resp.text()
   }
 
+  async getYouTrackFormMeta() {
+    return this.request<{
+      states: YouTrackState[]
+      priorities: { name: string; background: string; foreground: string }[]
+      types: { name: string; background: string; foreground: string }[]
+      subsystems: { name: string; background: string; foreground: string }[]
+      users: YouTrackUser[]
+      sprints: { id: string; name: string; start: number; finish: number; isCompleted: boolean }[]
+      developer_configs: DeveloperSubsystemConfig[]
+      errors: string[]
+    }>('/youtrack/form-meta')
+  }
+
+  async getDeveloperConfigs() {
+    return this.request<DeveloperSubsystemConfig[]>('/developer-config')
+  }
+
+  async saveDeveloperConfigs(configs: DeveloperSubsystemConfig[]) {
+    return this.request('/developer-config', {
+      method: 'POST',
+      body: JSON.stringify(configs),
+    })
+  }
+
   async createYouTrackIssue(params: {
     summary: string
     description?: string
     state?: string
     priority?: string
+    type_name?: string
     assignee_login?: string
     subsystem?: string
-    due_date?: number        // Unix ms timestamp
+    sprint_id?: string
+    due_date?: number
     estimation_minutes?: number
   }) {
     return this.request<YouTrackIssue>('/youtrack/issues', {
@@ -364,10 +406,47 @@ class ApiService {
     })
   }
 
-  async updateYouTrackIssue(issueId: string, summary?: string, description?: string, state?: string) {
+  async uploadYouTrackAttachment(issueId: string, file: File) {
+    const fd = new FormData()
+    fd.append('file', file, file.name)
+    const res = await fetch(`${API_URL}/youtrack/issues/${issueId}/attachments`, {
+      method: 'POST',
+      headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      body: fd,
+    })
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
+    return res.json() as Promise<{ success: boolean }>
+  }
+
+  async aiParseTicket(rawText: string, context: {
+    users: { login: string; fullName: string }[]
+    types: string[]
+    subsystems: string[]
+    priorities: string[]
+    sprints: { id: string; name: string }[]
+  }) {
+    return this.request<{
+      summary: string
+      description: string
+      priority: string
+      type_name: string
+      subsystem: string
+      assignee_login: string
+      sprint_id: string
+    }>('/youtrack/ai/parse-ticket', {
+      method: 'POST',
+      body: JSON.stringify({ raw_text: rawText, ...context }),
+    })
+  }
+
+  async updateYouTrackIssue(issueId: string, payload: {
+    summary?: string; description?: string; state?: string; priority?: string
+    type_name?: string; assignee_login?: string; subsystem?: string; sprint_id?: string
+    due_date?: number; estimation_minutes?: number
+  }) {
     return this.request<YouTrackIssue>(`/youtrack/issues/${issueId}`, {
       method: 'PUT',
-      body: JSON.stringify({ summary, description, state }),
+      body: JSON.stringify(payload),
     })
   }
 
@@ -647,6 +726,50 @@ class ApiService {
     })
   }
 
+  // ── Slack Intelligence v2 ──────────────────────────────────────────────────
+  async slackReplyToThread(channelId: string, threadTs: string, text: string, mentionTs?: string) {
+    return this.request<{ ok: boolean }>('/slack/reply', {
+      method: 'POST',
+      body: JSON.stringify({ channel_id: channelId, thread_ts: threadTs, text, mention_ts: mentionTs }),
+    })
+  }
+
+  async getSlackThreadReplies(channelId: string, threadTs: string) {
+    return this.request<{ replies: Array<{ sender_name: string; text: string; timestamp: string }> }>(
+      `/slack/thread-replies?channel_id=${encodeURIComponent(channelId)}&thread_ts=${encodeURIComponent(threadTs)}`
+    )
+  }
+
+  async pinSlackMention(messageTs: string, pinned: boolean) {
+    return this.request<{ ok: boolean }>(`/slack/mentions/${encodeURIComponent(messageTs)}/pin`, {
+      method: 'POST',
+      body: JSON.stringify({ pinned }),
+    })
+  }
+
+  async getSlackTemplates() {
+    return this.request<{ templates: Array<{ id: string; body: string; sort_order: number }> }>('/slack/templates')
+  }
+
+  async createSlackTemplate(body: string) {
+    return this.request<{ ok: boolean; id: string }>('/slack/templates', {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    })
+  }
+
+  async deleteSlackTemplate(id: string) {
+    return this.request<{ ok: boolean }>(`/slack/templates/${id}`, { method: 'DELETE' })
+  }
+
+  async getSlackSavedItems() {
+    return this.request<{ items: Array<{ type: string; channel_id: string; text: string; user: string; ts: string }> }>('/slack/saved-items')
+  }
+
+  async getSlackPinnedMentions() {
+    return this.request<{ mentions: SlackMention[] }>('/slack/mentions?pinned=true')
+  }
+
   async analyzeSlackMessages(projectId: string) {
     return this.request<AIAnalysisResponse>(`/ai/analyze?project_id=${projectId}`, {
       method: 'POST',
@@ -882,6 +1005,23 @@ class ApiService {
 
   async removeAllowedDomain(domain: string) {
     return this.request(`/settings/access/domains/${encodeURIComponent(domain)}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async getDeniedEmails() {
+    return this.request<DeniedEmail[]>('/settings/access/denied')
+  }
+
+  async addDeniedEmail(email: string, reason?: string) {
+    return this.request<DeniedEmail>('/settings/access/denied', {
+      method: 'POST',
+      body: JSON.stringify({ email, reason: reason ?? '' }),
+    })
+  }
+
+  async removeDeniedEmail(email: string) {
+    return this.request(`/settings/access/denied/${encodeURIComponent(email)}`, {
       method: 'DELETE',
     })
   }
@@ -1175,8 +1315,12 @@ class ApiService {
     return this.request<string[]>('/reports/pins')
   }
 
-  async getIssueTimelines() {
-    return this.request<IssueTimeline[]>('/reports/issue-timelines')
+  async getIssueTimelines(sinceMs?: number, untilMs?: number) {
+    const params = new URLSearchParams()
+    if (sinceMs) params.set('since', String(sinceMs))
+    if (untilMs) params.set('until', String(untilMs))
+    const qs = params.toString()
+    return this.request<IssueTimeline[]>(`/reports/issue-timelines${qs ? `?${qs}` : ''}`)
   }
 
   async dismissAlert(issueID: string) {
@@ -1529,9 +1673,34 @@ class ApiService {
       `/asana/pm/deployment/sections/${sectionGid}/tasks`
     )
   }
+
+  async getFeatureGroups(sprintId?: string) {
+    const qs = sprintId ? `?sprint_id=${encodeURIComponent(sprintId)}` : ''
+    return this.request<FeatureGroup[]>(`/youtrack/feature-groups${qs}`)
+  }
 }
 
 // Types
+export interface FeatureIssue {
+  id_readable: string
+  summary: string
+  issue_type: string
+  current_state: string
+  state_class: string
+  assignee: string
+  priority: string
+  in_sprint: boolean
+}
+
+export interface FeatureGroup {
+  id: string
+  name: string
+  issues: FeatureIssue[]
+  done_count: number
+  total_count: number
+  health: 'done' | 'partial' | 'pending'
+}
+
 export interface User {
   id: string
   email: string
@@ -1618,13 +1787,22 @@ export interface YouTrackUser {
   avatarUrl?: string
 }
 
+export interface DeveloperSubsystemConfig {
+  developer_login: string
+  developer_name:  string
+  subsystems:      string[]
+  is_qa:           boolean
+}
+
 export interface YouTrackIssue {
   id: string
+  idReadable?: string
   summary: string
   description: string
   status: string
   subsystem?: string
   priority: string
+  type?: string
   assignee?: YouTrackUser
   created: number
   updated: number
@@ -1697,6 +1875,7 @@ export interface SlackMention {
   replied: boolean
   reply_checked_at?: string
   snoozed_until?: string
+  pinned: boolean
   created_at: string
 }
 
@@ -1886,10 +2065,18 @@ export interface AllowedDomain {
   added_at?: string
 }
 
+export interface DeniedEmail {
+  email: string
+  reason?: string
+  added_by?: string
+  created_at?: string
+}
+
 export interface AccessSettings {
   default_admin_email: string
   allowed_emails: AllowedEmail[]
   allowed_domains: AllowedDomain[]
+  denied_emails: DeniedEmail[]
 }
 
 export interface AsanaSettings {
@@ -2233,6 +2420,9 @@ export interface DayTrackSlackConfig {
   keyword_rules: DayTrackKWRule[]
   enabled: boolean
   last_scanned_ts?: string
+  dest_channel_id: string
+  dest_channel_name: string
+  timezone: string  // IANA tz, e.g. "Asia/Kolkata"
 }
 
 export const DEFAULT_KEYWORD_RULES: DayTrackKWRule[] = [
@@ -2310,12 +2500,14 @@ export const dayTrackApi = {
     dtFetch<{ ok: boolean }>(`${API_URL}/daytrack/slack-scan`, { method: 'POST' }),
   resetSlackScanWindow: () =>
     dtFetch<{ ok: boolean }>(`${API_URL}/daytrack/slack-reset-scan`, { method: 'POST' }),
-  scanYouTrackTickets: () =>
-    dtFetch<{ ok: boolean; added: number; skipped: number }>(`${API_URL}/daytrack/yt-scan`, { method: 'POST' }),
+  scanYouTrackTickets: (date?: string) =>
+    dtFetch<{ ok: boolean; added: number; skipped: number; tested: number }>(`${API_URL}/daytrack/yt-scan`, { method: 'POST', body: JSON.stringify({ date: date ?? '' }) }),
   summarize: (payload: { date_label: string; lines: { category: string; name: string; duration: string; notes: string }[] }) =>
     dtFetch<{ summary: string }>(`${API_URL}/daytrack/summarize`, { method: 'POST', body: JSON.stringify(payload) }),
   resolveSlackUser: () =>
     dtFetch<{ slack_user_id: string }>(`${API_URL}/daytrack/slack-resolve-user`),
+  postToSlack: (date?: string) =>
+    dtFetch<{ ok: boolean }>(`${API_URL}/daytrack/post-to-slack`, { method: 'POST', body: JSON.stringify({ date: date ?? '' }) }),
   getEntriesRange: (start: string, end: string) =>
     dtFetch<DayTrackEntry[]>(`${API_URL}/daytrack/entries/range?start=${start}&end=${end}`),
 
@@ -2415,4 +2607,79 @@ export interface CarryoverData {
   today: CarryoverItem[]
   yesterday_date: string
   today_date: string
+}
+
+// ── Standup Compiler ──────────────────────────────────────────────────────────
+
+export interface StandupChannelRef {
+  id: string
+  name: string
+}
+
+export interface StandupConfig {
+  source_channels: StandupChannelRef[]
+  dest_channel_id: string
+  dest_channel_name: string
+  time_window_start: string // HH:MM
+  time_window_end: string
+}
+
+export interface UpdateSection {
+  label: string
+  items: string[]
+}
+
+export interface PersonUpdate {
+  slack_user_id: string
+  display_name: string
+  raw_text: string
+  sections: UpdateSection[]
+  is_owner: boolean
+}
+
+export const standupApi = {
+  getConfig: (): Promise<{ success: boolean; config: StandupConfig }> =>
+    dtFetch(`${API_URL}/standup/config`),
+
+  saveConfig: (cfg: Partial<StandupConfig>): Promise<{ success: boolean }> =>
+    dtFetch(`${API_URL}/standup/config`, {
+      method: 'PUT',
+      body: JSON.stringify(cfg),
+    }),
+
+  compile: (date?: string): Promise<{ success: boolean; updates: PersonUpdate[] }> =>
+    dtFetch(`${API_URL}/standup/compile`, {
+      method: 'POST',
+      body: JSON.stringify({ date }),
+    }),
+
+  parseOne: (rawText: string): Promise<{
+    success: boolean
+    sections?: UpdateSection[]
+    rate_limited?: boolean
+    retry_after?: number
+    error?: string
+  }> =>
+    dtFetch(`${API_URL}/standup/parse-one`, {
+      method: 'POST',
+      body: JSON.stringify({ raw_text: rawText }),
+    }),
+
+  post: (updates: PersonUpdate[], channelId: string): Promise<{ success: boolean }> =>
+    dtFetch(`${API_URL}/standup/post`, {
+      method: 'POST',
+      body: JSON.stringify({ updates, channel_id: channelId }),
+    }),
+
+  weekly: (weekStart?: string): Promise<{
+    success: boolean
+    items: string[]
+    week_start: string
+    week_end: string
+    debug?: { channels: { id: string; name: string; messages_found: number; error?: string }[] }
+  }> =>
+    dtFetch(`${API_URL}/standup/weekly`, {
+      method: 'POST',
+      body: JSON.stringify({ week_start: weekStart }),
+    }),
 }

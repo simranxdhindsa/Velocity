@@ -5,9 +5,12 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
+  accessDenied: boolean
+  accessDeniedMessage: string
   login: (credential: string, rememberMe?: boolean) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
+  clearAccessDenied: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -18,7 +21,14 @@ const TOKEN_REFRESH_INTERVAL = 12 * 60 * 60 * 1000 // 12 hours in ms
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [accessDenied, setAccessDenied] = useState(false)
+  const [accessDeniedMessage, setAccessDeniedMessage] = useState('')
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  const clearAccessDenied = useCallback(() => {
+    setAccessDenied(false)
+    setAccessDeniedMessage('')
+  }, [])
 
   // Refresh the token to extend the session
   const refreshToken = useCallback(async () => {
@@ -93,11 +103,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.success && response.data) {
         api.setToken(response.data.token)
         setUser(response.data.user)
-        // Start token refresh interval
         if (!refreshIntervalRef.current) {
           refreshIntervalRef.current = setInterval(refreshToken, TOKEN_REFRESH_INTERVAL)
         }
       }
+    } catch (error) {
+      // 403 from backend — access denied or blocked
+      const message = error instanceof Error ? error.message : 'Access denied'
+      setAccessDenied(true)
+      setAccessDeniedMessage(message)
     } finally {
       setIsLoading(false)
     }
@@ -128,9 +142,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        accessDenied,
+        accessDeniedMessage,
         login,
         logout,
         refreshUser,
+        clearAccessDenied,
       }}
     >
       {children}

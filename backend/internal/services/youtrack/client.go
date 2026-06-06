@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+"mime/multipart"
 	"net/http"
 	"net/url"
 	"sort"
@@ -114,6 +114,29 @@ func (c *Client) resolveBoard(ctx context.Context) (string, error) {
 // GetBaseURL returns the YouTrack instance base URL (used for prefixing relative avatar URLs)
 func (c *Client) GetBaseURL() string {
 	return c.baseURL
+}
+
+// GetProjectID returns the project ID/short-name used in YQL queries
+func (c *Client) GetProjectID() string {
+	return c.projectID
+}
+
+// SearchIssues executes an arbitrary YQL query against YouTrack and returns matching issues.
+func (c *Client) SearchIssues(ctx context.Context, yqlQuery string, limit int) ([]Issue, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),project(shortName)"
+	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=%d", fields, url.QueryEscape(yqlQuery), limit)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var issues []Issue
+	if err := json.Unmarshal(body, &issues); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal search results: %w", err)
+	}
+	return issues, nil
 }
 
 // GetToken returns the YouTrack API token (used by the attachment proxy handler)
@@ -1042,7 +1065,6 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*User, error) {
 	if err := json.Unmarshal(body, &u); err != nil {
 		return nil, fmt.Errorf("GetCurrentUser unmarshal: %w", err)
 	}
-	log.Printf("[YT GetCurrentUser] id=%s login=%s fullName=%s", u.ID, u.Login, u.FullName)
 	return &u, nil
 }
 
@@ -1055,19 +1077,16 @@ func (c *Client) GetIssuesCreatedToday(ctx context.Context, date, reporterLogin 
 	if reporterLogin != "" {
 		queryStr += fmt.Sprintf(" reporter: %s", reporterLogin)
 	}
-	log.Printf("[YT GetIssuesCreatedToday] query=%q", queryStr)
 	fields := "id,idReadable,summary,created,reporter(id,fullName,login),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id))"
 	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=100", fields, url.QueryEscape(queryStr))
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("GetIssuesCreatedToday: %w", err)
 	}
-	log.Printf("[YT GetIssuesCreatedToday] raw response: %s", string(body))
 	var issues []Issue
 	if err := json.Unmarshal(body, &issues); err != nil {
 		return nil, fmt.Errorf("GetIssuesCreatedToday unmarshal: %w", err)
 	}
-	log.Printf("[YT GetIssuesCreatedToday] found %d issues", len(issues))
 	return issues, nil
 }
 
@@ -1255,18 +1274,23 @@ func (c *Client) GetIssueActivities(ctx context.Context, issueID string) ([]Issu
 	return page.Activities, nil
 }
 
-// GetProjectActivities fetches ALL CustomField activities (State + Assignee changes) across
-// the entire project in a single API call. Returns activities in chronological order.
-// The caller is responsible for filtering by field.presentation.
-func (c *Client) GetProjectActivities(ctx context.Context, top int) ([]IssueActivityItem, error) {
+// GetProjectActivities fetches CustomField activities (State + Assignee changes) across
+// the project. When date is non-empty (YYYY-MM-DD) the YouTrack query is scoped to
+// issues updated on that date, dramatically reducing result size and making the top
+// limit effective for a single day. Pass "" to fetch across all time.
+func (c *Client) GetProjectActivities(ctx context.Context, top int, date string) ([]IssueActivityItem, error) {
 	if top <= 0 {
 		top = 500
 	}
-	query := url.QueryEscape(fmt.Sprintf("project: %s", c.projectID))
+	q := fmt.Sprintf("project: %s", c.projectID)
+	if date != "" {
+		q += fmt.Sprintf(" updated: %s", date)
+	}
+	query := url.QueryEscape(q)
 	// Note: fields must NOT be URL-encoded — YouTrack parses the parentheses literally.
 	// $top must be encoded as %24top to avoid shell/framework misinterpretation.
 	path := fmt.Sprintf(
-		"/api/activitiesPage?categories=CustomFieldCategory&query=%s&reverse=false"+
+		"/api/activitiesPage?categories=CustomFieldCategory&query=%s&reverse=true"+
 			"&fields=id,activities(id,timestamp,author(id,fullName,login),field(id,presentation),added(id,name),removed(id,name),target(id,idReadable,summary))"+
 			"&%%24top=%d",
 		query, top,
@@ -1284,6 +1308,47 @@ func (c *Client) GetProjectActivities(ctx context.Context, top int) ([]IssueActi
 	return page.Activities, nil
 }
 
+// GetIssuesUpdatedByUserToday returns issues in the project whose state field currently
+// matches a tested state (Ready For Prod, Ready for Stage, Verified, Mobile Done) and
+// that were last updated by the given user login on the specified date (YYYY-MM-DD).
+// This is the primary path for the DayTrack tested-ticket sync; the activities stream
+// is used as a secondary sweep to catch tickets moved on by someone else afterward.
+func (c *Client) GetIssuesUpdatedByUserToday(ctx context.Context, date, userLogin string) ([]Issue, error) {
+	if date == "" || userLogin == "" {
+		return nil, nil
+	}
+	queryStr := fmt.Sprintf("project: %s updated by: %s updated: %s", c.projectID, userLogin, date)
+	fields := "id,idReadable,summary,updated,customFields(name,value(name))"
+	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=300", fields, url.QueryEscape(queryStr))
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetIssuesUpdatedByUserToday: %w", err)
+	}
+	var issues []Issue
+	if err := json.Unmarshal(body, &issues); err != nil {
+		return nil, fmt.Errorf("GetIssuesUpdatedByUserToday unmarshal: %w", err)
+	}
+	return issues, nil
+}
+
+// IssueStateName extracts the "State" custom-field value name from an Issue.
+func IssueStateName(issue Issue) string {
+	for _, cf := range issue.CustomFields {
+		if cf.Name != "State" {
+			continue
+		}
+		switch v := cf.Value.(type) {
+		case map[string]interface{}:
+			if name, ok := v["name"].(string); ok {
+				return name
+			}
+		case string:
+			return v
+		}
+	}
+	return ""
+}
+
 // IsDuplicateIssue checks if an issue with the same summary already exists
 func (c *Client) IsDuplicateIssue(ctx context.Context, summary string) (bool, error) {
 	issues, err := c.GetIssues(ctx)
@@ -1299,4 +1364,120 @@ func (c *Client) IsDuplicateIssue(ctx context.Context, summary string) (bool, er
 	}
 
 	return false, nil
+}
+
+// UploadAttachment uploads a file to a YouTrack issue.
+func (c *Client) UploadAttachment(ctx context.Context, issueID, filename, mimeType string, content []byte) error {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return fmt.Errorf("failed to create form file: %w", err)
+	}
+	if _, err = part.Write(content); err != nil {
+		return fmt.Errorf("failed to write file content: %w", err)
+	}
+	writer.Close()
+
+	path := fmt.Sprintf("/api/issues/%s/attachments?fields=id,name", url.PathEscape(issueID))
+	fullURL := c.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, &body)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("upload request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("YouTrack attachment upload error: status %d - %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// IssueLink represents a linked issue returned by GetIssueLinks.
+type IssueLink struct {
+	IDReadable string `json:"id_readable"`
+	Summary    string `json:"summary"`
+	State      string `json:"state"`
+	Resolved   bool   `json:"resolved"`
+}
+
+// GetIssueLinks fetches YouTrack native "Relates To" links for an issue.
+// Only link types whose name contains "relate" (case-insensitive) are returned.
+func (c *Client) GetIssueLinks(ctx context.Context, issueID string) ([]IssueLink, error) {
+	fields := "id,linkType(name,sourceToTarget,targetToSource),trimmedIssues(id,idReadable,summary,resolved,fields(value(name),$type,projectCustomField(field(name))))"
+	path := fmt.Sprintf("/api/issues/%s/links?$topLinks=50&fields=%s", url.PathEscape(issueID), fields)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw []struct {
+		LinkType struct {
+			Name string `json:"name"`
+		} `json:"linkType"`
+		TrimmedIssues []struct {
+			ID         string `json:"id"`
+			IDReadable string `json:"idReadable"`
+			Summary    string `json:"summary"`
+			Resolved   bool   `json:"resolved"`
+			Fields     []struct {
+				Type  string          `json:"$type"`
+				Value json.RawMessage `json:"value"`
+				ProjectCustomField struct {
+					Field struct {
+						Name string `json:"name"`
+					} `json:"field"`
+				} `json:"projectCustomField"`
+			} `json:"fields"`
+		} `json:"trimmedIssues"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal issue links: %w", err)
+	}
+
+	var result []IssueLink
+	for _, group := range raw {
+		if !strings.Contains(strings.ToLower(group.LinkType.Name), "relate") {
+			continue
+		}
+		for _, issue := range group.TrimmedIssues {
+			state := ""
+			for _, f := range issue.Fields {
+				if f.Type == "StateIssueCustomField" {
+					var v struct {
+						Name string `json:"name"`
+					}
+					if json.Unmarshal(f.Value, &v) == nil {
+						state = v.Name
+					}
+				}
+			}
+			result = append(result, IssueLink{
+				IDReadable: issue.IDReadable,
+				Summary:    issue.Summary,
+				State:      state,
+				Resolved:   issue.Resolved,
+			})
+		}
+	}
+	return result, nil
+}
+
+// AddIssueToSprint adds an existing issue to a sprint.
+func (c *Client) AddIssueToSprint(ctx context.Context, sprintID, issueID string) error {
+	boardID, err := c.resolveBoard(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to resolve board: %w", err)
+	}
+	path := fmt.Sprintf("/api/agiles/%s/sprints/%s/issues", url.PathEscape(boardID), url.PathEscape(sprintID))
+	_, err = c.doRequest(ctx, http.MethodPost, path, map[string]string{"id": issueID})
+	return err
 }

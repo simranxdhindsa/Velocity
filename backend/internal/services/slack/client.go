@@ -33,12 +33,14 @@ func NewClient(botToken string) *Client {
 
 // Message represents a Slack message
 type Message struct {
-	TS        string `json:"ts"`
-	User      string `json:"user"`
-	Text      string `json:"text"`
-	Type      string `json:"type"`
-	ThreadTS  string `json:"thread_ts,omitempty"`
-	ReplyCount int   `json:"reply_count,omitempty"`
+	TS         string `json:"ts"`
+	User       string `json:"user"`
+	Text       string `json:"text"`
+	Type       string `json:"type"`
+	Subtype    string `json:"subtype,omitempty"`
+	BotID      string `json:"bot_id,omitempty"`
+	ThreadTS   string `json:"thread_ts,omitempty"`
+	ReplyCount int    `json:"reply_count,omitempty"`
 }
 
 // Channel represents a Slack channel
@@ -167,30 +169,50 @@ func (c *Client) AuthTest(ctx context.Context) (*TeamInfo, error) {
 	}, nil
 }
 
-// GetChannels returns a list of channels the bot is a member of
+// GetChannels returns all channels (public + private) the bot has access to, following pagination.
 func (c *Client) GetChannels(ctx context.Context) ([]Channel, error) {
-	params := url.Values{}
-	params.Set("types", "public_channel,private_channel")
-	params.Set("exclude_archived", "true")
+	var all []Channel
+	cursor := ""
+	for {
+		params := url.Values{}
+		params.Set("types", "public_channel,private_channel")
+		params.Set("exclude_archived", "true")
+		params.Set("limit", "1000")
+		if cursor != "" {
+			params.Set("cursor", cursor)
+		}
 
-	body, err := c.doGetRequest(ctx, "/conversations.list", params)
-	if err != nil {
-		return nil, err
-	}
+		body, err := c.doGetRequest(ctx, "/conversations.list", params)
+		if err != nil {
+			return nil, err
+		}
 
-	var resp struct {
-		Response
-		Channels []Channel `json:"channels"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
+		var resp struct {
+			Response
+			Channels []Channel `json:"channels"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+		if !resp.OK {
+			return nil, fmt.Errorf("slack API error: %s", resp.Error)
+		}
 
-	if !resp.OK {
-		return nil, fmt.Errorf("slack API error: %s", resp.Error)
-	}
+		all = append(all, resp.Channels...)
 
-	return resp.Channels, nil
+		// Follow next_cursor if present
+		var meta struct {
+			NextCursor string `json:"next_cursor"`
+		}
+		if len(resp.Metadata) > 0 {
+			_ = json.Unmarshal(resp.Metadata, &meta)
+		}
+		if meta.NextCursor == "" {
+			break
+		}
+		cursor = meta.NextCursor
+	}
+	return all, nil
 }
 
 // GetChannelHistory returns messages from a channel within a time range
@@ -344,6 +366,58 @@ func (c *Client) PostMessage(ctx context.Context, channelID, text string) (strin
 	}
 
 	return resp.TS, nil
+}
+
+// SavedItem represents a starred/saved Slack item
+type SavedItem struct {
+	Type      string  `json:"type"`
+	ChannelID string  `json:"channel_id"`
+	Text      string  `json:"text"`
+	User      string  `json:"user"`
+	TS        string  `json:"ts"`
+	Permalink string  `json:"permalink,omitempty"`
+}
+
+// GetSavedItems fetches the user's starred (saved) Slack messages via stars.list
+func GetSavedItems(ctx context.Context, botToken string) ([]SavedItem, error) {
+	c := NewClient(botToken)
+	params := map[string]string{"limit": "50"}
+	payload := map[string]interface{}{"limit": 50}
+	body, err := c.doRequest(ctx, "POST", "/stars.list", payload)
+	_ = params
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		Items []struct {
+			Type    string   `json:"type"`
+			Message *Message `json:"message"`
+			Channel string   `json:"channel"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("slack stars.list error: %s", resp.Error)
+	}
+
+	items := make([]SavedItem, 0, len(resp.Items))
+	for _, it := range resp.Items {
+		if it.Type == "message" && it.Message != nil {
+			items = append(items, SavedItem{
+				Type:      "message",
+				ChannelID: it.Channel,
+				Text:      it.Message.Text,
+				User:      it.Message.User,
+				TS:        it.Message.TS,
+			})
+		}
+	}
+	return items, nil
 }
 
 // PostThreadReply posts a reply in a thread (chat.postMessage with thread_ts)
