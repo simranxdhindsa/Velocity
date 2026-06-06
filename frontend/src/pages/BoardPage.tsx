@@ -9,6 +9,8 @@ import api, { getYouTrackAvatarMap } from '../services/api'
 import type { YouTrackIssue, YouTrackSprint } from '../services/api'
 import { getPMIssues, updatePMIssueState, getPMStates, getActiveSource } from '../services/pmDataService'
 import { IssueDetailPanel } from '../components/IssueDetailPanel'
+import { useSprintsCache } from '@/contexts/VelocityDataContext'
+import { useYouTrackBaseUrl } from '@/hooks/useYouTrackBaseUrl'
 
 const PAGE_SIZE = 20
 
@@ -59,11 +61,10 @@ function isOverdue(issue: YouTrackIssue): boolean {
 
 type SortKey = 'newest' | 'priority' | 'alpha'
 
-const YT_BASE_URL = 'https://simran.youtrack.cloud/issue/'
-
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export function BoardPage() {
+  const ytBaseUrl = useYouTrackBaseUrl()
   const [issues, setIssues] = useState<YouTrackIssue[]>([])
   const [columns, setColumns] = useState<string[]>([])
   const [colPagination, setColPagination] = useState<Record<string, ColPaginationState>>({})
@@ -73,9 +74,10 @@ export function BoardPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedIssue, setSelectedIssue] = useState<YouTrackIssue | null>(null)
 
-  // ── Sprint state ───────────────────────────────────────────────────────────
-  const [sprints, setSprints] = useState<YouTrackSprint[]>([])
-  const [activeSprint, setActiveSprint] = useState<YouTrackSprint | null>(null)  // null = "All"
+  // ── Sprint state (shared cache — avoids duplicate fetch with DailyOps) ──────
+  const { data: cachedSprints } = useSprintsCache()
+  const sprints: YouTrackSprint[] = (cachedSprints as YouTrackSprint[] | null) ?? []
+  const [activeSprint, setActiveSprint] = useState<YouTrackSprint | null | undefined>(undefined)
   const [sprintDropdownOpen, setSprintDropdownOpen] = useState(false)
   const sprintDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -199,27 +201,28 @@ export function BoardPage() {
     }
   }, [colPagination, activeSprint])
 
+  // Avatar map — fetch once on mount
   useEffect(() => {
     getYouTrackAvatarMap().then(setAvatarMap)
+  }, [])
 
-    if (getActiveSource() === 'youtrack') {
-      api.getYouTrackSprints()
-        .then(res => {
-          const list = ((res as any).data as YouTrackSprint[]) ?? []
-          setSprints(list)
-          // Auto-select the current active sprint (not completed, soonest finish)
-          const now = Date.now()
-          const active = list
-            .filter(s => !s.isCompleted && s.finish > now)
-            .sort((a, b) => a.finish - b.finish)[0] ?? null
-          setActiveSprint(active)
-          fetchBoard(false, false, active?.id)
-        })
-        .catch(() => fetchBoard())
-    } else {
-      fetchBoard()
+  // Auto-select active sprint when sprints become available from cache.
+  // activeSprint === undefined means "not yet initialized".
+  useEffect(() => {
+    if (activeSprint !== undefined) return
+    if (getActiveSource() !== 'youtrack') {
+      setActiveSprint(null)
+      fetchBoard(false, false, undefined)
+      return
     }
-  }, [fetchBoard])
+    if (sprints.length === 0) return  // wait for cache to populate
+    const now = Date.now()
+    const active = sprints
+      .filter(s => !s.isCompleted && s.finish > now)
+      .sort((a, b) => a.finish - b.finish)[0] ?? null
+    setActiveSprint(active)
+    fetchBoard(false, false, active?.id)
+  }, [sprints, activeSprint, fetchBoard])
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const allAssignees = useMemo(() =>
@@ -579,7 +582,7 @@ export function BoardPage() {
         <IssueDetailPanel
           issue={selectedIssue}
           onClose={() => setSelectedIssue(null)}
-          ytBaseUrl={YT_BASE_URL.replace('/issue/', '/issue')}
+          ytBaseUrl={ytBaseUrl}
         />
       )}
     </div>

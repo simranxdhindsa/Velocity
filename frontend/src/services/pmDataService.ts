@@ -142,7 +142,7 @@ export async function createPMIssue(params: {
 export async function updatePMIssue(id: string, summary?: string, description?: string, state?: string) {
   const res = getActiveSource() === 'asana'
     ? await api.updateAsanaPMIssue(id, summary, description, state)
-    : await api.updateYouTrackIssue(id, summary, description, state)
+    : await api.updateYouTrackIssue(id, { summary, description, state })
   invalidatePMCache()
   return res
 }

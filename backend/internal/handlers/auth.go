@@ -32,6 +32,10 @@ var allowedDomains = map[string]models.Role{
 }
 var whitelistMu sync.RWMutex
 
+// In-memory deny list — checked before allowlist; takes priority
+var deniedEmails = map[string]struct{}{}
+var deniedMu sync.RWMutex
+
 // GoogleAuthRequest represents the request body for Google auth
 type GoogleAuthRequest struct {
 	Credential string `json:"credential"`  // ID token from Google Sign-In
@@ -50,6 +54,55 @@ func sendJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+// isEmailDenied returns true if the email is on the deny list.
+// The deny list is checked before the allowlist — a denied email is always blocked.
+func isEmailDenied(email string) bool {
+	email = strings.ToLower(email)
+
+	// Default admin can never be denied
+	if email == strings.ToLower(models.DefaultAdminEmail) {
+		return false
+	}
+
+	// Check database first
+	if database.GetPool() != nil {
+		if whitelistRepo.IsEmailDenied(context.Background(), email) {
+			return true
+		}
+	}
+
+	// Fallback: in-memory deny list
+	deniedMu.RLock()
+	defer deniedMu.RUnlock()
+	_, denied := deniedEmails[email]
+	return denied
+}
+
+// AddDeniedEmail adds an email to the in-memory deny list
+func AddDeniedEmail(email string) {
+	deniedMu.Lock()
+	defer deniedMu.Unlock()
+	deniedEmails[strings.ToLower(email)] = struct{}{}
+}
+
+// RemoveDeniedEmail removes an email from the in-memory deny list
+func RemoveDeniedEmail(email string) {
+	deniedMu.Lock()
+	defer deniedMu.Unlock()
+	delete(deniedEmails, strings.ToLower(email))
+}
+
+// GetDeniedEmails returns a copy of the in-memory deny list
+func GetDeniedEmails() []string {
+	deniedMu.RLock()
+	defer deniedMu.RUnlock()
+	result := make([]string, 0, len(deniedEmails))
+	for email := range deniedEmails {
+		result = append(result, email)
+	}
+	return result
 }
 
 // isEmailAllowed checks if an email is in the whitelist
@@ -197,12 +250,21 @@ func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Deny list is checked first — explicitly blocked users are always rejected
+	if isEmailDenied(googleUser.Email) {
+		sendJSON(w, http.StatusForbidden, Response{
+			Success: false,
+			Message: "Your account has been blocked by an administrator. Please contact your administrator if you believe this is a mistake.",
+		})
+		return
+	}
+
 	// Check if email is allowed
 	allowed, assignedRole := isEmailAllowed(googleUser.Email)
 	if !allowed {
 		sendJSON(w, http.StatusForbidden, Response{
 			Success: false,
-			Message: "Access denied. Your email is not authorized to access this application. Please contact an administrator.",
+			Message: "Access denied. Your email is not authorised to access this application. Please contact an administrator.",
 		})
 		return
 	}

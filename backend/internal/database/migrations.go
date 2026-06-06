@@ -618,6 +618,28 @@ func RunMigrations() error {
 			'[]', true, 'system'
 		WHERE NOT EXISTS (SELECT 1 FROM bot_configs WHERE bot_type = 'deployment_report')`,
 
+		// Seed default Ticket Parser bot config (editable instructions; dynamic field values injected at runtime).
+		`INSERT INTO bot_configs (name, description, bot_type, prompt, variables, is_active, created_by)
+		SELECT
+			'Ticket Parser',
+			'Instructions used when the AI Fill button converts raw text into a structured YouTrack ticket. The available types, subsystems, users, and sprints are injected automatically at runtime — edit only the instruction rules here.',
+			'ticket_parser',
+			E'You are a project management assistant. Convert raw text into a YouTrack ticket.\n\nRESPOND ONLY WITH A SINGLE JSON OBJECT. No explanation, no markdown, no extra text — just JSON.\n\nTitle rules: "{subsystem}: {concise action-oriented description}" — max 80 chars, never copy raw text verbatim. The subsystem prefix MUST be copied EXACTLY from the available subsystems list — never invent or abbreviate. Do NOT include a priority prefix in the title. Examples: "FE UI: Handle Empty Transcribe Requests Gracefully", "FE MC: Courses Tab Fails to Open", "BE: Prevent Deletion During File Processing".\n\nDescription rules: 1-2 sentence overview of what is broken or missing, then "\\n\\n**Expected Behavior**\\n- bullet\\n- bullet". Remove filler words (okay, like, so, yeah, uh). For bugs: what is broken + what should happen. For features: what is missing + what should happen.\n\nPriority: Show-stopper=crash/data-loss/security, Critical=completely broken feature, Major=significant regression or important feature broken, Normal=standard bug or feature request, Minor=cosmetic.\n\nCRITICAL: subsystem MUST exactly match one of the available subsystems — never invent one. type_name must exactly match one of the available types. Both are REQUIRED.\nassignee_login: match login from users list only if a person''s name is mentioned, else "".\nsprint_id: id of the most recent non-completed sprint from the sprints list, else "".',
+			'[]',
+			true,
+			'system'
+		WHERE NOT EXISTS (SELECT 1 FROM bot_configs WHERE bot_type = 'ticket_parser')`,
+
+		// ── Developer → Subsystem config ─────────────────────────────────────────
+		`CREATE TABLE IF NOT EXISTS developer_subsystem_configs (
+			developer_login VARCHAR(255) PRIMARY KEY,
+			developer_name  VARCHAR(255) NOT NULL DEFAULT '',
+			subsystems      TEXT[]       NOT NULL DEFAULT '{}',
+			is_qa           BOOLEAN      NOT NULL DEFAULT FALSE,
+			updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+		)`,
+		`ALTER TABLE developer_subsystem_configs ADD COLUMN IF NOT EXISTS is_qa BOOLEAN NOT NULL DEFAULT FALSE`,
+
 		// ── DayTrack: per-user daily time-sheet ──────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS daytrack_entries (
 			id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -721,6 +743,146 @@ func RunMigrations() error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_daytrack_entries_external_ref_unique
 		 ON daytrack_entries(user_id, external_ref)
 		 WHERE external_ref IS NOT NULL AND external_ref != ''`,
+
+		// ── Slack Intelligence: pin support ─────────────────────────────────────
+		`ALTER TABLE slack_mentions ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT false`,
+
+		// ── Slack Intelligence: quick reply templates ────────────────────────────
+		`CREATE TABLE IF NOT EXISTS slack_reply_templates (
+			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id    TEXT NOT NULL,
+			body       TEXT NOT NULL,
+			sort_order INT  NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_slack_reply_templates_user ON slack_reply_templates(user_id, sort_order)`,
+
+		// Denied emails — explicit block list; takes priority over allowed_emails/allowed_domains
+		`CREATE TABLE IF NOT EXISTS denied_emails (
+			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email      TEXT NOT NULL UNIQUE,
+			reason     TEXT,
+			added_by   TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+
+		// DayTrack post-to-slack destination channel
+		`ALTER TABLE daytrack_slack_config
+		   ADD COLUMN IF NOT EXISTS dest_channel_id   TEXT NOT NULL DEFAULT '',
+		   ADD COLUMN IF NOT EXISTS dest_channel_name TEXT NOT NULL DEFAULT ''`,
+
+		// ── Daily Standup Compiler ───────────────────────────────────────────────
+		`CREATE TABLE IF NOT EXISTS standup_config (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id            VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			source_channels    JSONB NOT NULL DEFAULT '[]',
+			dest_channel_id    TEXT NOT NULL DEFAULT '',
+			dest_channel_name  TEXT NOT NULL DEFAULT '',
+			time_window_start  TEXT NOT NULL DEFAULT '18:00',
+			time_window_end    TEXT NOT NULL DEFAULT '19:30',
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE(user_id)
+		)`,
+
+		// DayTrack Slack: user timezone for correct local-time conversion of Slack timestamps
+		`ALTER TABLE daytrack_slack_config
+		   ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata'`,
+
+		// PM Assistant prompt: add rules for date-exclusion queries and single-result completeness (idempotent)
+		`UPDATE bot_configs SET
+			prompt = prompt || E'\n11. When query asks for date-based filtering (e.g., "exclude bugs resolved last week") but resolved dates are not available: list ALL matching tickets found and add a short note about the limitation — do NOT ask for more context or refuse to answer.\n12. SEARCH FILTER APPLIED line in the data tells you exactly what was searched. If N tickets are returned and the header says "COMPLETE list": that IS the full result — never say you need more context when the data IS the answer.'
+		WHERE bot_type = 'pm_assistant'
+		  AND prompt NOT LIKE '%SEARCH FILTER APPLIED%'`,
+
+		// PM Assistant prompt v3: rich markdown formatting (idempotent — only runs if v3 marker absent)
+		`UPDATE bot_configs SET
+			prompt = 'You are Velocity PM Assistant — a sprint intelligence agent for a software development team.
+You have full context of the active sprint: tickets, assignees, blockers, cycle times, bounces, QA status, and velocity.
+Today: {{DATE}}
+
+DATA FORMAT
+Each issue line: ID | Priority | Type | Summary | State | Assignee  bounces:N [FLAGS]
+  transition lines:   From->To (Xh, by Person)
+  BLOCKER: reason
+Sprint Summary: total / done / in-progress / blocked / overdue / bounced
+
+KEY CONCEPTS
+- OVERDUE: In Progress longer than SLA (P0: 4h, P1: 24h, P2: 48h, other: 72h)
+- BOUNCE: ticket moved backward (DEV->In Progress = QA rejected; In Progress->To Do = dev stalled)
+- CYCLE TIME: sum of all In-Progress durations from transition history
+- BLOCKED: stuck in a blocked state, dev cannot act
+- OVERLOADED: developer with 5+ active tickets
+
+STRICT FORMATTING RULES
+
+NEVER output raw pipe-separated lines like "ARD-1234 | Normal | Bug | title".
+ALWAYS use clean markdown with bullet points and bold IDs.
+
+TICKET LIST — use this exact format:
+- **ARD-1234** Title of the ticket *(Type, Priority, @Assignee)*
+- **ARD-1235** Another ticket *(Bug, Normal, @deepak)* — bounces: 2
+
+If transition history is relevant, indent under the ticket:
+- **ARD-1234** Title *(Bug, @deepak)*
+  - In Progress -> Dev — 2d 3h by @deepak
+
+GROUPING — when listing many tickets, group by assignee:
+
+**@deepak** — 3 tickets
+- **ARD-1744** BE MC: Prevent projects moving before publish *(Bug)*
+- **ARD-1958** BE Studio: Delete Teaser API *(Enhancement)*
+
+**@Vishal Pal** — 2 tickets
+- **ARD-1875** FE UI: Multiple Theme Issues v3 *(Bug)*
+
+SPRINT HEALTH / OVERVIEW — use a markdown table:
+### Sprint 5 Health
+| Metric | Value |
+|---|---|
+| Total | 42 |
+| Done | 18 (43%) |
+| In Progress | 12 |
+| Blocked | 3 |
+| Overdue | 5 |
+| Bounced | 7 |
+**Risk:** one-sentence honest assessment
+
+BLOCKED / AT-RISK:
+### Blocked Tickets
+- **ARD-1234** Title — *@Assignee, blocked Xd Yh*
+  Reason: waiting on design sign-off
+
+SPECIFIC TICKET:
+## ARD-1234 — Title
+**Status:** In Progress | **Assignee:** @name | **Priority:** P1
+**Cycle time:** 3d 2h | **Bounces:** 2
+
+**History:**
+- To Do -> In Progress — 2d 5h by @name
+- In Progress -> Dev — 4h by @name
+
+COUNTS / QUICK ANSWERS — bold the number first, then list:
+**6 tickets** closed in Sprint 5:
+
+- **ARD-1997** Mobile: Add Reset Chat Option *(Bug, @Simran)*
+- **ARD-1767** FE UI: Voice Waveform Disappears *(Bug, @Vishal)*
+
+OTHER RULES
+1. Always bold ticket IDs with **ARD-1234** format
+2. Always prefix assignees with @
+3. Never use raw pipe-separated lines in output
+4. Format durations as Xd Yh — never raw hours
+5. Never start with "Certainly!", "Of course!", "Sure!" — lead with the answer
+6. Never invent ticket IDs, names, or data not in context
+7. Be concise — answer first, details after
+8. For date-based filtering unavailable in data: list all matching tickets and note the limitation
+9. If query context says COMPLETE list — that IS the full result, state it directly
+10. Multi-turn: build on history, never re-introduce yourself
+
+<!-- v3 -->'
+			WHERE bot_type = 'pm_assistant'
+			  AND prompt NOT LIKE ''||chr(60)||'!-- v3 --'||chr(62)||'%'`,
 	}
 
 	for i, migration := range migrations {

@@ -1,0 +1,71 @@
+variables:
+  DOCKER_REGISTRY: 852201627708.dkr.ecr.eu-west-1.amazonaws.com
+  AWS_DEFAULT_REGION: eu-west-1
+  REPO: velocity
+  DOCKER_DRIVER: overlay
+  PREFIX: dev
+  CLUSTER: dev
+  K8s_PROXY_IP: 10.0.0.13
+
+
+stages:
+  - build
+  - deploy
+
+#=========
+# Build
+#=========
+build-to-aws:
+  stage: build
+  image:
+    name: amazon/aws-cli
+    entrypoint: [""]
+  services:
+    - docker:dind
+  before_script:
+    - yum install -y docker
+    - aws --version
+    - docker --version
+  script:
+    - chmod +x .gitlab/build.sh
+    - .gitlab/build.sh
+  after_script:
+    - docker rmi $DOCKER_REGISTRY/$REPO:$PREFIX-$CI_PIPELINE_ID
+    - docker system prune --volumes --force
+  tags:
+    - hetzner-docker
+
+
+#=======================
+# Deploy-to-dev-hetzner
+#=======================
+deploy-to-dev-hetzner:
+  stage: deploy
+  image:
+    name: ubuntu:20.04
+    entrypoint: [""]
+  services:
+    - docker:dind
+  before_script:
+    - export AWS_ACCESS_KEY_ID=$EKS_DEV_AWS_ACCESS_KEY_ID
+    - export AWS_SECRET_ACCESS_KEY=$EKS_DEV_AWS_SECRET_ACCESS_KEY
+    - apt-get update -qq && apt-get install -qq curl unzip jq
+    - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    - unzip -qq awscliv2.zip
+    - ./aws/install --install-dir /opt/aws-cli --bin-dir /usr/local/bin
+    - aws --version
+    - rm -rf awscliv2.zip aws /var/lib/apt/lists/*
+    - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - echo "$HETZ_DEV_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $K8s_PROXY_IP >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  script:
+    - echo "$HETZ_DEV_SSH_PRIVATE_KEY" > private_key.pem
+    - chmod 600 private_key.pem
+    - ssh apyuser@$K8s_PROXY_IP "/home/apyuser/bin/update-service.sh \"$REPO\" \"${PREFIX}-${CI_PIPELINE_ID}\" \"apytool-dev-velocity\""
+    - echo "deployment successful in hetzner"
+  tags:
+    - hetzner-docker 

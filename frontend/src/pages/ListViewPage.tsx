@@ -10,19 +10,19 @@ import { getPMIssues, getPMStates, getActiveSource } from '@/services/pmDataServ
 import api, { type YouTrackSprint, getYouTrackAvatarMap } from '@/services/api'
 import { CalendarDays } from 'lucide-react'
 import { IssueDetailPanel } from '@/components/IssueDetailPanel'
+import { useYouTrackBaseUrl } from '@/hooks/useYouTrackBaseUrl'
+import HoverCard, { HCRow, HCDivider } from '@/components/HoverCard'
 
 type SortField = 'summary' | 'priority' | 'assignee' | 'updated' | 'created' | 'due_date'
 type SortDir   = 'asc' | 'desc'
-
-const YT_BASE = 'https://simran.youtrack.cloud/issue/'
 
 const PRIORITY_ORDER: Record<string, number> = {
   'show-stopper': 0, critical: 1, major: 2, normal: 3, minor: 4, cosmetic: 5,
 }
 
-function getIssueUrl(issue: YouTrackIssue): string {
+function getIssueUrl(issue: YouTrackIssue, ytBaseUrl: string): string {
   if (getActiveSource() === 'asana' && issue.permalink) return issue.permalink
-  return `${YT_BASE}${issue.id}`
+  return `${ytBaseUrl}/issue/${issue.idReadable || issue.id}`
 }
 
 function getPriorityClass(p: string) {
@@ -58,6 +58,24 @@ function isToday(ms?: number): boolean {
 
 function getInitials(name: string) {
   return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+}
+
+function issueHoverContent(issue: YouTrackIssue) {
+  const id = issue.idReadable || issue.id
+  const assigneeName = issue.assignee?.fullName || issue.assignee?.login
+  const dueDateStr = issue.due_date ? fmtDate(issue.due_date) : null
+  const overdueDate = issue.due_date && isOverdue(issue.due_date) && !isToday(issue.due_date)
+  return (
+    <div>
+      <div className="hc-title">{id}</div>
+      <div className="hc-subtitle">{issue.summary}</div>
+      <HCDivider />
+      <HCRow label="State" value={issue.status || '—'} />
+      {issue.priority && <HCRow label="Priority" value={issue.priority} />}
+      {assigneeName && <HCRow label="Assignee" value={assigneeName} />}
+      {dueDateStr && <HCRow label="Due" value={dueDateStr} accent={overdueDate ? 'danger' : isToday(issue.due_date) ? 'warn' : undefined} />}
+    </div>
+  )
 }
 
 // ── Portal filter dropdown ────────────────────────────────────────────────────
@@ -159,48 +177,49 @@ function SectionGroup({
           {sorted.map((issue, i) => {
             const due = issue.due_date
             return (
-              <div
-                key={issue.id}
-                className={`lv-row${selectedIds.has(issue.id) ? ' lv-row--selected' : ''}`}
-                onClick={e => onRowClick(e, issue, globalIndexOffset + i)}
-                onDoubleClick={() => onRowDblClick(issue)}
-              >
-                <div className="lv-cell lv-cell-name">
-                  <span className="lv-title-text">{issue.summary}</span>
-                  {(issue.attachments?.length ?? 0) > 0 && (
-                    <span className="lv-attachment-count" title={`${issue.attachments!.length} attachment${issue.attachments!.length !== 1 ? 's' : ''}`}>
-                      <Paperclip size={10} />
-                      {issue.attachments!.length}
-                    </span>
-                  )}
+              <HoverCard key={issue.id} content={issueHoverContent(issue)} maxWidth={280}>
+                <div
+                  className={`lv-row${selectedIds.has(issue.id) ? ' lv-row--selected' : ''}`}
+                  onClick={e => onRowClick(e, issue, globalIndexOffset + i)}
+                  onDoubleClick={() => onRowDblClick(issue)}
+                >
+                  <div className="lv-cell lv-cell-name">
+                    <span className="lv-title-text">{issue.summary}</span>
+                    {(issue.attachments?.length ?? 0) > 0 && (
+                      <span className="lv-attachment-count" title={`${issue.attachments!.length} attachment${issue.attachments!.length !== 1 ? 's' : ''}`}>
+                        <Paperclip size={10} />
+                        {issue.attachments!.length}
+                      </span>
+                    )}
+                  </div>
+                  <div className="lv-cell lv-cell-assignee">
+                    {issue.assignee ? (
+                      <div className="lv-assignee">
+                        {avatarMap[issue.assignee.fullName] ? (
+                          <img className="lv-avatar lv-avatar-img" src={avatarMap[issue.assignee.fullName]} alt={issue.assignee.fullName} />
+                        ) : (
+                          <div className="lv-avatar">{getInitials(issue.assignee.fullName)}</div>
+                        )}
+                        <span className="lv-assignee-name">{issue.assignee.fullName}</span>
+                      </div>
+                    ) : (
+                      <span className="lv-unassigned">—</span>
+                    )}
+                  </div>
+                  <div className={`lv-cell lv-cell-date${isOverdue(due) && !isToday(due) ? ' lv-date-overdue' : isToday(due) ? ' lv-date-today' : ''}`}>
+                    {fmtDate(due)}
+                  </div>
+                  <div className="lv-cell lv-cell-date">{fmtDate(issue.created)}</div>
+                  <div className="lv-cell lv-cell-date">{fmtDate(issue.updated)}</div>
+                  <div className="lv-cell lv-cell-priority">
+                    {issue.priority ? (
+                      <span className={getPriorityClass(issue.priority)}>{issue.priority}</span>
+                    ) : (
+                      <span className="lv-unassigned">—</span>
+                    )}
+                  </div>
                 </div>
-                <div className="lv-cell lv-cell-assignee">
-                  {issue.assignee ? (
-                    <div className="lv-assignee">
-                      {avatarMap[issue.assignee.fullName] ? (
-                        <img className="lv-avatar lv-avatar-img" src={avatarMap[issue.assignee.fullName]} alt={issue.assignee.fullName} />
-                      ) : (
-                        <div className="lv-avatar">{getInitials(issue.assignee.fullName)}</div>
-                      )}
-                      <span className="lv-assignee-name">{issue.assignee.fullName}</span>
-                    </div>
-                  ) : (
-                    <span className="lv-unassigned">—</span>
-                  )}
-                </div>
-                <div className={`lv-cell lv-cell-date${isOverdue(due) && !isToday(due) ? ' lv-date-overdue' : isToday(due) ? ' lv-date-today' : ''}`}>
-                  {fmtDate(due)}
-                </div>
-                <div className="lv-cell lv-cell-date">{fmtDate(issue.created)}</div>
-                <div className="lv-cell lv-cell-date">{fmtDate(issue.updated)}</div>
-                <div className="lv-cell lv-cell-priority">
-                  {issue.priority ? (
-                    <span className={getPriorityClass(issue.priority)}>{issue.priority}</span>
-                  ) : (
-                    <span className="lv-unassigned">—</span>
-                  )}
-                </div>
-              </div>
+              </HoverCard>
             )
           })}
         </div>
@@ -212,6 +231,7 @@ function SectionGroup({
 // ── Main Component ────────────────────────────────────────────────────────────
 export function ListViewPage() {
   const { user } = useAuth()
+  const ytBaseUrl = useYouTrackBaseUrl()
   const [issues, setIssues]           = useState<YouTrackIssue[]>([])
   const [sectionOrder, setSectionOrder] = useState<string[]>([])
   const [loading, setLoading]         = useState(true)
@@ -362,9 +382,9 @@ export function ListViewPage() {
   const selectedIssues = useMemo(() => flatList.filter(i => selectedIds.has(i.id)), [flatList, selectedIds])
 
   const copySelected = async () => {
-    const plain = selectedIssues.map(i => `${i.summary} — ${getIssueUrl(i)}`).join('\n')
+    const plain = selectedIssues.map(i => `${i.summary} — ${getIssueUrl(i, ytBaseUrl)}`).join('\n')
     const html  = selectedIssues.map(i =>
-      `<a href="${getIssueUrl(i)}">${i.summary.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</a>`
+      `<a href="${getIssueUrl(i, ytBaseUrl)}">${i.summary.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</a>`
     ).join('<br>')
     try {
       await navigator.clipboard.write([new ClipboardItem({
@@ -585,7 +605,7 @@ export function ListViewPage() {
         <IssueDetailPanel
           issue={selectedIssue}
           onClose={() => setSelectedIssue(null)}
-          ytBaseUrl="https://simran.youtrack.cloud/issue"
+          ytBaseUrl={ytBaseUrl}
         />
       )}
     </div>

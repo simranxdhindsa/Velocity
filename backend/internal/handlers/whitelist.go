@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
 	"github.com/gorilla/mux"
@@ -290,7 +291,94 @@ func (h *WhitelistHandler) RemoveAllowedDomainHandler(w http.ResponseWriter, r *
 	})
 }
 
-// GetWhitelistSettingsHandler returns the current whitelist settings
+// GetDeniedEmailsHandler returns all denied emails
+func (h *WhitelistHandler) GetDeniedEmailsHandler(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil || user.Role != models.RoleAdmin {
+		sendJSON(w, http.StatusForbidden, Response{Success: false, Message: "Admin access required"})
+		return
+	}
+
+	// Prefer DB list; fall back to in-memory
+	if database.GetPool() != nil {
+		list, err := whitelistRepo.GetDeniedEmails(r.Context())
+		if err == nil {
+			if list == nil {
+				list = []map[string]interface{}{}
+			}
+			sendJSON(w, http.StatusOK, Response{Success: true, Data: list})
+			return
+		}
+	}
+
+	// In-memory fallback
+	emails := GetDeniedEmails()
+	result := make([]map[string]interface{}, 0, len(emails))
+	for _, e := range emails {
+		result = append(result, map[string]interface{}{"email": e, "reason": ""})
+	}
+	sendJSON(w, http.StatusOK, Response{Success: true, Data: result})
+}
+
+// AddDeniedEmailHandler adds an email to the deny list
+func (h *WhitelistHandler) AddDeniedEmailHandler(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil || user.Role != models.RoleAdmin {
+		sendJSON(w, http.StatusForbidden, Response{Success: false, Message: "Admin access required"})
+		return
+	}
+
+	var req struct {
+		Email  string `json:"email"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+		sendJSON(w, http.StatusBadRequest, Response{Success: false, Message: "Valid email required"})
+		return
+	}
+
+	// Cannot deny the default admin
+	if strings.ToLower(req.Email) == strings.ToLower(models.DefaultAdminEmail) {
+		sendJSON(w, http.StatusForbidden, Response{Success: false, Message: "Cannot block the default administrator"})
+		return
+	}
+
+	AddDeniedEmail(req.Email)
+	if database.GetPool() != nil {
+		_ = whitelistRepo.AddDeniedEmail(r.Context(), req.Email, req.Reason, user.Email)
+	}
+
+	sendJSON(w, http.StatusOK, Response{
+		Success: true,
+		Message: "Email blocked",
+		Data:    map[string]string{"email": strings.ToLower(req.Email), "reason": req.Reason},
+	})
+}
+
+// RemoveDeniedEmailHandler removes an email from the deny list
+func (h *WhitelistHandler) RemoveDeniedEmailHandler(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil || user.Role != models.RoleAdmin {
+		sendJSON(w, http.StatusForbidden, Response{Success: false, Message: "Admin access required"})
+		return
+	}
+
+	vars := mux.Vars(r)
+	email := vars["email"]
+	if email == "" {
+		sendJSON(w, http.StatusBadRequest, Response{Success: false, Message: "Email required"})
+		return
+	}
+
+	RemoveDeniedEmail(email)
+	if database.GetPool() != nil {
+		_ = whitelistRepo.RemoveDeniedEmail(r.Context(), email)
+	}
+
+	sendJSON(w, http.StatusOK, Response{Success: true, Message: "Email unblocked"})
+}
+
+// GetWhitelistSettingsHandler returns the current whitelist settings including the deny list
 func (h *WhitelistHandler) GetWhitelistSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)
 	if user == nil || user.Role != models.RoleAdmin {
@@ -321,12 +409,28 @@ func (h *WhitelistHandler) GetWhitelistSettingsHandler(w http.ResponseWriter, r 
 		})
 	}
 
+	// Fetch deny list
+	var deniedList []map[string]interface{}
+	if database.GetPool() != nil {
+		if list, err := whitelistRepo.GetDeniedEmails(r.Context()); err == nil && list != nil {
+			deniedList = list
+		}
+	}
+	if deniedList == nil {
+		inMem := GetDeniedEmails()
+		deniedList = make([]map[string]interface{}, 0, len(inMem))
+		for _, e := range inMem {
+			deniedList = append(deniedList, map[string]interface{}{"email": e, "reason": ""})
+		}
+	}
+
 	sendJSON(w, http.StatusOK, Response{
 		Success: true,
 		Data: map[string]interface{}{
 			"default_admin_email": models.DefaultAdminEmail,
 			"allowed_emails":      emailsList,
 			"allowed_domains":     domainsList,
+			"denied_emails":       deniedList,
 		},
 	})
 }

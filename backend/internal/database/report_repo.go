@@ -637,6 +637,41 @@ func (r *ReportRepository) GetPinnedIssueIDs(ctx context.Context, userID string)
 }
 
 // GetInProgressOlderThan returns issues currently In Progress for longer than given hours
+// GetTodayVerifiedMovesByMover returns state log entries for today where the given user
+// moved a ticket to a verified/QA column (Ready for Stage, Ready for PROD, Verified, Mobile Done).
+func (r *ReportRepository) GetTodayVerifiedMovesByMover(ctx context.Context, moverName, today string) ([]IssueStateLog, error) {
+	pool := GetPool()
+	rows, err := pool.Query(ctx, `
+		SELECT id, issue_id, issue_summary,
+		       COALESCE(assignee,''), COALESCE(moved_by,''),
+		       COALESCE(from_state,''), to_state, COALESCE(priority,''),
+		       transitioned_at, duration_in_prev_state_hours, COALESCE(comment,''), COALESCE(issue_type,'')
+		FROM issue_state_log
+		WHERE DATE(transitioned_at AT TIME ZONE 'UTC') = $1::date
+		  AND LOWER(moved_by) = LOWER($2)
+		  AND (
+		        LOWER(to_state) LIKE '%ready for stage%'
+		     OR LOWER(to_state) LIKE '%ready for prod%'
+		     OR LOWER(to_state) = 'verified'
+		     OR LOWER(to_state) LIKE '%mobile done%'
+		  )
+		ORDER BY transitioned_at ASC
+	`, today, moverName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []IssueStateLog
+	for rows.Next() {
+		l, err := scanStateLog(rows)
+		if err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
 func (r *ReportRepository) GetInProgressOlderThan(ctx context.Context, hours float64) ([]IssueStateLog, error) {
 	pool := GetPool()
 
@@ -824,12 +859,23 @@ func overdueThresholdForPriority(priority string) float64 {
 // GetIssueTimelines builds a per-issue timeline aggregated from issue_state_log.
 // Each IssueTimeline contains every In Progress stint for that ticket, its total
 // accumulated time, moved-back count, and live status.
-func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []string) ([]IssueTimeline, error) {
+func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []string, since, until *time.Time) ([]IssueTimeline, error) {
 	pool := GetPool()
 
-	// Fetch ALL rows for issues that have ever been In Progress, ordered by issue+time.
-	// We also fetch exit rows (from_state = 'in progress') to close stints.
-	rows, err := pool.Query(ctx, `
+	// Build sprint date filter for the inner subquery so we only return issues
+	// that had an In Progress transition during the selected sprint window.
+	sprintFilter := ""
+	args := []any{}
+	if since != nil {
+		args = append(args, *since)
+		sprintFilter += fmt.Sprintf(" AND transitioned_at >= $%d", len(args))
+	}
+	if until != nil {
+		args = append(args, *until)
+		sprintFilter += fmt.Sprintf(" AND transitioned_at <= $%d", len(args))
+	}
+
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
 		SELECT
 			issue_id,
 			COALESCE(issue_summary,'') AS issue_summary,
@@ -840,14 +886,14 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 			COALESCE(priority,'') AS priority,
 			transitioned_at,
 			duration_in_prev_state_hours,
-			COALESCE(comment,'') AS comment, COALESCE(issue_type,'') AS issue_type
+			COALESCE(comment,'') AS comment
 		FROM issue_state_log
 		WHERE issue_id IN (
 			SELECT DISTINCT issue_id FROM issue_state_log
-			WHERE LOWER(to_state) = 'in progress'
+			WHERE LOWER(to_state) = 'in progress'%s
 		)
 		ORDER BY issue_id, transitioned_at ASC
-	`)
+	`, sprintFilter), args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetIssueTimelines query failed: %w", err)
 	}
@@ -1031,7 +1077,7 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 // GetDelayedIssues returns issues that are currently In Progress AND overdue
 // (total time in In Progress > priority threshold). Used for the daily report.
 func (r *ReportRepository) GetDelayedIssues(ctx context.Context) ([]IssueTimeline, error) {
-	timelines, err := r.GetIssueTimelines(ctx, nil)
+	timelines, err := r.GetIssueTimelines(ctx, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}

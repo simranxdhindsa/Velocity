@@ -13,7 +13,7 @@
   flex: 1; padding: 0.5rem 1rem; text-align: center;
   font-weight: 500; font-size: 0.8375rem;
   color: var(--text-muted); border-radius: var(--radius-lg);
-  cursor: pointer; transition: all var(--transition-fast);
+  cursor: pointer; transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
   border: none; background: transparent; font-family: inherit;
   display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
 }
@@ -29,7 +29,7 @@
 .pm-tab-btn {
   flex: 1; padding: 0.5rem 1rem; font-size: 0.8125rem; font-weight: 500;
   color: var(--text-muted); cursor: pointer; border: none; background: transparent;
-  border-radius: var(--radius-lg); transition: all var(--transition-fast); font-family: inherit;
+  border-radius: var(--radius-lg); transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast); font-family: inherit;
 }
 .pm-tab-btn:hover { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
 .pm-tab-btn.active { background: var(--gradient-primary); color: white; box-shadow: var(--shadow-glow-sm); font-weight: 600; }
@@ -72,7 +72,7 @@
 .si-tab {
   padding: 0.475rem 1rem; font-size: 0.8rem; font-weight: 500;
   color: var(--text-muted); cursor: pointer; border: none; background: transparent;
-  border-radius: var(--radius-lg); transition: all var(--transition-fast); font-family: inherit;
+  border-radius: var(--radius-lg); transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast); font-family: inherit;
 }
 .si-tab.active { background: var(--gradient-primary); color: white; box-shadow: var(--shadow-glow-sm); font-weight: 600; }
 .si-tab:hover:not(.active) { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
@@ -89,7 +89,7 @@
 .report-tabs .tab {
   flex: 1; padding: 0.5rem 1rem; font-size: 0.8125rem; font-weight: 500;
   color: var(--text-muted); cursor: pointer; border: none; background: transparent;
-  border-radius: var(--radius-lg); transition: all var(--transition-fast); white-space: nowrap;
+  border-radius: var(--radius-lg); transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast); white-space: nowrap;
 }
 .report-tabs .tab.active { background: var(--gradient-primary); color: white; font-weight: 600; box-shadow: var(--shadow-glow-sm); }
 
@@ -99,7 +99,7 @@
   padding: 0.625rem 1.25rem; font-size: 0.875rem; font-weight: 500;
   color: var(--text-muted); cursor: pointer; border: none; background: transparent;
   border-bottom: 2px solid transparent; margin-bottom: -1px;
-  transition: all var(--transition-fast); font-family: inherit;
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); font-family: inherit;
 }
 .int-tab:hover { color: var(--text-secondary); }
 .int-tab.int-tab-active { color: var(--color-primary-light); border-bottom-color: var(--color-primary); font-weight: 600; }

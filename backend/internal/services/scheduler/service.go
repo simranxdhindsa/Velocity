@@ -480,7 +480,7 @@ func (s *Service) autoSyncStateLog(ctx context.Context) {
 	ytClient := youtrack.NewClient(baseURL, token, projectID)
 
 	// Single project-wide call — no per-issue loop
-	activities, err := ytClient.GetProjectActivities(ctx, 500)
+	activities, err := ytClient.GetProjectActivities(ctx, 500, "")
 	if err != nil {
 		log.Printf("[Scheduler] autoSyncStateLog: failed to fetch activities: %v", err)
 		return

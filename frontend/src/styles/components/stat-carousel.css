@@ -1,0 +1,201 @@
+/* ── StatCarousel ──────────────────────────────────────────────────────── */
+
+@keyframes scSlideEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scProgressGrow {
+  from { width: 0; }
+}
+
+.sc-wrapper {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
+/* ── Pill — fills full header height, no top/bottom gaps ── */
+.sc-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 260px;
+  height: 100%;
+  border-radius: 0;
+  background: var(--glass-bg);
+  border-left: 1px solid var(--glass-border);
+  border-right: 1px solid var(--glass-border);
+  border-top: none;
+  border-bottom: none;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow 0.2s ease;
+  flex-shrink: 0;
+}
+
+.sc-pill:hover,
+.sc-pill:focus-visible {
+  background: var(--glass-bg-hover);
+  outline: none;
+}
+
+/* ── Left accent bar ── */
+.sc-accent-bar {
+  width: 2px;
+  height: 100%;
+  flex-shrink: 0;
+  background: var(--sc-accent, var(--color-primary));
+  box-shadow: 0 0 6px var(--sc-accent, var(--color-primary));
+}
+
+/* ── Content row ── */
+.sc-content {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 14px 0 7px; /* 14px right = 4px seg bar + 10px breathing room */
+  flex: 1;
+  min-width: 0;
+  animation: scSlideEnter 400ms ease both;
+}
+
+.sc-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--sc-accent, var(--color-primary));
+}
+
+.sc-main {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+}
+
+.sc-dot-sep {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.sc-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.sc-arrow {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* ── Segmented bar — vertical stack on right edge ── */
+.sc-seg-bar {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+}
+
+.sc-seg {
+  flex: 1;
+  width: 100%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  transition: background 0.25s ease;
+}
+
+.sc-seg--active {
+  background: var(--sc-accent, var(--color-primary));
+  box-shadow: 0 0 6px var(--sc-accent, var(--color-primary));
+}
+
+[data-theme="light"] .sc-seg {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+/* ── Completion progress bar (slide 3, bottom edge) ── */
+.sc-progress-track {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 4px;          /* don't overlap the seg bar */
+  height: 2px;
+  background: var(--glass-border);
+}
+
+.sc-progress-fill {
+  height: 100%;
+  width: var(--sc-progress-pct, 0%);
+  background: linear-gradient(
+    90deg,
+    var(--color-primary),
+    var(--color-primary-light)
+  );
+  animation: scProgressGrow 700ms ease-out both;
+}
+
+/* ── Loading skeleton ── */
+.sc-pill--loading {
+  cursor: default;
+  pointer-events: none;
+  gap: 8px;
+  padding: 0 14px;
+  width: 260px;
+  height: 100%;
+}
+
+.sc-skeleton {
+  border-radius: 4px;
+  background: var(--bg-hover);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.sc-skeleton--icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.sc-skeleton--text {
+  width: 140px;
+  height: 12px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1; }
+}
+
+/* ── Light mode overrides ── */
+[data-theme="light"] .sc-pill {
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+}

@@ -862,7 +862,21 @@ func (h *ReportHandler) GetIssueTimelines(w http.ResponseWriter, r *http.Request
 	pinnedIDs, _ := h.reportRepo.GetPinnedIssueIDs(r.Context(), user.ID)
 	dismissedSet, _ := h.reportRepo.GetDismissedAlertIDs(r.Context(), user.ID)
 
-	timelines, err := h.reportRepo.GetIssueTimelines(r.Context(), pinnedIDs)
+	var since, until *time.Time
+	if v := r.URL.Query().Get("since"); v != "" {
+		if ms, err := strconv.ParseInt(v, 10, 64); err == nil {
+			t := time.UnixMilli(ms).UTC()
+			since = &t
+		}
+	}
+	if v := r.URL.Query().Get("until"); v != "" {
+		if ms, err := strconv.ParseInt(v, 10, 64); err == nil {
+			t := time.UnixMilli(ms).UTC()
+			until = &t
+		}
+	}
+
+	timelines, err := h.reportRepo.GetIssueTimelines(r.Context(), pinnedIDs, since, until)
 	if err != nil {
 		sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: "Failed to get timelines: " + err.Error()})
 		return
@@ -1059,7 +1073,7 @@ func (h *ReportHandler) ImportHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// One API call for the entire project — no per-issue loops
-	activities, err := ytClient.GetProjectActivities(r.Context(), 2000)
+	activities, err := ytClient.GetProjectActivities(r.Context(), 2000, "")
 	if err != nil {
 		sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: "Failed to fetch project activities: " + err.Error()})
 		return
@@ -1755,6 +1769,13 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 	sprintName, _ := url.QueryUnescape(r.URL.Query().Get("sprint_name"))
 	sprintFinishMs, _ := strconv.ParseInt(r.URL.Query().Get("sprint_finish_ms"), 10, 64)
 
+	// Serve from cache if available (TTL = 3 min; invalidated by YouTrack webhook)
+	boardCacheKey := fmt.Sprintf("board:%s:%s", user.ID, sprintID)
+	if cached, ok := apiCache.Get(boardCacheKey); ok {
+		sendJSON(w, http.StatusOK, Response{Success: true, Data: cached})
+		return
+	}
+
 	// Load workflow config for SLA thresholds and priority mappings
 	wfCfg := h.loadWorkflowConfig(r.Context(), user.ID, "youtrack")
 
@@ -2269,13 +2290,12 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 		summary.CompletionPct = float64(summary.DoneIssues) / float64(summary.TotalIssues) * 100
 	}
 
-	sendJSON(w, http.StatusOK, Response{
-		Success: true,
-		Data: map[string]interface{}{
-			"summary": summary,
-			"columns": resultColumns,
-		},
-	})
+	responseData := map[string]interface{}{
+		"summary": summary,
+		"columns": resultColumns,
+	}
+	apiCache.Set(boardCacheKey, responseData, 3*time.Minute)
+	sendJSON(w, http.StatusOK, Response{Success: true, Data: responseData})
 }
 
 // GetIssueTransitions returns the full state-transition history for a single issue.

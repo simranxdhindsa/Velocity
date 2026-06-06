@@ -298,11 +298,23 @@ func (h *SlackHandler) Scan(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetMentions returns unreplied @mentions for the logged-in user
+// GetMentions returns @mentions for the logged-in user.
+// Pass ?pinned=true to return only pinned/saved mentions.
 func (h *SlackHandler) GetMentions(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.URL.Query().Get("pinned") == "true" {
+		mentions, err := h.slackRepo.GetPinnedMentions(r.Context(), userID)
+		if err != nil || mentions == nil {
+			mentions = []models.SlackMention{}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"mentions": mentions})
 		return
 	}
 
@@ -318,7 +330,6 @@ func (h *SlackHandler) GetMentions(w http.ResponseWriter, r *http.Request) {
 		mentions = []models.SlackMention{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":         true,
 		"mentions":        mentions,
@@ -614,4 +625,235 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "…"
+}
+
+// ── Inline reply ─────────────────────────────────────────────────────────────
+
+// ReplyToThread posts a reply to a Slack thread.
+// POST /api/slack/reply
+func (h *SlackHandler) ReplyToThread(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		ChannelID string `json:"channel_id"`
+		ThreadTS  string `json:"thread_ts"`
+		Text      string `json:"text"`
+		MentionTS string `json:"mention_ts"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ChannelID == "" || req.ThreadTS == "" || req.Text == "" {
+		http.Error(w, "channel_id, thread_ts, and text are required", http.StatusBadRequest)
+		return
+	}
+
+	integration, err := h.service.GetStatus(r.Context(), userID)
+	if err != nil || !integration.Connected {
+		http.Error(w, "Slack not connected", http.StatusBadRequest)
+		return
+	}
+
+	client := slacksvc.NewClient(integration.BotToken)
+	if err := client.PostThreadReply(r.Context(), req.ChannelID, req.ThreadTS, req.Text); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// If a mention TS was provided, mark it as replied
+	if req.MentionTS != "" {
+		pool := database.GetPool()
+		pool.Exec(r.Context(), `UPDATE slack_mentions SET replied=true WHERE user_id=$1 AND message_ts=$2`, userID, req.MentionTS)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// GetThreadRepliesHandler fetches thread replies.
+// GET /api/slack/thread-replies?channel_id=&thread_ts=
+func (h *SlackHandler) GetThreadRepliesHandler(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	channelID := r.URL.Query().Get("channel_id")
+	threadTS := r.URL.Query().Get("thread_ts")
+	if channelID == "" || threadTS == "" {
+		http.Error(w, "channel_id and thread_ts are required", http.StatusBadRequest)
+		return
+	}
+
+	integration, err := h.service.GetStatus(r.Context(), userID)
+	if err != nil || !integration.Connected {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"replies": []interface{}{}})
+		return
+	}
+
+	client := slacksvc.NewClient(integration.BotToken)
+	msgs, err := client.GetThreadReplies(r.Context(), channelID, threadTS)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type Reply struct {
+		SenderName string `json:"sender_name"`
+		Text       string `json:"text"`
+		Timestamp  string `json:"timestamp"`
+	}
+	replies := make([]Reply, 0, len(msgs))
+	for _, m := range msgs {
+		replies = append(replies, Reply{
+			SenderName: m.User,
+			Text:       m.Text,
+			Timestamp:  m.TS,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"replies": replies})
+}
+
+// ── Pin mention ──────────────────────────────────────────────────────────────
+
+// PinMention toggles the pinned state of a mention.
+// POST /api/slack/mentions/{messageTS}/pin
+func (h *SlackHandler) PinMention(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	messageTS := mux.Vars(r)["messageTS"]
+	var req struct {
+		Pinned bool `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	pool := database.GetPool()
+	_, err := pool.Exec(r.Context(),
+		`UPDATE slack_mentions SET pinned=$1 WHERE user_id=$2 AND message_ts=$3`,
+		req.Pinned, userID, messageTS)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// ── Reply templates ──────────────────────────────────────────────────────────
+
+// GetTemplates returns the user's quick reply templates.
+// GET /api/slack/templates
+func (h *SlackHandler) GetTemplates(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	pool := database.GetPool()
+	rows, err := pool.Query(r.Context(),
+		`SELECT id, body, sort_order FROM slack_reply_templates WHERE user_id=$1 ORDER BY sort_order, created_at`,
+		userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type Template struct {
+		ID        string `json:"id"`
+		Body      string `json:"body"`
+		SortOrder int    `json:"sort_order"`
+	}
+	templates := []Template{}
+	for rows.Next() {
+		var t Template
+		if err := rows.Scan(&t.ID, &t.Body, &t.SortOrder); err == nil {
+			templates = append(templates, t)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"templates": templates})
+}
+
+// CreateTemplate saves a new quick reply template.
+// POST /api/slack/templates
+func (h *SlackHandler) CreateTemplate(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Body      string `json:"body"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Body) == "" {
+		http.Error(w, "body is required", http.StatusBadRequest)
+		return
+	}
+	pool := database.GetPool()
+	var id string
+	err := pool.QueryRow(r.Context(),
+		`INSERT INTO slack_reply_templates (user_id, body, sort_order) VALUES ($1, $2, $3) RETURNING id`,
+		userID, strings.TrimSpace(req.Body), req.SortOrder).Scan(&id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "id": id})
+}
+
+// DeleteTemplate deletes a quick reply template.
+// DELETE /api/slack/templates/{id}
+func (h *SlackHandler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	templateID := mux.Vars(r)["id"]
+	pool := database.GetPool()
+	pool.Exec(r.Context(), `DELETE FROM slack_reply_templates WHERE id=$1 AND user_id=$2`, templateID, userID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// ── Saved items ──────────────────────────────────────────────────────────────
+
+// GetSavedItems fetches Slack saved/starred items.
+// GET /api/slack/saved-items
+func (h *SlackHandler) GetSavedItems(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	integration, err := h.service.GetStatus(r.Context(), userID)
+	if err != nil || !integration.Connected {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"items": []interface{}{}})
+		return
+	}
+
+	items, err := slacksvc.GetSavedItems(r.Context(), integration.BotToken)
+	if err != nil {
+		// Graceful fallback — return empty list
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"items": []interface{}{}})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"items": items})
 }

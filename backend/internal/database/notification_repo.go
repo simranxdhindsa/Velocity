@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"errors"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/dhindsa/project-management/internal/models"
 )
 
@@ -14,15 +16,28 @@ func NewNotificationRepository() *NotificationRepository {
 	return &NotificationRepository{}
 }
 
-// Create inserts a new notification
+// Create inserts a new notification, suppressing duplicates with the same
+// type+title for the same user within 24 hours.
 func (r *NotificationRepository) Create(ctx context.Context, notif *models.Notification) error {
 	pool := GetPool()
 
-	return pool.QueryRow(ctx, `
+	// user_id is TEXT in the notifications table (migrated from uuid).
+	// Use ::text casts throughout to avoid "operator does not exist: text = uuid".
+	err := pool.QueryRow(ctx, `
 		INSERT INTO notifications (user_id, type, title, message, task_id, read)
-		VALUES ($1, $2, $3, $4, $5, false)
+		SELECT $1::text, $2::text, $3::text, $4::text, $5::text, false
+		WHERE NOT EXISTS (
+			SELECT 1 FROM notifications
+			WHERE user_id = $1::text AND type = $2::text AND title = $3::text
+			  AND created_at > NOW() - INTERVAL '24 hours'
+		)
 		RETURNING id, created_at
 	`, notif.UserID, notif.Type, notif.Title, notif.Message, notif.TaskID).Scan(&notif.ID, &notif.CreatedAt)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // duplicate within 24 h — silently skip
+	}
+	return err
 }
 
 // GetByUserID retrieves notifications for a user
@@ -35,8 +50,13 @@ func (r *NotificationRepository) GetByUserID(ctx context.Context, userID string,
 
 	rows, err := pool.Query(ctx, `
 		SELECT id, user_id, type, title, message, task_id, read, created_at
-		FROM notifications
-		WHERE user_id = $1
+		FROM (
+			SELECT DISTINCT ON (type, title, date_trunc('day', created_at))
+			       id, user_id, type, title, message, task_id, read, created_at
+			FROM notifications
+			WHERE user_id = $1
+			ORDER BY type, title, date_trunc('day', created_at), created_at DESC
+		) deduped
 		ORDER BY created_at DESC
 		LIMIT $2
 	`, userID, limit)
@@ -137,14 +157,20 @@ func (r *NotificationRepository) DeleteOld(ctx context.Context, days int) (int64
 	return result.RowsAffected(), nil
 }
 
-// CreateBulk creates multiple notifications at once
+// CreateBulk creates multiple notifications, suppressing duplicates per user
+// with the same type+title within 24 hours.
 func (r *NotificationRepository) CreateBulk(ctx context.Context, notifications []*models.Notification) error {
 	pool := GetPool()
 
 	for _, notif := range notifications {
 		_, err := pool.Exec(ctx, `
 			INSERT INTO notifications (user_id, type, title, message, task_id, read)
-			VALUES ($1, $2, $3, $4, $5, false)
+			SELECT $1, $2, $3, $4, $5, false
+			WHERE NOT EXISTS (
+				SELECT 1 FROM notifications
+				WHERE user_id = $1 AND type = $2 AND title = $3
+				  AND created_at > NOW() - INTERVAL '24 hours'
+			)
 		`, notif.UserID, notif.Type, notif.Title, notif.Message, notif.TaskID)
 		if err != nil {
 			return err

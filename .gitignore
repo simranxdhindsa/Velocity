@@ -74,6 +74,7 @@ backend/cmd/server/server.exe
 
 # Claude AI
 .claude/
+.mcp.json
 
 # Secrets and credentials (NEVER commit these)
 *.pem
@@ -139,9 +140,13 @@ $RECYCLE.BIN/
 nul
 
 # Documentation files (sensitive configs)
-*.md
+# *.md
 !README.md
 !CONTRIBUTING.md
 !LICENSE.md
 !CLAUDE.md
 !docs/
+.opencode.json
+CLAUDE.md
+pompt.md
+backend/migrations/BOT_PROMPTS.md

@@ -12,6 +12,8 @@ import {
 } from '@dnd-kit/core'
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import { useAuth } from '@/contexts/AuthContext'
+import { StatCarousel } from '@/components/StatCarousel'
+import { PERSIST } from '@/hooks/usePersistedState'
 import api from '@/services/api'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import CreateIssueModal from '@/components/CreateIssueModal'
@@ -72,7 +74,7 @@ import type { LocalNotification } from '../components/notifications/RightPanel'
 type Page = 'dashboard' | 'board' | 'list' | 'daily-ops' | 'daily-analysis' | 'calendar' | 'reports' | 'ai-analysis' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme'
 
 // Pages accessible by members/viewers (limited access)
-const MEMBER_PAGES: Page[] = ['dashboard', 'board', 'list', 'daily-ops', 'activity', 'calendar', 'ai-analysis', 'daily-analysis', 'pm-reports', 'daytrack']
+const MEMBER_PAGES: Page[] = ['dashboard', 'board', 'list', 'daily-ops', 'activity', 'calendar', 'ai-analysis', 'daily-analysis', 'pm-reports', 'daytrack', 'integrations']
 
 // YouTrack issue with extracted fields
 interface YTIssue {
@@ -165,7 +167,7 @@ type PMReportsTab = typeof PM_REPORTS_TABS[number]
 const SLACK_TABS = ['inbox', 'threads', 'reminders', 'settings'] as const
 type SlackTab = typeof SLACK_TABS[number]
 
-const INTEGRATIONS_TABS = ['youtrack', 'slack', 'workflow'] as const
+const INTEGRATIONS_TABS = ['youtrack', 'slack', 'workflow', 'developers'] as const
 type IntegrationsTab = typeof INTEGRATIONS_TABS[number]
 
 export default function Dashboard() {
@@ -193,12 +195,39 @@ export default function Dashboard() {
     ? (subTab as IntegrationsTab)
     : 'youtrack'
 
-  // Navigate wrapper — updates URL and syncs page state
+  // Navigate wrapper — updates URL and persists last page
   const setCurrentPage = (page: Page) => {
+    if (page !== 'dashboard') localStorage.setItem(PERSIST.LAST_PAGE, page)
     navigate(`/${page}`)
   }
 
+  // On fresh load at root (/), restore the last visited page
+  useEffect(() => {
+    const path = location.pathname
+    if (path === '/' || path === '') {
+      const last = localStorage.getItem(PERSIST.LAST_PAGE) as Page | null
+      const valid: Page[] = ['board', 'list', 'daily-ops', 'pm-reports', 'slack', 'activity', 'daytrack', 'ai-analysis', 'daily-analysis', 'integrations', 'settings', 'bots', 'theme']
+      if (last && valid.includes(last)) {
+        navigate(`/${last}`, { replace: true })
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Keep-alive: track which tabs have ever been visited so we can keep them
+  // mounted (hidden via CSS) instead of unmounting on tab switch.
+  const [mountedTabs, setMountedTabs] = useState<Set<Page>>(() => new Set([currentPage]))
+  useEffect(() => {
+    setMountedTabs(prev => {
+      if (prev.has(currentPage)) return prev
+      const next = new Set(prev)
+      next.add(currentPage)
+      return next
+    })
+  }, [currentPage])
+
   const [showNotifications, setShowNotifications] = useState(false)
+  const [notifAnchorRect, setNotifAnchorRect] = useState<DOMRect | null>(null)
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     return localStorage.getItem('theme') !== 'light'
   })
@@ -209,15 +238,30 @@ export default function Dashboard() {
     localStorage.setItem('theme', theme)
   }, [darkMode])
 
-  // Load and apply per-user theme preferences on mount
+  // Load and apply per-user theme — apply cached immediately, then update from backend
   useEffect(() => {
     if (!user) return
+    // Apply cached theme instantly to avoid flash of default colors
+    const THEME_CACHE_KEY = 'user-theme-cache'
+    try {
+      const cached = localStorage.getItem(THEME_CACHE_KEY)
+      if (cached) {
+        const { dark_accent, dark_bg, light_accent, light_bg } = JSON.parse(cached)
+        applyUserTheme(dark_accent, dark_bg, light_accent, light_bg)
+      }
+    } catch { /* ignore bad cache */ }
+
     api.getUserTheme().then(res => {
       if (res.data) {
         const { dark_accent, dark_bg, light_accent, light_bg } = res.data
-        applyUserTheme(dark_accent, dark_bg, light_accent, light_bg)
+        const fresh = JSON.stringify({ dark_accent, dark_bg, light_accent, light_bg })
+        const cached = localStorage.getItem(THEME_CACHE_KEY)
+        if (fresh !== cached) {
+          localStorage.setItem(THEME_CACHE_KEY, fresh)
+          applyUserTheme(dark_accent, dark_bg, light_accent, light_bg)
+        }
       }
-    }).catch(() => {})
+    }).catch(() => { /* keep cached theme if backend unreachable */ })
   }, [user])
 
   useEffect(() => {
@@ -250,6 +294,7 @@ export default function Dashboard() {
   const [ytLoading, setYtLoading] = useState(true)
   const [ytConnected, setYtConnected] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const sseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [activeIssue, setActiveIssue] = useState<YTIssue | null>(null)
   const [dashboardView, setDashboardView] = useState<'board' | 'assignees'>('board')
 
@@ -424,14 +469,19 @@ export default function Dashboard() {
     }
   }
 
-  // SSE: auto-refresh when YouTrack changes arrive via webhook
+  // SSE: auto-refresh when YouTrack changes arrive via webhook.
+  // Debounced 3s to avoid a full re-fetch on every rapid field change.
   useYouTrackEvents(useCallback((event) => {
-    fetchYouTrackIssues()
     setToast({
       message: `YouTrack: ${event.issue_id} ${event.field} → ${event.new_value}`,
       type: 'info',
     })
     setTimeout(() => setToast(null), 4000)
+
+    if (sseDebounceRef.current) clearTimeout(sseDebounceRef.current)
+    sseDebounceRef.current = setTimeout(() => {
+      fetchYouTrackIssues()
+    }, 3000)
   }, []))
 
   const handleSync = async () => {
@@ -573,6 +623,7 @@ export default function Dashboard() {
               <Clock size={20} />
               <span>DayTrack</span>
             </button>
+
             <button
               className={`sidebar-nav-item ${currentPage === 'activity' ? 'active' : ''}`}
               onClick={() => setCurrentPage('activity')}
@@ -644,23 +695,21 @@ export default function Dashboard() {
               </button>
             )}
             {isFullAccess && (
-              <>
-                <button
-                  className={`sidebar-nav-item ${currentPage === 'bots' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('bots')}
-                >
-                  <Bot size={20} />
-                  <span>Bot Config</span>
-                </button>
-                <button
-                  className={`sidebar-nav-item ${currentPage === 'integrations' ? 'active' : ''}`}
-                  onClick={() => setCurrentPage('integrations')}
-                >
-                  <Link2 size={20} />
-                  <span>Integrations</span>
-                </button>
-              </>
+              <button
+                className={`sidebar-nav-item ${currentPage === 'bots' ? 'active' : ''}`}
+                onClick={() => setCurrentPage('bots')}
+              >
+                <Bot size={20} />
+                <span>Bot Config</span>
+              </button>
             )}
+            <button
+              className={`sidebar-nav-item ${currentPage === 'integrations' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('integrations')}
+            >
+              <Link2 size={20} />
+              <span>Integrations</span>
+            </button>
             {user?.role === 'admin' && (
               <button
                 className={`sidebar-nav-item ${currentPage === 'settings' ? 'active' : ''}`}
@@ -721,37 +770,45 @@ export default function Dashboard() {
             {currentPage === 'theme' && 'Theme'}
           </h1>
         </div>
+        <div className="header-center">
+          <StatCarousel onNavigate={(target) => {
+            if (target === 'dashboard') setCurrentPage('dashboard')
+            if (target === 'daily-ops') setCurrentPage('daily-ops')
+            if (target === 'sprint-dashboard') setCurrentPage('dashboard')
+            if (target === 'pm-reports') setCurrentPage('pm-reports')
+          }} />
+        </div>
         <div className="header-actions">
-          <div className="search-bar">
-            <Search size={18} className="search-bar-icon" />
-            <input
-              type="text"
-              className="search-bar-input"
-              placeholder="Search tasks..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-          </div>
           <JellySwitch
             checked={darkMode}
             onChange={setDarkMode}
             label="Dark Mode"
           />
-          <div className="notification-bell-container" ref={notifRef}>
+          <div className="notification-bell-container">
             <button
-              className={`notification-bell ${showNotifications ? 'active' : ''}`}
-              onClick={() => setShowNotifications(!showNotifications)}
+              data-np-bell
+              ref={notifRef as React.RefObject<HTMLButtonElement>}
+              className={`notification-bell${showNotifications ? ' active' : ''}${unreadCount > 0 && !showNotifications ? ' notification-bell--wiggle' : ''}`}
+              onClick={(e) => {
+                const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
+                setNotifAnchorRect(rect)
+                setShowNotifications(o => !o)
+              }}
               aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
             >
               <Bell size={20} />
               {unreadCount > 0 && (
-                <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                <span className="notification-badge" style={{
+                  position: 'absolute', top: 7, right: 7,
+                  minWidth: 8, height: 8, borderRadius: 99,
+                  background: '#ef4444', border: '1.5px solid var(--bg-primary)',
+                }} />
               )}
             </button>
-            {showNotifications && (
+            {showNotifications && notifAnchorRect && (
               <RightPanel
+                anchorRect={notifAnchorRect}
                 onClose={() => setShowNotifications(false)}
-                initialTab="notifications"
                 localNotifications={notifications}
                 onMoveToBlocked={handleMoveToBlocked}
                 onDismissLocal={dismissNotification}
@@ -770,48 +827,88 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="main-content">
-        {/* Render page based on currentPage */}
-        {currentPage === 'integrations' && (
-          <IntegrationsPage
-            initialTab={integrationsTab}
-            onTabChange={(tab) => navigate(`/integrations/${tab}`)}
-          />
+        {/* Keep-alive tabs: mount on first visit, hide (not unmount) when inactive */}
+        {mountedTabs.has('dashboard') && (
+          <div className={currentPage !== 'dashboard' ? 'dash-tab-hidden' : undefined}>
+            <SprintDashboardPage />
+          </div>
         )}
-        {currentPage === 'settings' && <SettingsPage />}
-        {currentPage === 'theme' && <ThemeSettingsPage />}
-        {currentPage === 'activity' && <ActivityPage />}
-        {currentPage === 'slack' && (
-          <SlackIntelligencePage
-            initialTab={slackTab}
-            onTabChange={(tab) => navigate(`/slack/${tab}`)}
-          />
+        {mountedTabs.has('board') && (
+          <div className={currentPage !== 'board' ? 'dash-tab-hidden' : undefined}>
+            <BoardPage />
+          </div>
         )}
-
-        {/* Dashboard Content */}
-        {currentPage === 'dashboard' && <SprintDashboardPage />}
-
-        {/* DayTrack */}
-        {currentPage === 'daytrack' && <DayTrackPage />}
-
-        {/* Board View */}
-        {currentPage === 'board' && <BoardPage />}
-
-        {/* Daily Ops */}
-        {currentPage === 'daily-ops' && <DailyOpsPage />}
-
-        {/* Bot Configuration */}
-        {currentPage === 'bots' && <BotConfigPage />}
-
-        {/* AI Analysis */}
-        {currentPage === 'ai-analysis' && (
-          <AIAnalysisPage onNavigateToDailyAnalysis={() => setCurrentPage('daily-analysis')} />
+        {mountedTabs.has('list') && (
+          <div className={currentPage !== 'list' ? 'dash-tab-hidden' : undefined}>
+            <ListViewPage />
+          </div>
         )}
-
-        {/* Daily Analysis View */}
-        {currentPage === 'daily-analysis' && <DailyAnalysisViewPage />}
-
-        {/* List View */}
-        {currentPage === 'list' && <ListViewPage />}
+        {mountedTabs.has('daily-ops') && (
+          <div className={currentPage !== 'daily-ops' ? 'dash-tab-hidden' : undefined}>
+            <DailyOpsPage />
+          </div>
+        )}
+        {mountedTabs.has('daytrack') && (
+          <div className={currentPage !== 'daytrack' ? 'dash-tab-hidden' : undefined}>
+            <DayTrackPage />
+          </div>
+        )}
+        {mountedTabs.has('activity') && (
+          <div className={currentPage !== 'activity' ? 'dash-tab-hidden' : undefined}>
+            <ActivityPage />
+          </div>
+        )}
+        {mountedTabs.has('pm-reports') && (
+          <div className={currentPage !== 'pm-reports' ? 'dash-tab-hidden' : undefined}>
+            <PMReportsPage
+              initialTab={pmReportsTab}
+              onTabChange={(tab) => navigate(`/pm-reports/${tab}`)}
+            />
+          </div>
+        )}
+        {mountedTabs.has('slack') && (
+          <div className={currentPage !== 'slack' ? 'dash-tab-hidden' : undefined}>
+            <SlackIntelligencePage
+              initialTab={slackTab}
+              onTabChange={(tab) => navigate(`/slack/${tab}`)}
+              onOpenPMAssistant={() => setChatOpen(true)}
+            />
+          </div>
+        )}
+        {mountedTabs.has('ai-analysis') && (
+          <div className={currentPage !== 'ai-analysis' ? 'dash-tab-hidden' : undefined}>
+            <AIAnalysisPage onNavigateToDailyAnalysis={() => setCurrentPage('daily-analysis')} />
+          </div>
+        )}
+        {mountedTabs.has('daily-analysis') && (
+          <div className={currentPage !== 'daily-analysis' ? 'dash-tab-hidden' : undefined}>
+            <DailyAnalysisViewPage />
+          </div>
+        )}
+        {mountedTabs.has('integrations') && (
+          <div className={currentPage !== 'integrations' ? 'dash-tab-hidden' : undefined}>
+            <IntegrationsPage
+              initialTab={integrationsTab}
+              onTabChange={(tab) => navigate(`/integrations/${tab}`)}
+              userRole={user?.role}
+            />
+          </div>
+        )}
+        {mountedTabs.has('settings') && (
+          <div className={currentPage !== 'settings' ? 'dash-tab-hidden' : undefined}>
+            <SettingsPage />
+          </div>
+        )}
+        {mountedTabs.has('bots') && (
+          <div className={currentPage !== 'bots' ? 'dash-tab-hidden' : undefined}>
+            <BotConfigPage />
+          </div>
+        )}
+        {mountedTabs.has('theme') && (
+          <div className={currentPage !== 'theme' ? 'dash-tab-hidden' : undefined}>
+            <ThemeSettingsPage />
+          </div>
+        )}
 
         {/* Calendar Placeholder */}
         {currentPage === 'calendar' && (
@@ -865,15 +962,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* PM Reports */}
-        {currentPage === 'pm-reports' && (
-          <PMReportsPage
-            initialTab={pmReportsTab}
-            onTabChange={(tab) => navigate(`/pm-reports/${tab}`)}
-          />
-        )}
-
-        {/* Team Placeholder */}
+        {/* Lightweight placeholder pages — no data fetching, no keep-alive needed */}
         {currentPage === 'team' && (
           <div className="coming-soon">
             <Users size={48} />
@@ -887,7 +976,7 @@ export default function Dashboard() {
       {showNewTask && (
         <CreateIssueModal
           onClose={() => setShowNewTask(false)}
-          onCreated={() => setShowNewTask(false)}
+          onCreated={() => {}}
         />
       )}
 

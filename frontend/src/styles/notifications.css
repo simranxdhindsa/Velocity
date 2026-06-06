@@ -106,22 +106,164 @@
   margin-top: 6px;
 }
 
-/* ── Right panel ────────────────────────────────────────── */
-.right-panel {
-  position: fixed; top: 0; right: 0;
-  height: 100vh; width: 360px;
-  background: rgba(8,6,26,0.96);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-left: 1px solid rgba(255,255,255,0.07);
-  z-index: 200;
-  box-shadow: -4px 0 32px rgba(0,0,0,0.5);
-  display: flex; flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.3s ease;
-  animation: slideInRight var(--transition-normal) var(--ease-out);
+/* ── Notification panel (portal popover) ────────────────── */
+
+@keyframes npDropIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.right-panel.open { transform: translateX(0); }
+@keyframes npBadgePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+  50%       { transform: scale(1.12); box-shadow: 0 0 0 4px rgba(239,68,68,0); }
+}
+@keyframes npBellWiggle {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(-12deg); }
+  40% { transform: rotate(10deg); }
+  60% { transform: rotate(-6deg); }
+  80% { transform: rotate(3deg); }
+}
+@keyframes npRowExit {
+  to { opacity: 0; transform: translateX(12px); max-height: 0; padding-top: 0; padding-bottom: 0; }
+}
+
+.np-panel {
+  position: fixed;
+  width: 380px;
+  max-height: 480px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--glass-border-hover);
+  border-radius: 16px;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.25);
+  overflow: hidden;
+  animation: npDropIn 200ms cubic-bezier(0.16,1,0.3,1) both;
+  transform-origin: top right;
+
+  --np-surface: var(--glass-bg);
+  --np-border:  var(--glass-border);
+}
+
+[data-theme="light"] .np-panel {
+  box-shadow: 0 16px 48px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.05);
+}
+
+/* Arrow pointer */
+.np-arrow {
+  position: absolute;
+  top: -6px;
+  right: var(--arrow-right, 22px);
+  width: 12px; height: 12px;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--glass-border-hover);
+  border-top: 1px solid var(--glass-border-hover);
+  transform: rotate(45deg);
+  border-radius: 3px 0 0 0;
+}
+
+/* Header */
+.np-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+.np-title {
+  font-size: 14.5px; font-weight: 700;
+  color: var(--text-primary);
+}
+.np-unread-badge {
+  font-size: 10.5px; font-weight: 700;
+  color: var(--color-danger, #f87171); background: rgba(239,68,68,0.13);
+  padding: 1px 7px; border-radius: 99px;
+  font-family: monospace;
+}
+
+/* Tabs */
+.np-tabs {
+  display: flex; gap: 6px; padding: 10px 14px;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+.np-tab {
+  padding: 4px 13px; border-radius: 99px;
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: all 150ms ease; font-family: inherit;
+}
+.np-tab--active {
+  border-color: rgba(var(--color-primary-rgb, 99,102,241), 0.4);
+  background: rgba(var(--color-primary-rgb, 99,102,241), 0.15);
+  color: var(--color-primary-light, #818cf8);
+}
+
+/* List */
+.np-list { flex: 1; overflow-y: auto; min-height: 0; }
+
+.np-row { transition: background 140ms ease; }
+.np-row:hover { background: var(--bg-hover) !important; }
+.np-row--exit { animation: npRowExit 260ms ease forwards; overflow: hidden; }
+
+/* Action buttons */
+.np-action-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 11px; border-radius: 7px;
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  white-space: nowrap; transition: all 140ms ease; font-family: inherit;
+}
+.np-action-btn:hover { filter: brightness(1.18); transform: translateY(-1px); }
+.np-action-btn--primary {
+  background: rgba(var(--np-accent-rgb, 99,102,241), 0.15);
+  border: 1px solid rgba(var(--np-accent-rgb, 99,102,241), 0.4);
+  color: var(--np-accent-color, var(--color-primary-light));
+}
+.np-action-btn--ghost {
+  background: transparent;
+  border: 1px solid var(--glass-border-hover);
+  color: var(--text-muted);
+}
+.np-mark-all { font-size: 11px; font-weight: 500; }
+
+/* Icon button */
+.np-icon-btn {
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none;
+  color: var(--text-muted); cursor: pointer;
+  transition: all 140ms ease;
+}
+.np-icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Empty state */
+.np-empty {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 48px 24px; gap: 14px; text-align: center;
+  color: var(--text-muted);
+}
+.np-empty-title { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
+.np-empty-sub   { font-size: 12px; color: var(--text-muted); }
+
+/* Load more */
+.np-load-more {
+  display: block; width: 100%; padding: 12px;
+  background: transparent; border: none;
+  border-top: 1px solid var(--glass-border);
+  color: var(--color-primary-light); font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: background 150ms ease; font-family: inherit;
+}
+.np-load-more:hover { background: var(--bg-hover); }
+
+/* Bell badge pulse */
+.notification-badge { animation: npBadgePulse 2s ease-in-out infinite; }
+
+/* Bell wiggle when unread + closed */
+.notification-bell--wiggle { animation: npBellWiggle 2.5s ease-in-out 1s infinite; }
 
 .rp-header {
   display: flex;

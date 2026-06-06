@@ -1151,6 +1151,70 @@
   opacity: 1;
 }
 
+/* ── Developers tab ──────────────────────────────────────────────────────── */
+.dev-cfg-empty {
+  color: var(--text-muted); font-size: 0.9rem; padding: 2rem 0; text-align: center;
+}
+.dev-cfg-wrap { overflow-x: auto; }
+.dev-cfg-table { width: 100%; border-spacing: 0; }
+.dev-cfg-header, .dev-cfg-row {
+  display: flex; align-items: stretch;
+}
+.dev-cfg-header > div {
+  padding: 0.5rem 0.6rem; flex-shrink: 0;
+  font-size: 0.72rem; font-weight: 600; color: var(--text-muted);
+  border-bottom: 1px solid var(--glass-border);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dev-cfg-row { border-bottom: 1px solid rgba(255,255,255,0.04); }
+.dev-cfg-row:last-child { border-bottom: none; }
+.dev-cfg-row:hover { background: var(--bg-hover); }
+.dev-cfg-row > div { display: flex; align-items: center; padding: 0.55rem 0.6rem; flex-shrink: 0; }
+.dev-cfg-col-dev { width: 200px; gap: 0.6rem; }
+.dev-cfg-col-sub { width: 72px; justify-content: center; }
+.dev-cfg-avatar {
+  width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+}
+.dev-cfg-avatar-init {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(139,92,246,0.22); color: rgba(139,92,246,0.9);
+  font-size: 0.72rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.dev-cfg-name { font-size: 0.86rem; color: var(--text-primary); white-space: nowrap; }
+.dev-cfg-check {
+  width: 20px; height: 20px; border-radius: 5px; cursor: pointer;
+  background: rgba(255,255,255,0.05); border: 1.5px solid var(--glass-border);
+  transition: all 0.12s; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; font-weight: 700; color: transparent;
+}
+.dev-cfg-check:hover { border-color: rgba(139,92,246,0.5); background: rgba(139,92,246,0.1); }
+.dev-cfg-check--on {
+  background: rgba(139,92,246,0.25); border-color: rgba(139,92,246,0.7); color: #a78bfa;
+}
+.dev-cfg-col-qa { width: 56px; justify-content: center; }
+.dev-cfg-check--qa.dev-cfg-check--on {
+  background: rgba(234,88,12,0.2); border-color: rgba(234,88,12,0.6); color: #fb923c;
+}
+.dev-cfg-check--qa:hover { border-color: rgba(234,88,12,0.4); background: rgba(234,88,12,0.08); }
+.dev-cfg-check:disabled { opacity: 0.3; cursor: not-allowed; }
+.dev-cfg-check:disabled:hover { border-color: var(--glass-border); background: rgba(255,255,255,0.05); }
+.dev-cfg-qa-badge {
+  font-size: 0.6rem; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+  background: rgba(234,88,12,0.18); color: #fb923c;
+  letter-spacing: 0.04em; margin-left: 2px; flex-shrink: 0;
+}
+.dev-cfg-row--qa { opacity: 0.75; }
+[data-theme="light"] .dev-cfg-check { background: #f8fafc; border-color: rgba(99,102,241,0.2); }
+[data-theme="light"] .dev-cfg-check:hover { border-color: #6366f1; background: rgba(99,102,241,0.06); }
+[data-theme="light"] .dev-cfg-check--on { background: rgba(99,102,241,0.12); border-color: #6366f1; color: #4f46e5; }
+[data-theme="light"] .dev-cfg-check--qa.dev-cfg-check--on { background: rgba(234,88,12,0.12); border-color: #ea580c; color: #ea580c; }
+[data-theme="light"] .dev-cfg-qa-badge { background: rgba(234,88,12,0.1); color: #ea580c; }
+[data-theme="light"] .dev-cfg-name { color: #1e293b; }
+[data-theme="light"] .dev-cfg-row > div { border-bottom-color: rgba(99,102,241,0.08); }
+
 /* Light mode overrides */
 [data-theme="light"] .int-content {
   background: rgba(255, 255, 255, 0.85);

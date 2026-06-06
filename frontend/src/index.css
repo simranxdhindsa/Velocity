@@ -37,14 +37,22 @@
 @import "./styles/pages/activity.css";
 @import "./styles/pages/reminders.css";
 @import "./styles/pages/settings.css";
+@import "./styles/pages/no-access.css";
+@import "./styles/pages/gateway-error.css";
 @import "./styles/pages/admin.css";
 @import "./styles/pages/reports.css";
 @import "./styles/pages/bot-config.css";
 @import "./styles/pages/daytrack.css";
 @import "./styles/pages/calendar.css";
+@import "./styles/pages/dev-time.css";
+@import "./styles/pages/feature-groups.css";
 
 @import "./styles/pages/theme-customizer.css";
 @import "./styles/pages/theme-settings.css";
+
+/* ── Shared component overlays ── */
+@import "./styles/components/hover-card.css";
+@import "./styles/components/stat-carousel.css";
 
 /* ── Light mode theme overrides (must be last) ── */
 @import "./styles/theme-light.css";

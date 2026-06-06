@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
+import HoverCard, { HCRow, HCBar, HCDivider, HCBadge } from '../components/HoverCard'
 import DeploymentProjectBrowser from '../components/deployment/DeploymentProjectBrowser'
 import DeploymentTicketInput from '../components/deployment/DeploymentTicketInput'
 import DeploymentTicketList from '../components/deployment/DeploymentTicketList'
@@ -11,7 +13,7 @@ import { extractPriority, detectPlatform, stripPrefix } from '../components/depl
 import type { DeploymentBotConfig, DeploymentSectionConfig } from '../services/api'
 import { createPortal } from 'react-dom'
 import {
-  MessageSquare, Send, User, Bot, Loader2,
+  MessageSquare, Send, Bot, Loader2,
   FileText, Users, Clock, Copy, Check,
   RefreshCw, ChevronDown, AlertTriangle, TrendingUp,
   Calendar, Pin, PinOff, ChevronLeft, ChevronRight,
@@ -35,8 +37,13 @@ import {
   getActiveSource,
 } from '../services/pmDataService'
 import DailyOpsTab from './DailyOpsTab'
+import { StandupCompilerPage } from './StandupCompilerPage'
 import { IssueDetailPanel } from '../components/IssueDetailPanel'
+import DevTimeView from '../components/DevTimeView'
+import type { DevTimeVariant } from '../components/DevTimeView'
+import FeatureGroupsView from '../components/FeatureGroupsView'
 import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
+import { useAuth } from '../contexts/AuthContext'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -133,6 +140,7 @@ const TABS = [
   { id: 'assignees',   label: 'Assignee Stats',     icon: Users     },
   { id: 'dailyops',    label: 'Daily Ops',          icon: Zap       },
   { id: 'deployment',  label: 'Deployment Report',  icon: Rocket    },
+  { id: 'standup',     label: 'Compiler',           icon: Send      },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -290,6 +298,7 @@ const THINKING_PHRASES: { text: string; Icon: React.ElementType; key: string }[]
 ]
 
 export function PMAssistantTab() {
+  const { user } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -548,7 +557,11 @@ export function PMAssistantTab() {
         {messages.map(msg => (
           <div key={msg.id} className={`pm-chat-message pm-chat-${msg.role}`}>
             <div className="pm-chat-avatar">
-              {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+              {msg.role === 'user'
+                ? user?.picture
+                  ? <img src={user.picture} alt={user.name ?? 'You'} className="pm-chat-avatar-img" />
+                  : <span style={{ fontSize: '0.7rem', fontWeight: 700, lineHeight: 1 }}>{user?.name?.charAt(0).toUpperCase() ?? 'U'}</span>
+                : <Bot size={16} />}
             </div>
             <div className="pm-chat-bubble">
               {msg.role === 'assistant' ? (
@@ -1542,6 +1555,231 @@ function getInitialsFromName(name: string): string {
   return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
+// ── Hover card content builders ──────────────────────────────────────────────
+
+function ticketHoverContent(issue: SprintBoardIssue, slaHours?: number) {
+  const cycleLabel = issue.cycle_time_hours > 0 ? fmtHoursCompact(issue.cycle_time_hours) : null
+  const devLabel   = issue.total_active_hours > 0 ? fmtHoursCompact(issue.total_active_hours) : null
+  const stateLabel = issue.hours_in_state > 0 ? fmtHoursCompact(issue.hours_in_state) : null
+  const overdueAccent = issue.overdue_level === 'deadline' ? 'danger'
+    : (issue.overdue_level === 'sprint' || issue.is_delayed) ? 'warn' : undefined
+  const slaUsedPct = slaHours && slaHours > 0 ? Math.min(100, (issue.total_active_hours / slaHours) * 100) : null
+  const hasVerif = issue.verified_on_dev || issue.verified_on_stage || issue.verified_on_prod
+  return (
+    <div>
+      <div className="hc-title" style={{ marginBottom: 2 }}>
+        {issue.idReadable}
+        {issue.is_hotfix && <HCBadge label="HF" variant="warn" />}
+        {issue.issue_type && issue.issue_type.toLowerCase() !== 'task' && <HCBadge label={issue.issue_type} />}
+      </div>
+      <div className="hc-subtitle">{issue.summary}</div>
+      <HCDivider />
+      {stateLabel && <HCRow label="In state" value={stateLabel} accent={overdueAccent} />}
+      {slaUsedPct !== null && (
+        <div className="hc-row" style={{ gap: 6 }}>
+          <span className="hc-label">SLA</span>
+          <HCBar pct={slaUsedPct} color={slaUsedPct >= 100 ? '#f87171' : slaUsedPct > 70 ? '#fbbf24' : '#4ade80'} />
+          <span className="hc-value" style={{ fontSize: '0.65rem', whiteSpace: 'nowrap' }}>
+            {fmtHoursCompact(slaHours!)} limit
+          </span>
+        </div>
+      )}
+      {cycleLabel && <HCRow label="Cycle time" value={cycleLabel} />}
+      {devLabel && <HCRow label="Dev active" value={devLabel} />}
+      {issue.bounce_count > 0 && (
+        <HCRow
+          label="Bounces"
+          value={`${issue.bounce_count}×${issue.stint_count > 1 ? ` (${issue.stint_count} stints)` : ''}`}
+          accent="warn"
+        />
+      )}
+      {issue.move_type === 'qa_rejected' && <HCRow label="Flag" value="QA Rejected" accent="danger" />}
+      {issue.move_type === 'dev_stalled'  && <HCRow label="Flag" value="Dev Stalled"  accent="warn" />}
+      {hasVerif && (
+        <>
+          <HCDivider />
+          <div style={{ display: 'flex', gap: 4 }}>
+            {issue.verified_on_dev   && <HCBadge label={`DEV✓ ${issue.verified_on_dev}`}   variant="dev" />}
+            {issue.verified_on_stage && <HCBadge label={`STG✓ ${issue.verified_on_stage}`} variant="stg" />}
+            {issue.verified_on_prod  && <HCBadge label={`PRD✓ ${issue.verified_on_prod}`}  variant="prd" />}
+          </div>
+        </>
+      )}
+      {issue.from_state && issue.current_state && issue.from_state !== issue.current_state && (
+        <>
+          <HCDivider />
+          <div className="hc-label" style={{ fontSize: '0.65rem' }}>
+            {issue.from_state} → {issue.current_state}
+          </div>
+        </>
+      )}
+      {issue.assignee && (
+        <div className="hc-label" style={{ marginTop: 4 }}>👤 {issue.assignee}</div>
+      )}
+    </div>
+  )
+}
+
+function assigneeHoverContent(name: string, issues: SprintBoardIssue[]) {
+  const active  = issues.filter(i => i.current_state?.toLowerCase().includes('progress')).length
+  const blocked = issues.filter(i => i.current_state?.toLowerCase().includes('block')).length
+  const done    = issues.filter(i => {
+    const s = i.current_state?.toLowerCase() || ''
+    return s.includes('done') || s.includes('verified') || s.includes('deployed') || s.includes('closed')
+  }).length
+  const total = issues.length
+  const totalWork = issues.reduce((s, i) => s + (i.total_active_hours || 0), 0)
+  const overdue   = issues.filter(i => i.is_delayed && !i.current_state?.toLowerCase().includes('block')).length
+  return (
+    <div>
+      <div className="hc-title">{name}</div>
+      <div className="hc-subtitle">{total} ticket{total !== 1 ? 's' : ''} this sprint</div>
+      <HCDivider />
+      <HCRow label="Active"  value={active}  accent={active > 4 ? 'warn' : undefined} />
+      <HCRow label="Blocked" value={blocked} accent={blocked > 0 ? 'danger' : undefined} />
+      <HCRow label="Done"    value={done}    accent={done > 0 ? 'ok' : undefined} />
+      {overdue > 0 && <HCRow label="Overdue" value={overdue} accent="danger" />}
+      {totalWork > 0 && <HCRow label="Dev hours" value={fmtHoursCompact(totalWork)} />}
+      {total > 0 && (
+        <>
+          <HCDivider />
+          <div className="hc-stack">
+            {active  > 0 && <div className="hc-stack-seg hc-stack-seg--active"  style={{ flex: active }}  />}
+            {blocked > 0 && <div className="hc-stack-seg hc-stack-seg--blocked" style={{ flex: blocked }} />}
+            {done    > 0 && <div className="hc-stack-seg hc-stack-seg--done"    style={{ flex: done }}    />}
+            {Math.max(0, total - active - blocked - done) > 0 && (
+              <div className="hc-stack-seg hc-stack-seg--other" style={{ flex: total - active - blocked - done }} />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function columnHeaderHoverContent(col: SprintBoardColumn) {
+  const overdue  = col.issues.filter(i => i.overdue_level === 'deadline').length
+  const atrisk   = col.issues.filter(i => i.overdue_level === 'sprint' || (i.is_delayed && i.overdue_level !== 'deadline')).length
+  const blocked  = col.issues.filter(i => i.current_state?.toLowerCase().includes('block')).length
+  const ontrack  = col.issues.length - overdue - atrisk
+  const avgHrs   = col.issues.length > 0
+    ? col.issues.reduce((s, i) => s + (i.hours_in_state || 0), 0) / col.issues.length
+    : 0
+  return (
+    <div>
+      <div className="hc-title">{col.name}</div>
+      <div className="hc-subtitle">{col.issues.length} issue{col.issues.length !== 1 ? 's' : ''}</div>
+      {col.issues.length > 0 && (
+        <>
+          <HCDivider />
+          {overdue > 0  && <HCRow label="Overdue"  value={overdue}  accent="danger" />}
+          {atrisk  > 0  && <HCRow label="At risk"  value={atrisk}   accent="warn" />}
+          {blocked > 0  && <HCRow label="Blocked"  value={blocked}  accent="danger" />}
+          {ontrack > 0  && <HCRow label="On track" value={ontrack}  accent="ok" />}
+          {avgHrs  > 0  && <HCRow label="Avg time" value={fmtHoursCompact(avgHrs)} />}
+        </>
+      )}
+    </div>
+  )
+}
+
+function heatmapCellHoverContent(person: string, col: SprintBoardColumn, issues: SprintBoardIssue[]) {
+  return (
+    <div>
+      <div className="hc-title">{person} × {col.name}</div>
+      <div className="hc-subtitle">{issues.length} issue{issues.length !== 1 ? 's' : ''}</div>
+      <div className="hc-issue-list">
+        {issues.slice(0, 6).map(i => {
+          const dotClass = i.overdue_level === 'deadline' ? 'hc-issue-dot--overdue'
+            : (i.overdue_level === 'sprint' || i.is_delayed) ? 'hc-issue-dot--atrisk'
+            : i.current_state?.toLowerCase().includes('block') ? 'hc-issue-dot--blocked'
+            : 'hc-issue-dot--ok'
+          return (
+            <div key={i.idReadable} className="hc-issue-item">
+              <div className={`hc-issue-dot ${dotClass}`} />
+              <span className="hc-issue-id">{i.idReadable}</span>
+              <span className="hc-issue-summary">{i.summary}</span>
+              <span className="hc-label" style={{ whiteSpace: 'nowrap' }}>{fmtHoursCompact(i.hours_in_state)}</span>
+            </div>
+          )
+        })}
+        {issues.length > 6 && (
+          <div className="hc-label" style={{ marginTop: 2 }}>+{issues.length - 6} more</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function delayBarHoverContent(issue: SprintBoardIssue, workDays: number, bounceDays: number, reviewDays: number, slaDays: number) {
+  const totalDays = workDays + bounceDays + reviewDays
+  const overSla = slaDays > 0 && totalDays > slaDays
+  return (
+    <div>
+      <div className="hc-title">{issue.idReadable} — time breakdown</div>
+      <div className="hc-subtitle">{issue.summary}</div>
+      <HCDivider />
+      {workDays > 0 && (
+        <div>
+          <HCRow label="Working"     value={`${workDays.toFixed(1)}d`} />
+          <HCBar pct={(workDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="#6366f1" />
+        </div>
+      )}
+      {bounceDays > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <HCRow label="Bounce rework" value={`${bounceDays.toFixed(1)}d (${issue.bounce_count}×)`} accent="warn" />
+          <HCBar pct={(bounceDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="#f59e0b" />
+        </div>
+      )}
+      {reviewDays > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <HCRow label="Review/Idle" value={`${reviewDays.toFixed(1)}d`} />
+          <HCBar pct={(reviewDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="#818cf8" />
+        </div>
+      )}
+      {slaDays > 0 && (
+        <>
+          <HCDivider />
+          <HCRow
+            label={`SLA (${issue.priority})`}
+            value={`${slaDays.toFixed(1)}d`}
+          />
+          <HCRow
+            label="Status"
+            value={overSla ? `+${(totalDays - slaDays).toFixed(1)}d over` : `${(slaDays - totalDays).toFixed(1)}d left`}
+            accent={overSla ? 'danger' : 'ok'}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+function qaStageHoverContent(stage: 'DEV' | 'STAGE' | 'PROD', verifier: string, issue: SprintBoardIssue) {
+  const stageLabel = stage === 'DEV' ? 'Development' : stage === 'STAGE' ? 'Staging' : 'Production'
+  return (
+    <div>
+      <div className="hc-title">{stageLabel} Verification</div>
+      <HCDivider />
+      {verifier ? (
+        <>
+          <HCRow label="Verified by" value={verifier} accent="ok" />
+          <div className="hc-label" style={{ marginTop: 4 }}>✓ Passed {stageLabel}</div>
+        </>
+      ) : (
+        <div className="hc-label" style={{ marginTop: 2 }}>
+          ○ Awaiting {stageLabel} verification
+          {issue.total_active_hours > 0 && (
+            <div style={{ marginTop: 4 }}>
+              {fmtHoursCompact(issue.total_active_hours)} active dev time
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ttPriorityClass(p: string): string {
   const s = (p || '').toLowerCase()
   if (s === 'p0' || s.includes('critical') || s.includes('show-stopper')) return 'tt-pri tt-pri-p0'
@@ -1635,11 +1873,13 @@ function IssueDetailModal({
   logs,
   onClose,
   columnHierarchy,
+  ytBaseUrl,
 }: {
   issue: SprintBoardIssue
   logs: IssueStateLogEntry[]
   onClose: () => void
   columnHierarchy?: { state: string; rank: number }[]
+  ytBaseUrl?: string
 }) {
   const isBounce = (entry: IssueStateLogEntry) => {
     if (!columnHierarchy) return false
@@ -1663,7 +1903,14 @@ function IssueDetailModal({
       <div className="pm-tracking-detail-modal" onClick={e => e.stopPropagation()}>
         <div className="pm-tracking-detail-header">
           <div className="pm-tracking-detail-title">
-            <span className="pm-tracking-detail-id">{issue.idReadable}</span>
+            <span
+              className="pm-tracking-detail-id pm-tracking-issue-id--link"
+              onClick={() => {
+                const url = ytBaseUrl ? `${ytBaseUrl}/issue/${issue.idReadable}` : null
+                if (url) window.open(url, '_blank', 'noopener,noreferrer')
+              }}
+              title={`Open ${issue.idReadable} in YouTrack`}
+            >{issue.idReadable}</span>
             <span className="pm-tracking-detail-summary">{issue.summary}</span>
           </div>
           <button className="pm-tracking-detail-close" onClick={onClose} aria-label="Close">
@@ -1747,7 +1994,7 @@ function getColumnType(col: SprintBoardColumn): 'inprogress' | 'blocked' | 'comp
   return 'compact'
 }
 
-function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIssueIds?: Set<string>; sprintId?: string; sprintFinishMs?: number }) {
+function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs }: { blockerIssueIds?: Set<string>; sprintId?: string; sprintStartMs?: number; sprintFinishMs?: number }) {
   const [boardColumns, setBoardColumns] = useState<SprintBoardColumn[]>([])
   const [summary, setSummary] = useState<import('../services/api').SprintSummary | null>(null)
   const [loading, setLoading] = useState(false)
@@ -1760,7 +2007,14 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
   const [collapsedCols, setCollapsedCols] = useState<Set<string>>(new Set())
   const [allCollapsed, setAllCollapsed] = useState(false)
   const [avatarMap, setAvatarMap] = useState<Record<string, string>>({})
-  const [viewMode, setViewMode] = useState<'column' | 'assignee' | 'swimlane' | 'sidebar' | 'heatmap' | 'delay-bars' | 'alert-first' | 'split-pane' | 'focus' | 'qa-pipeline'>('column')
+  const [viewMode, setViewMode] = usePersistedState(PERSIST.TRACKING_VIEW, 'column' as 'column' | 'assignee' | 'swimlane' | 'sidebar' | 'heatmap' | 'delay-bars' | 'alert-first' | 'split-pane' | 'focus' | 'qa-pipeline' | 'dev-time' | 'feature-groups', {
+    validate: ['column', 'assignee', 'swimlane', 'sidebar', 'heatmap', 'delay-bars', 'alert-first', 'split-pane', 'focus', 'qa-pipeline', 'dev-time', 'feature-groups'],
+  })
+  const [devTimeVariant, setDevTimeVariant] = useState<DevTimeVariant>('a')
+  const [devTimeTimelines, setDevTimeTimelines] = useState<IssueTimeline[]>([])
+  const [featureGroups, setFeatureGroups] = useState<import('../services/api').FeatureGroup[]>([])
+  const [featureGroupsLoading, setFeatureGroupsLoading] = useState(false)
+  const featureGroupsSprintRef = useRef<string | undefined>(undefined)
   const [qaFilterMode, setQaFilterMode] = useState<'all' | 'needs-qa'>('all')
   const [viewModeOpen, setViewModeOpen] = useState(false)
   const [sidebarPerson, setSidebarPerson] = useState<string>('')
@@ -1769,6 +2023,8 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
   const [detailIssue, setDetailIssue] = useState<{ issue: SprintBoardIssue; logs: IssueStateLogEntry[] } | null>(null)
   const [ytDetailIssue, setYtDetailIssue] = useState<import('../services/api').YouTrackIssue | null>(null)
   const [ytDetailLoading, setYtDetailLoading] = useState(false)
+  const [ytBaseUrl, setYtBaseUrl] = useState('')
+  const [kpiDrawer, setKpiDrawer] = useState<'blocked' | 'bounced' | 'sprint' | 'completion' | 'in-progress' | null>(null)
   const assigneeRef = useRef<HTMLDivElement>(null)
   const sortRef = useRef<HTMLDivElement>(null)
   const viewModeRef = useRef<HTMLDivElement>(null)
@@ -1792,6 +2048,38 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
 
   useEffect(() => { fetchBoardStatus() }, [fetchBoardStatus])
   useEffect(() => { getAvatarMap().then(setAvatarMap) }, [])
+
+  // Reset feature groups cache when sprint changes so next switch re-fetches
+  useEffect(() => {
+    featureGroupsSprintRef.current = undefined
+    setFeatureGroups([])
+  }, [sprintId])
+
+  useEffect(() => {
+    if (viewMode !== 'dev-time') return
+    setDevTimeTimelines([])
+    getIssueTimelines(sprintStartMs, sprintFinishMs).then(res => setDevTimeTimelines(res.data ?? [])).catch(() => {})
+  }, [viewMode, sprintId, sprintStartMs, sprintFinishMs])
+
+  useEffect(() => {
+    if (viewMode !== 'feature-groups') return
+    if (!sprintId) return
+    // skip if we already have data for this sprint
+    if (featureGroupsSprintRef.current === sprintId) return
+    featureGroupsSprintRef.current = sprintId
+    setFeatureGroupsLoading(true)
+    api.getFeatureGroups(sprintId)
+      .then(res => setFeatureGroups((res as any).data ?? []))
+      .catch(() => {})
+      .finally(() => setFeatureGroupsLoading(false))
+  }, [viewMode, sprintId])
+
+  useEffect(() => {
+    api.getYouTrackIntegration().then(res => {
+      const d = (res as any)
+      setYtBaseUrl((d?.base_url || d?.data?.base_url || '').replace(/\/$/, ''))
+    }).catch(() => {})
+  }, [])
 
   // ── Close dropdowns on outside click ─────────────────────────────────────
   useEffect(() => {
@@ -1866,7 +2154,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
     })
   }, [sortField, PRIORITY_ORDER])
 
-  // ── Open YT issue detail (same panel as board view) ──────────────────────
+  // ── Open YT issue detail panel (title click) ──────────────────────────────
   const openYtIssue = useCallback(async (idReadable: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (ytDetailLoading) return
@@ -1878,6 +2166,14 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
     } catch {}
     finally { setYtDetailLoading(false) }
   }, [ytDetailLoading])
+
+  // ── Open ticket ID in YouTrack (ID click) ────────────────────────────────
+  const openInYouTrack = useCallback((idReadable: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!idReadable) return
+    const url = ytBaseUrl ? `${ytBaseUrl}/issue/${idReadable}` : null
+    if (url) window.open(url, '_blank', 'noopener,noreferrer')
+  }, [ytBaseUrl])
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const allAssignees = useMemo(() => {
@@ -2026,12 +2322,45 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
     filteredColumns.filter(c => c.name?.toLowerCase().includes('block')).flatMap(c => c.issues),
   [filteredColumns])
 
+  const allBouncedIssues = useMemo(() =>
+    filteredColumns.flatMap(c => c.issues).filter(i => i.bounce_count > 0)
+      .sort((a, b) => b.bounce_count - a.bounce_count),
+  [filteredColumns])
+
   const allInProgressIssues = useMemo(() =>
     filteredColumns.filter(c => {
       const n = c.name?.toLowerCase() || ''
       return n.includes('progress') || n === 'inprogress'
     }).flatMap(c => c.issues),
   [filteredColumns])
+
+  // ── Feature delivery alert (alert-first view) ────────────────────────────
+  const featureAlertData = useMemo(() => {
+    if (!sprintFinishMs) return null
+    const daysLeft = Math.ceil((sprintFinishMs - Date.now()) / 86400000)
+    if (daysLeft > 4 || daysLeft < 0) return null
+
+    const allIssues = filteredColumns.flatMap(c => c.issues)
+    const hasTypes  = allIssues.some(i => !!i.issue_type)
+    if (!hasTypes) return null
+
+    const isTypeFeat = (t: string) => {
+      const s = (t || '').toLowerCase()
+      return s.includes('feature') || s.includes('story') || s.includes('epic')
+    }
+    const isDone = (state: string) => {
+      const s = (state || '').toLowerCase()
+      return s.includes('done') || s.includes('clos') || s.includes('deploy') ||
+             s.includes('verif') || s.includes('prod') || s.includes('stage')
+    }
+    const isActive = (state: string) => (state || '').toLowerCase().includes('progress')
+
+    const notStarted = allIssues.filter(i =>
+      isTypeFeat(i.issue_type) && !isDone(i.current_state) && !isActive(i.current_state)
+    )
+    if (notStarted.length === 0) return null
+    return { daysLeft, notStarted }
+  }, [filteredColumns, sprintFinishMs])
 
   // ── QA Pipeline: all issues sorted for the QA view ──────────────────────
   const qaAllIssues = useMemo(() => {
@@ -2063,7 +2392,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
   }, [filteredColumns])
 
   // ── Issue row renderer (shared by column + assignee views) ────────────────
-  const renderIssueRow = (issue: SprintBoardIssue) => {
+  const renderIssueRow = (issue: SprintBoardIssue, showState = false) => {
     const avatarUrl = issue.avatarUrl || avatarMap[issue.assignee] || avatarMap[issue.assigneeLogin]
     const isExpanded = expandedIssue === issue.idReadable
     const overdueClass = issue.overdue_level === 'deadline' ? ' pm-tracking-issue-row--overdue-deadline'
@@ -2076,18 +2405,18 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
     const devTimeLabel = issue.total_active_hours > 0 ? fmtHoursCompact(issue.total_active_hours) : null
     const cycleLabel = issue.cycle_time_hours > 0 ? fmtHoursCompact(issue.cycle_time_hours) : null
     return (
-      <React.Fragment key={issue.id}>
+      <HoverCard key={issue.id} content={ticketHoverContent(issue)}>
+      <React.Fragment>
         <div
           className={`pm-tracking-issue-row pm-tracking-issue-row--clickable${overdueClass}${bounceClass}${hotfixClass}${blockerIssueIds?.has(issue.idReadable) ? ' pm-tracking-issue-row--blocked' : ''}${isExpanded ? ' pm-tracking-issue-row--expanded' : ''}`}
           onClick={() => setExpandedIssue(isExpanded ? null : issue.idReadable)}
         >
-          {/* Ticket ID — click opens YT detail panel */}
+          {/* Ticket ID — click opens in YouTrack */}
           <span
             className="pm-tracking-issue-id pm-tracking-issue-id--link"
-            title={`Open ${issue.idReadable} in detail view`}
-            onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}
+            title={`Open ${issue.idReadable} in YouTrack`}
+            onClick={(e) => openInYouTrack(issue.idReadable || issue.id, e)}
           >
-            {ytDetailLoading ? <Loader2 size={10} className="animate-spin" /> : null}
             {issue.idReadable || issue.id}
           </span>
           {/* Priority — dynamic YT colors */}
@@ -2097,7 +2426,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
           >
             {issue.priority}
           </span>
-          <span className="pm-tracking-issue-summary" title={issue.summary}>
+          <span
+            className="pm-tracking-issue-summary pm-tracking-issue-summary--clickable"
+            title={`Open ${issue.idReadable} details`}
+            onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}
+          >
             {issue.summary}
             {issue.bounce_count > 0 && (
               <span className="pm-tracking-bounce-badge" title={`${issue.bounce_count} backward move${issue.bounce_count > 1 ? 's' : ''}${issue.stint_count > 1 ? ` · picked up ${issue.stint_count}×` : ''}`}>
@@ -2109,7 +2442,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                 <Zap size={9} /> HF
               </span>
             )}
-            {issue.issue_type && issue.issue_type.toLowerCase() !== 'task' && issue.issue_type.toLowerCase() !== 'bug' && (
+            {issue.issue_type && (
               <span className={`pm-tracking-type-badge pm-tracking-type-badge--${issue.issue_type.toLowerCase().replace(/\s+/g, '-')}`}>
                 {issue.issue_type}
               </span>
@@ -2144,7 +2477,19 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
               <span className="pm-tracking-verif-chip pm-tracking-verif-chip--prod" title={`Prod verified by ${issue.verified_on_prod}`}>PRD✓</span>
             )}
           </span>
-          {issue.assignee ? (
+          {showState ? (
+            <span className="pm-tracking-assignee-cell pm-tracking-state-chip" data-state-role={
+              (issue.current_state || '').toLowerCase().includes('progress') ? 'active'
+              : (issue.current_state || '').toLowerCase().includes('block') ? 'blocked'
+              : (issue.current_state || '').toLowerCase().includes('verified') ? 'verified'
+              : (issue.current_state || '').toLowerCase().includes('prod') ? 'prod'
+              : (issue.current_state || '').toLowerCase().includes('dev') ? 'dev'
+              : (issue.current_state || '').toLowerCase().includes('done') ? 'done'
+              : 'default'
+            }>
+              {issue.current_state || '—'}
+            </span>
+          ) : issue.assignee ? (
             <div className="pm-tracking-assignee-cell">
               {avatarUrl
                 ? <img className="pm-tracking-avatar" src={avatarUrl} alt={issue.assignee} onError={(e) => { (e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).nextElementSibling?.removeAttribute('style') }} />
@@ -2167,6 +2512,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
           </div>
         )}
       </React.Fragment>
+      </HoverCard>
     )
   }
 
@@ -2182,10 +2528,15 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
     const statClass = issue.overdue_level === 'deadline' ? ' pm-tracking-ip-stat-value--crit'
       : (issue.overdue_level === 'sprint' || issue.is_delayed) ? ' pm-tracking-ip-stat-value--warn' : ''
     return (
-      <React.Fragment key={issue.id || issue.idReadable}>
+      <HoverCard key={issue.id || issue.idReadable} content={ticketHoverContent(issue)} maxWidth={280}>
+      <React.Fragment>
         <div className={`pm-tracking-ip-card${urgencyClass}`} onClick={() => setExpandedIssue(isExpanded ? null : issue.idReadable)}>
           <div className="pm-tracking-ip-card-top">
-            <span className="pm-tracking-ip-card-id" onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}>
+            <span
+              className="pm-tracking-ip-card-id"
+              onClick={(e) => openInYouTrack(issue.idReadable || issue.id, e)}
+              title={`Open ${issue.idReadable} in YouTrack`}
+            >
               {issue.idReadable}
             </span>
             <div className="pm-tracking-ip-card-badges">
@@ -2197,7 +2548,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
               {issue.is_hotfix && <span className="pm-tracking-hotfix-chip"><Zap size={8} /> HF</span>}
             </div>
           </div>
-          <div className="pm-tracking-ip-card-title">{issue.summary}</div>
+          <div
+            className="pm-tracking-ip-card-title pm-tracking-ip-card-title--clickable"
+            onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}
+            title={`View ${issue.idReadable} details`}
+          >{issue.summary}</div>
           <div className="pm-tracking-ip-card-tags">
             {issue.bounce_count > 0 && <span className="pm-tracking-ip-card-tag pm-tracking-ip-card-tag--bounce">↩ Bounced ×{issue.bounce_count}</span>}
             {issue.move_type === 'qa_rejected' && <span className="pm-tracking-ip-card-tag pm-tracking-ip-card-tag--qa">QA Rejected</span>}
@@ -2248,6 +2603,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
           )}
         </div>
       </React.Fragment>
+      </HoverCard>
     )
   }
 
@@ -2260,9 +2616,14 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
     const rowClass = issue.overdue_level === 'deadline' ? ' pm-tracking-blocked-row--crit'
       : (issue.overdue_level === 'sprint' || issue.is_delayed) ? ' pm-tracking-blocked-row--warn' : ''
     return (
-      <div key={issue.idReadable} className={`pm-tracking-blocked-row${rowClass}`}
+      <HoverCard key={issue.idReadable} content={ticketHoverContent(issue)} maxWidth={280}>
+      <div className={`pm-tracking-blocked-row${rowClass}`}
         onClick={() => setExpandedIssue(expandedIssue === issue.idReadable ? null : issue.idReadable)}>
-        <span className="pm-tracking-blocked-id">{issue.idReadable}</span>
+        <span
+          className="pm-tracking-blocked-id pm-tracking-issue-id--link"
+          onClick={(e) => openInYouTrack(issue.idReadable, e)}
+          title={`Open ${issue.idReadable} in YouTrack`}
+        >{issue.idReadable}</span>
         <span className="pm-tracking-blocked-pri">
           {issue.priority && (
             <span className="pm-tracking-pri-badge" style={priColors ? { background: priColors.bg, color: priColors.text } : undefined}>
@@ -2271,7 +2632,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
           )}
         </span>
         <div className="pm-tracking-blocked-title">
-          <span className="pm-tracking-blocked-title-text" title={issue.summary}>{issue.summary}</span>
+          <span
+            className="pm-tracking-blocked-title-text pm-tracking-issue-summary--clickable"
+            title={`View ${issue.idReadable} details`}
+            onClick={(e) => openYtIssue(issue.idReadable, e)}
+          >{issue.summary}</span>
           {issue.bounce_count > 0 && <span className="pm-tracking-bounce-badge">↩{issue.bounce_count}</span>}
           {issue.is_hotfix && <span className="pm-tracking-hotfix-chip"><Zap size={8} /></span>}
         </div>
@@ -2284,6 +2649,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
           <span className="pm-tracking-blocked-assignee-name">{issue.assignee}</span>
         </div>
       </div>
+      </HoverCard>
     )
   }
 
@@ -2309,6 +2675,8 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
               { id: 'split-pane',  label: 'Split Pane',  icon: <Gauge size={11} /> },
               { id: 'focus',       label: 'Focus Mode',  icon: <ScanSearch size={11} /> },
               { id: 'qa-pipeline', label: 'QA Pipeline', icon: <ShieldCheck size={11} /> },
+              { id: 'dev-time',       label: 'Dev Time',       icon: <Clock size={11} /> },
+              { id: 'feature-groups', label: 'Feature Groups', icon: <Network size={11} /> },
             ] as const
             const current = VIEW_MODES.find(m => m.id === viewMode) || VIEW_MODES[0]
             return (
@@ -2381,7 +2749,8 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
       {summary && (
         <div className="pm-tracking-kpi-row">
           {/* Completion */}
-          <div className="pm-tracking-kpi pm-tracking-kpi--green">
+          <button className={`pm-tracking-kpi pm-tracking-kpi--green pm-tracking-kpi--clickable${kpiDrawer === 'completion' ? ' pm-tracking-kpi--active' : ''}`}
+            onClick={() => setKpiDrawer(kpiDrawer === 'completion' ? null : 'completion')}>
             <div className="pm-tracking-kpi-lbl">Completion</div>
             <div className="pm-tracking-kpi-val">
               {Math.round(summary.completion_pct)}<span className="pm-tracking-kpi-unit">%</span>
@@ -2390,26 +2759,224 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
               <div className="pm-tracking-kpi-prog-f" style={{ width: `${Math.round(summary.completion_pct)}%` }} />
             </div>
             <div className="pm-tracking-kpi-note">{summary.done_issues} / {summary.total_issues} tickets</div>
-          </div>
+          </button>
+          {/* In Progress */}
+          <button className={`pm-tracking-kpi pm-tracking-kpi--blue pm-tracking-kpi--clickable${kpiDrawer === 'in-progress' ? ' pm-tracking-kpi--active' : ''}`}
+            onClick={() => setKpiDrawer(kpiDrawer === 'in-progress' ? null : 'in-progress')}>
+            <div className="pm-tracking-kpi-lbl">In Progress</div>
+            <div className="pm-tracking-kpi-val">{summary.in_progress_count}</div>
+            <div className="pm-tracking-kpi-note">{summary.overdue_count} overdue · {summary.blocked_count} blocked</div>
+          </button>
           {/* Blocked */}
-          <div className="pm-tracking-kpi pm-tracking-kpi--red">
+          <button className={`pm-tracking-kpi pm-tracking-kpi--red pm-tracking-kpi--clickable${kpiDrawer === 'blocked' ? ' pm-tracking-kpi--active' : ''}`}
+            onClick={() => setKpiDrawer(kpiDrawer === 'blocked' ? null : 'blocked')}>
             <div className="pm-tracking-kpi-lbl">Blocked</div>
             <div className="pm-tracking-kpi-val">{summary.blocked_count}</div>
             <div className="pm-tracking-kpi-note">{summary.in_progress_count} in progress · {summary.overdue_count} overdue</div>
-          </div>
+          </button>
           {/* Bounced */}
-          <div className="pm-tracking-kpi pm-tracking-kpi--amber">
+          <button className={`pm-tracking-kpi pm-tracking-kpi--amber pm-tracking-kpi--clickable${kpiDrawer === 'bounced' ? ' pm-tracking-kpi--active' : ''}`}
+            onClick={() => setKpiDrawer(kpiDrawer === 'bounced' ? null : 'bounced')}>
             <div className="pm-tracking-kpi-lbl">Bounced</div>
             <div className="pm-tracking-kpi-val">{summary.bounced_count}</div>
             <div className="pm-tracking-kpi-note">{summary.hotfix_count} hotfix{summary.hotfix_count !== 1 ? 'es' : ''} · backward moves</div>
-          </div>
+          </button>
           {/* Sprint Ends */}
-          <div className={`pm-tracking-kpi${sprintDeadlineLabel === 'OVERDUE' ? ' pm-tracking-kpi--red' : ' pm-tracking-kpi--amber'}`}>
+          <button className={`pm-tracking-kpi pm-tracking-kpi--clickable${kpiDrawer === 'sprint' ? ' pm-tracking-kpi--active' : ''}${sprintDeadlineLabel === 'OVERDUE' ? ' pm-tracking-kpi--red' : ' pm-tracking-kpi--amber'}`}
+            onClick={() => setKpiDrawer(kpiDrawer === 'sprint' ? null : 'sprint')}>
             <div className="pm-tracking-kpi-lbl">Sprint Ends</div>
             <div className={`pm-tracking-kpi-val${sprintDeadlineLabel === 'OVERDUE' ? ' pm-tracking-kpi-val--danger' : ''}`}>
               {sprintDeadlineLabel ?? '—'}
             </div>
             <div className="pm-tracking-kpi-note">{summary.overdue_count} ticket{summary.overdue_count !== 1 ? 's' : ''} overdue</div>
+          </button>
+        </div>
+      )}
+
+      {/* ── KPI Drawer ── */}
+      {kpiDrawer && summary && (
+        <div className="pm-kpi-drawer">
+          <div className="pm-kpi-drawer-header">
+            <span className="pm-kpi-drawer-title">
+              {kpiDrawer === 'in-progress' && `In Progress (${allInProgressIssues.length})`}
+              {kpiDrawer === 'blocked' && `Blocked Tickets (${allBlockedIssues.length})`}
+              {kpiDrawer === 'bounced' && `Bounced Tickets (${allBouncedIssues.length})`}
+              {kpiDrawer === 'completion' && 'Sprint Progress'}
+              {kpiDrawer === 'sprint' && 'Sprint Timeline'}
+            </span>
+            <button className="pm-kpi-drawer-close" onClick={() => setKpiDrawer(null)}><X size={13} /></button>
+          </div>
+          <div className="pm-kpi-drawer-body">
+
+            {/* ── In Progress ── */}
+            {kpiDrawer === 'in-progress' && (
+              allInProgressIssues.length === 0
+                ? <div className="pm-kpi-drawer-empty">No tickets in progress.</div>
+                : allInProgressIssues.map(issue => (
+                  <div key={issue.id} className="pm-kpi-drawer-row">
+                    <span className="pm-kpi-drawer-id pm-tracking-issue-id--link"
+                      onClick={(e) => openInYouTrack(issue.idReadable || issue.id, e)}>
+                      {issue.idReadable || issue.id}
+                    </span>
+                    <span className="pm-kpi-drawer-summary pm-tracking-issue-summary--clickable"
+                      onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}>
+                      {issue.summary}
+                    </span>
+                    {issue.assignee && <span className="pm-kpi-drawer-assignee">{issue.assignee}</span>}
+                    {issue.is_delayed && (
+                      <span className={`pm-kpi-drawer-chip pm-kpi-drawer-chip--${issue.overdue_level === 'deadline' ? 'danger' : 'warn'}`}>
+                        {issue.overdue_level || 'overdue'}
+                      </span>
+                    )}
+                    {issue.bounce_count > 0 && (
+                      <span className="pm-kpi-drawer-chip pm-kpi-drawer-chip--warn">↩ {issue.bounce_count}</span>
+                    )}
+                  </div>
+                ))
+            )}
+
+            {/* ── Blocked ── */}
+            {kpiDrawer === 'blocked' && (
+              allBlockedIssues.length === 0
+                ? <div className="pm-kpi-drawer-empty">No blocked tickets right now.</div>
+                : allBlockedIssues.map(issue => (
+                  <div key={issue.id} className="pm-kpi-drawer-row">
+                    <span className="pm-kpi-drawer-id pm-tracking-issue-id--link"
+                      onClick={(e) => openInYouTrack(issue.idReadable || issue.id, e)}>
+                      {issue.idReadable || issue.id}
+                    </span>
+                    <span className="pm-kpi-drawer-summary pm-tracking-issue-summary--clickable"
+                      onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}>
+                      {issue.summary}
+                    </span>
+                    {issue.assignee && <span className="pm-kpi-drawer-assignee">{issue.assignee}</span>}
+                    {(issue.total_active_hours || 0) > 0 && (
+                      <span className="pm-kpi-drawer-chip pm-kpi-drawer-chip--danger">
+                        {Math.round(issue.total_active_hours || 0)}h blocked
+                      </span>
+                    )}
+                  </div>
+                ))
+            )}
+
+            {/* ── Bounced ── */}
+            {kpiDrawer === 'bounced' && (
+              allBouncedIssues.length === 0
+                ? <div className="pm-kpi-drawer-empty">No bounced tickets.</div>
+                : allBouncedIssues.map(issue => (
+                  <div key={issue.id} className="pm-kpi-drawer-row">
+                    <span className="pm-kpi-drawer-id pm-tracking-issue-id--link"
+                      onClick={(e) => openInYouTrack(issue.idReadable || issue.id, e)}>
+                      {issue.idReadable || issue.id}
+                    </span>
+                    <span className="pm-kpi-drawer-summary pm-tracking-issue-summary--clickable"
+                      onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}>
+                      {issue.summary}
+                    </span>
+                    {issue.assignee && <span className="pm-kpi-drawer-assignee">{issue.assignee}</span>}
+                    <span className="pm-kpi-drawer-chip pm-kpi-drawer-chip--warn">↩ {issue.bounce_count}</span>
+                  </div>
+                ))
+            )}
+
+            {/* ── Completion ── */}
+            {kpiDrawer === 'completion' && (() => {
+              const pct = Math.round(summary.completion_pct)
+              const doneIds = new Set(
+                filteredColumns.filter(c => getColumnType(c) === 'compact').flatMap(c => c.issues.map(i => i.id))
+              )
+              const activeIds = new Set(
+                filteredColumns.filter(c => getColumnType(c) === 'inprogress').flatMap(c => c.issues.map(i => i.id))
+              )
+              return (
+                <div className="pm-kpi-drawer-completion">
+                  <div className="pm-kpi-drawer-prog-row">
+                    <span className="pm-kpi-drawer-prog-label">{summary.done_issues} / {summary.total_issues} done</span>
+                    <span className="pm-kpi-drawer-prog-pct">{pct}%</span>
+                  </div>
+                  <div className="pm-kpi-drawer-prog-track">
+                    <div className="pm-kpi-drawer-prog-fill pm-kpi-drawer-prog-fill--green" style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="pm-kpi-drawer-person-list">
+                    {byPersonList.map(person => {
+                      const done   = person.issues.filter(i => doneIds.has(i.id)).length
+                      const active = person.issues.filter(i => activeIds.has(i.id)).length
+                      const total  = person.issues.length
+                      const personPct = total > 0 ? Math.round((done / total) * 100) : 0
+                      const avatarSrc = person.avatarUrl || avatarMap[person.name] || avatarMap[person.login]
+                      return (
+                        <div key={person.name} className="pm-kpi-drawer-person-row">
+                          <div className="pm-kpi-drawer-avatar">
+                            {avatarSrc ? <img src={avatarSrc} alt="" /> : <span>{(person.name || '?')[0]}</span>}
+                          </div>
+                          <span className="pm-kpi-drawer-person-name">{person.name}</span>
+                          <div className="pm-kpi-drawer-mini-track">
+                            <div className="pm-kpi-drawer-mini-fill" style={{ width: `${personPct}%` }} />
+                          </div>
+                          <span className="pm-kpi-drawer-person-stats">{done} done · {active} active</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* ── Sprint ── */}
+            {kpiDrawer === 'sprint' && (() => {
+              const notStarted = Math.max(0, summary.total_issues - summary.done_issues - summary.in_progress_count - summary.blocked_count)
+              const segments = [
+                { label: 'Done', count: summary.done_issues, cls: 'green' },
+                { label: 'In Progress', count: summary.in_progress_count, cls: 'blue' },
+                { label: 'Blocked', count: summary.blocked_count, cls: 'red' },
+                { label: 'Not Started', count: notStarted, cls: 'muted' },
+              ]
+              const atRisk = allIssuesByDelay.filter(i => i.is_delayed)
+              return (
+                <div className="pm-kpi-drawer-sprint">
+                  <div className={`pm-kpi-drawer-sprint-countdown${sprintDeadlineLabel === 'OVERDUE' ? ' pm-kpi-drawer-sprint-countdown--danger' : ''}`}>
+                    {sprintDeadlineLabel === 'OVERDUE' ? '⚠ Sprint Overdue' : `⏱ ${sprintDeadlineLabel}`}
+                  </div>
+                  <div className="pm-kpi-drawer-sprint-segs">
+                    {segments.map(seg => (
+                      <div key={seg.label} className="pm-kpi-drawer-sprint-seg">
+                        <span className={`pm-kpi-drawer-sprint-seg-count pm-kpi-drawer-sprint-seg-count--${seg.cls}`}>{seg.count}</span>
+                        <div className="pm-kpi-drawer-sprint-bar">
+                          <div className={`pm-kpi-drawer-sprint-bar-fill pm-kpi-drawer-sprint-bar-fill--${seg.cls}`}
+                            style={{ width: `${summary.total_issues > 0 ? Math.round((seg.count / summary.total_issues) * 100) : 0}%` }} />
+                        </div>
+                        <span className="pm-kpi-drawer-sprint-seg-label">{seg.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {atRisk.length > 0 && (
+                    <>
+                      <div className="pm-kpi-drawer-at-risk-header">At Risk ({atRisk.length})</div>
+                      {atRisk.slice(0, 6).map(issue => (
+                        <div key={issue.id} className="pm-kpi-drawer-row">
+                          <span className="pm-kpi-drawer-id pm-tracking-issue-id--link"
+                            onClick={(e) => openInYouTrack(issue.idReadable || issue.id, e)}>
+                            {issue.idReadable || issue.id}
+                          </span>
+                          <span className="pm-kpi-drawer-summary pm-tracking-issue-summary--clickable"
+                            onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}>
+                            {issue.summary}
+                          </span>
+                          {issue.assignee && <span className="pm-kpi-drawer-assignee">{issue.assignee}</span>}
+                          {issue.overdue_level && (
+                            <span className={`pm-kpi-drawer-chip pm-kpi-drawer-chip--${issue.overdue_level === 'deadline' ? 'danger' : 'warn'}`}>
+                              {issue.overdue_level}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {atRisk.length === 0 && <div className="pm-kpi-drawer-empty">No at-risk tickets.</div>}
+                </div>
+              )
+            })()}
+
           </div>
         </div>
       )}
@@ -2441,6 +3008,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
               : colType === 'todo' ? '#4b5563' : '#3b82f6'
             return (
               <div key={col.name} className="pm-tracking-sec">
+                <HoverCard content={columnHeaderHoverContent(col)} delay={400}>
                 <div className="pm-tracking-sec-hdr" onClick={() => toggleColCollapse(col.name)}>
                   <div className="pm-tracking-sec-title">
                     <span className="pm-tracking-sec-dot" style={{ background: dotColor, boxShadow: colType === 'inprogress' ? `0 0 6px ${dotColor}` : colType === 'blocked' ? '0 0 6px #ef4444' : 'none' }} />
@@ -2457,6 +3025,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                     <ChevronDown size={13} className={`dropdown-chevron${isCollapsed ? '' : ' open'}`} />
                   </div>
                 </div>
+                </HoverCard>
                 {!isCollapsed && (
                   <div className="pm-tracking-sec-body">
                     {colType === 'inprogress' && (
@@ -2532,6 +3101,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
             }
             return (
               <div key={person.name} className="pm-tracking-swimlane-row">
+                <HoverCard content={assigneeHoverContent(person.name, person.issues)} delay={350} maxWidth={240}>
                 <div className="pm-tracking-swimlane-person">
                   <div className="pm-tracking-swimlane-person-header">
                     {avatarSrc
@@ -2542,29 +3112,23 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                   </div>
                   <span className="pm-tracking-swimlane-count">{total} ticket{total !== 1 ? 's' : ''}</span>
                 </div>
+                </HoverCard>
                 <div className="pm-tracking-swimlane-chips">
-                  {person.issues.map(i => {
-                    const tooltipParts = [i.summary]
-                    if (i.bounce_count > 0) tooltipParts.push(`↩${i.bounce_count} bounce${i.bounce_count !== 1 ? 's' : ''}`)
-                    if (i.total_active_hours > 0) tooltipParts.push(`${fmtHoursCompact(i.total_active_hours)} active`)
-                    if (i.verified_on_dev) tooltipParts.push(`DEV✓ ${i.verified_on_dev}`)
-                    if (i.verified_on_stage) tooltipParts.push(`STG✓ ${i.verified_on_stage}`)
-                    if (i.verified_on_prod) tooltipParts.push(`PRD✓ ${i.verified_on_prod}`)
-                    return (
+                  {person.issues.map(i => (
+                    <HoverCard key={i.idReadable} content={ticketHoverContent(i)} maxWidth={280}>
                       <span
-                        key={i.idReadable}
                         className={`pm-tracking-swimlane-chip ${getChipClass(i)}`}
-                        title={tooltipParts.join(' · ')}
-                        onClick={() => setExpandedIssue(expandedIssue === i.idReadable ? null : i.idReadable)}
+                        onClick={(e) => openInYouTrack(i.idReadable, e)}
                       >
                         {i.idReadable}
                         {i.bounce_count > 0 && <span className="pm-tracking-chip-bounce">↩{i.bounce_count}</span>}
                         {i.total_active_hours > 0 && isActive(i) && <span className="pm-tracking-chip-time">{fmtHoursCompact(i.total_active_hours)}</span>}
                         {qaLabel(i) && <span className="pm-tracking-chip-qa">{qaLabel(i)}</span>}
                       </span>
-                    )
-                  })}
+                    </HoverCard>
+                  ))}
                 </div>
+                <HoverCard content={assigneeHoverContent(person.name, person.issues)} delay={350}>
                 <div className="pm-tracking-swimlane-loadbar-wrap">
                   <div className="pm-tracking-swimlane-loadbar">
                     {total > 0 && <div className="pm-tracking-swimlane-seg pm-tracking-swimlane-seg--active" style={{ width: `${(activeCount / total) * 100}%` }} />}
@@ -2577,6 +3141,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                     <span>{total} total</span>
                   </div>
                 </div>
+                </HoverCard>
               </div>
             )
           })}
@@ -2599,8 +3164,8 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                 const idleCount = total - activeCount - blockedCount - devCount
                 const avatarSrc = person.avatarUrl || avatarMap[person.name] || avatarMap[person.login]
                 return (
+                  <HoverCard key={person.name} content={assigneeHoverContent(person.name, person.issues)} delay={350} maxWidth={230}>
                   <div
-                    key={person.name}
                     className={`pm-tracking-sidebar-person${activePerson === person.name ? ' active' : ''}`}
                     onClick={() => setSidebarPerson(person.name)}
                   >
@@ -2619,6 +3184,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                       </div>
                     </div>
                   </div>
+                  </HoverCard>
                 )
               })}
             </div>
@@ -2634,7 +3200,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                     <span className="pm-tracking-verif-badges pm-tracking-col-heading">Verified</span>
                     <span className="pm-tracking-assignee-cell pm-tracking-col-heading">Column</span>
                   </div>
-                  {selectedPersonData.issues.map(issue => renderIssueRow(issue))}
+                  {selectedPersonData.issues.map(issue => renderIssueRow(issue, true))}
                 </>
               ) : (
                 <div className="pm-tracking-sidebar-empty">Select a person to view their tickets</div>
@@ -2668,6 +3234,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                   const avatarSrc = person.avatarUrl || avatarMap[person.name] || avatarMap[person.login]
                   return (
                     <React.Fragment key={person.name}>
+                      <HoverCard content={assigneeHoverContent(person.name, person.issues)} delay={350} maxWidth={230}>
                       <div className="pm-tracking-heatmap-row-label">
                         {avatarSrc
                           ? <img className="pm-tracking-swimlane-avatar" src={avatarSrc} alt={person.name} style={{ width: 20, height: 20 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
@@ -2675,6 +3242,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                         }
                         {person.name}
                       </div>
+                      </HoverCard>
                       {filteredColumns.map(col => {
                         const count = col.issues.filter(i => (i.assignee || 'Unassigned') === person.name).length
                         const issues = col.issues.filter(i => (i.assignee || 'Unassigned') === person.name)
@@ -2685,9 +3253,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                           : hasRisk ? 'pm-tracking-heatmap-cell--atrisk'
                           : 'pm-tracking-heatmap-cell--ok'
                         return (
-                          <div key={col.name} className={`pm-tracking-heatmap-cell ${cellClass}`}>
+                          <HoverCard key={col.name} content={count > 0 ? heatmapCellHoverContent(person.name, col, issues) : null} delay={300} maxWidth={260}>
+                          <div className={`pm-tracking-heatmap-cell ${cellClass}`}>
                             {count > 0 ? count : '·'}
                           </div>
+                          </HoverCard>
                         )
                       })}
                     </React.Fragment>
@@ -2757,13 +3327,18 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
               const isExpanded = expandedIssue === issue.idReadable
               const priColors = priorityColorMap[issue.priority?.toLowerCase()] || null
               return (
-                <React.Fragment key={issue.idReadable}>
+                <HoverCard key={issue.idReadable} content={delayBarHoverContent(issue, workDays, bounceDays, reviewDays, slaDays)} maxWidth={290}>
+                <React.Fragment>
                   <div
                     className={`pm-tracking-delay-row${rowClass}`}
                     onClick={() => setExpandedIssue(isExpanded ? null : issue.idReadable)}
                   >
                     <span>{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
-                    <span className="pm-tracking-issue-id">{issue.idReadable}</span>
+                    <span
+                      className="pm-tracking-issue-id pm-tracking-issue-id--link"
+                      onClick={(e) => openInYouTrack(issue.idReadable, e)}
+                      title={`Open ${issue.idReadable} in YouTrack`}
+                    >{issue.idReadable}</span>
                     <span>
                       {issue.priority && (
                         <span className="pm-tracking-pri-badge" style={priColors ? { background: priColors.bg, color: priColors.text } : undefined}>
@@ -2772,7 +3347,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                       )}
                     </span>
                     <div className="pm-tracking-delay-title-cell">
-                      <span className="pm-tracking-delay-title-text" title={issue.summary}>{issue.summary}</span>
+                      <span
+                        className="pm-tracking-delay-title-text pm-tracking-delay-title-text--clickable"
+                        title={`View ${issue.idReadable} details`}
+                        onClick={(e) => openYtIssue(issue.idReadable, e)}
+                      >{issue.summary}</span>
                       {issue.bounce_count > 0 && <span className="pm-tracking-bounce-badge">↩{issue.bounce_count}</span>}
                       {issue.is_hotfix && <span className="pm-tracking-hotfix-chip">HF</span>}
                       {(issue.verified_on_dev || issue.verified_on_stage || issue.verified_on_prod) && (
@@ -2820,6 +3399,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                     </div>
                   )}
                 </React.Fragment>
+                </HoverCard>
               )
             })}
           </div>
@@ -2829,6 +3409,34 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
       {/* ── Alert-first view (Design 07) ── */}
       {!loading && viewMode === 'alert-first' && (
         <div className="pm-tracking-alert-layout">
+
+          {/* Feature delivery alert — shows when features haven't started and sprint ends soon */}
+          {featureAlertData && (
+            <div className="pm-tracking-feature-alert">
+              <div className="pm-tracking-feature-alert-header">
+                ⚠ {featureAlertData.notStarted.length} feature{featureAlertData.notStarted.length !== 1 ? 's' : ''} not started — sprint ends in {featureAlertData.daysLeft}d
+              </div>
+              <div className="pm-tracking-feature-alert-list">
+                {featureAlertData.notStarted.slice(0, 4).map(iss => (
+                  <div key={iss.idReadable} className="pm-tracking-feature-alert-row">
+                    <span
+                      className="pm-tracking-issue-id--link"
+                      onClick={(e) => openInYouTrack(iss.idReadable, e)}
+                      style={{ cursor: 'pointer', flexShrink: 0 }}
+                    >{iss.idReadable}</span>
+                    <span className="pm-tracking-feature-alert-title" title={iss.summary}>{iss.summary}</span>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-faint)', flexShrink: 0 }}>{iss.assignee?.split(' ')[0] || '—'}</span>
+                  </div>
+                ))}
+                {featureAlertData.notStarted.length > 4 && (
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-faint)', marginTop: 4 }}>
+                    +{featureAlertData.notStarted.length - 4} more
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="pm-tracking-alert-banner">
             <div className="pm-tracking-alert-banner-header">
               <span className="pm-tracking-alert-count">{allBlockedIssues.length}</span>
@@ -2840,17 +3448,33 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                   const rowUrgency = issue.overdue_level === 'deadline' ? '--critical' : '--atrisk'
                   const avatarSrc = issue.avatarUrl || avatarMap[issue.assignee] || avatarMap[issue.assigneeLogin]
                   return (
-                    <div key={issue.idReadable} className={`pm-tracking-alert-blocked-row pm-tracking-alert-blocked-row${rowUrgency}`}>
+                    <HoverCard key={issue.idReadable} content={ticketHoverContent(issue)} maxWidth={280}>
+                    <div className={`pm-tracking-alert-blocked-row pm-tracking-alert-blocked-row${rowUrgency}`}>
                       {avatarSrc
                         ? <img className="pm-tracking-swimlane-avatar" src={avatarSrc} alt={issue.assignee} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                         : <div className="pm-tracking-swimlane-avatar">{getInitialsFromName(issue.assignee)}</div>
                       }
                       <div className="pm-tracking-alert-blocked-info">
                         <div className="pm-tracking-alert-blocked-id">
-                          {issue.idReadable}
+                          <span
+                            className="pm-tracking-issue-id--link"
+                            onClick={(e) => openInYouTrack(issue.idReadable, e)}
+                            title={`Open ${issue.idReadable} in YouTrack`}
+                            style={{ cursor: 'pointer' }}
+                          >{issue.idReadable}</span>
+                          {issue.issue_type && (
+                            <span className={`pm-tracking-type-badge pm-tracking-type-badge--${issue.issue_type.toLowerCase().replace(/\s+/g, '-')}`} style={{ marginLeft: 4 }}>
+                              {issue.issue_type}
+                            </span>
+                          )}
                           {issue.bounce_count > 0 && <span className="pm-tracking-bounce-badge" style={{ marginLeft: 4 }}>↩{issue.bounce_count}</span>}
                         </div>
-                        <div className="pm-tracking-alert-blocked-title" title={issue.summary}>{issue.summary}</div>
+                        <div
+                          className="pm-tracking-alert-blocked-title"
+                          title={`View ${issue.idReadable} details`}
+                          onClick={(e) => openYtIssue(issue.idReadable, e)}
+                          style={{ cursor: 'pointer' }}
+                        >{issue.summary}</div>
                         {(issue.verified_on_dev || issue.verified_on_stage || issue.verified_on_prod) && (
                           <div className="pm-tracking-verif-badges" style={{ marginTop: 3 }}>
                             {issue.verified_on_dev && <span className="pm-tracking-verif-chip pm-tracking-verif-chip--dev" title={`DEV verified by ${issue.verified_on_dev}`}>DEV✓</span>}
@@ -2861,6 +3485,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                       </div>
                       <div className="pm-tracking-alert-blocked-time">{fmtHoursCompact(issue.hours_in_state)}</div>
                     </div>
+                    </HoverCard>
                   )
                 })}
               </div>
@@ -2885,7 +3510,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                       onClick={() => setExpandedIssue(isExpanded ? null : issue.idReadable)}
                     >
                       <div className="pm-tracking-alert-card-header">
-                        <span className="pm-tracking-alert-card-id">{issue.idReadable}</span>
+                        <span
+                          className="pm-tracking-alert-card-id pm-tracking-issue-id--link"
+                          onClick={(e) => openInYouTrack(issue.idReadable, e)}
+                          title={`Open ${issue.idReadable} in YouTrack`}
+                        >{issue.idReadable}</span>
                         {issue.priority && (
                           <span className="pm-tracking-pri-badge" style={priColors ? { background: priColors.bg, color: priColors.text } : undefined}>
                             {issue.priority}
@@ -2893,7 +3522,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                         )}
                         {issue.bounce_count > 0 && <span className="pm-tracking-bounce-badge">↩{issue.bounce_count}</span>}
                       </div>
-                      <div className="pm-tracking-alert-card-title">{issue.summary}</div>
+                      <div
+                        className="pm-tracking-alert-card-title pm-tracking-ip-card-title--clickable"
+                        onClick={(e) => openYtIssue(issue.idReadable, e)}
+                        title={`View ${issue.idReadable} details`}
+                      >{issue.summary}</div>
                       <div className="pm-tracking-alert-card-footer">
                         <div className="pm-tracking-alert-card-stats">
                           {issue.cycle_time_hours > 0 && (
@@ -3020,7 +3653,8 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                   const otherCount = total - activeCount - blockedCount
                   const avatarSrc = person.avatarUrl || avatarMap[person.name] || avatarMap[person.login]
                   return (
-                    <div key={person.name} className="pm-tracking-split-person-row">
+                    <HoverCard key={person.name} content={assigneeHoverContent(person.name, person.issues)} delay={350} maxWidth={230}>
+                    <div className="pm-tracking-split-person-row">
                       {avatarSrc
                         ? <img className="pm-tracking-swimlane-avatar" src={avatarSrc} alt={person.name} style={{ width: 22, height: 22 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                         : <div className="pm-tracking-swimlane-avatar" style={{ width: 22, height: 22, fontSize: 9 }}>{getInitialsFromName(person.name)}</div>
@@ -3035,6 +3669,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                       </div>
                       <span style={{ fontSize: 10, color: 'var(--text-muted)', minWidth: 16, textAlign: 'right' }}>{total}</span>
                     </div>
+                    </HoverCard>
                   )
                 })}
               </div>
@@ -3075,9 +3710,14 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
               const isExpanded = expandedIssue === issue.idReadable
               const avatarSrc = issue.avatarUrl || avatarMap[issue.assignee] || avatarMap[issue.assigneeLogin]
               return (
-                <div key={issue.idReadable} className={`pm-tracking-focus-card pm-tracking-focus-card${urgency}`}>
+                <HoverCard key={issue.idReadable} content={ticketHoverContent(issue)} maxWidth={290} delay={350}>
+                <div className={`pm-tracking-focus-card pm-tracking-focus-card${urgency}`}>
                   <div className="pm-tracking-focus-card-top">
-                    <span className="pm-tracking-focus-id">{issue.idReadable}</span>
+                    <span
+                      className="pm-tracking-focus-id pm-tracking-issue-id--link"
+                      onClick={(e) => openInYouTrack(issue.idReadable, e)}
+                      title={`Open ${issue.idReadable} in YouTrack`}
+                    >{issue.idReadable}</span>
                     {issue.overdue_level === 'deadline' && <span className="pm-tracking-overdue-badge">Overdue</span>}
                     {(issue.overdue_level === 'sprint' || issue.is_delayed) && issue.overdue_level !== 'deadline' && (
                       <span className="pm-tracking-atrisk-badge">At Risk</span>
@@ -3090,7 +3730,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                     {issue.is_hotfix && <span className="pm-tracking-hotfix-chip">HF</span>}
                     {issue.bounce_count > 0 && <span className="pm-tracking-bounce-badge">↩{issue.bounce_count}</span>}
                   </div>
-                  <div className="pm-tracking-focus-title">{issue.summary}</div>
+                  <div
+                    className="pm-tracking-focus-title pm-tracking-ip-card-title--clickable"
+                    onClick={(e) => openYtIssue(issue.idReadable, e)}
+                    title={`View ${issue.idReadable} details`}
+                  >{issue.summary}</div>
                   <div className="pm-tracking-focus-stats">
                     {issue.cycle_time_hours > 0 && (
                       <div className="pm-tracking-focus-stat">
@@ -3141,6 +3785,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                     </div>
                   )}
                 </div>
+                </HoverCard>
               )
             })}
             {!showAllFocus && restIssues.length > 0 && (
@@ -3322,8 +3967,9 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                       <div className="pm-qa-cell pm-qa-cell--ticket">
                         <div className="pm-qa-ticket-top">
                           <span
-                            className="pm-qa-ticket-id"
-                            onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}
+                            className="pm-qa-ticket-id pm-tracking-issue-id--link"
+                            onClick={(e) => openInYouTrack(issue.idReadable || issue.id, e)}
+                            title={`Open ${issue.idReadable} in YouTrack`}
                           >
                             {issue.idReadable}
                           </span>
@@ -3337,7 +3983,11 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                             <span className="pm-tracking-bounce-badge">↩{issue.bounce_count}</span>
                           )}
                         </div>
-                        <div className="pm-qa-ticket-title" title={issue.summary}>{issue.summary}</div>
+                        <div
+                          className="pm-qa-ticket-title pm-tracking-ip-card-title--clickable"
+                          title={`View ${issue.idReadable} details`}
+                          onClick={(e) => openYtIssue(issue.idReadable || issue.id, e)}
+                        >{issue.summary}</div>
                         <div className="pm-qa-ticket-state">{issue.current_state}</div>
                       </div>
 
@@ -3354,17 +4004,23 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
 
                       {/* DEV cell */}
                       <div className="pm-qa-cell pm-qa-cell--stage">
-                        <VerifCell verified={issue.verified_on_dev} pending={isPendingDev(issue)} name="DEV" />
+                        <HoverCard content={qaStageHoverContent('DEV', issue.verified_on_dev, issue)} maxWidth={220}>
+                          <VerifCell verified={issue.verified_on_dev} pending={isPendingDev(issue)} name="DEV" />
+                        </HoverCard>
                       </div>
 
                       {/* STAGE cell */}
                       <div className="pm-qa-cell pm-qa-cell--stage">
-                        <VerifCell verified={issue.verified_on_stage} pending={isPendingStg(issue)} name="STAGE" />
+                        <HoverCard content={qaStageHoverContent('STAGE', issue.verified_on_stage, issue)} maxWidth={220}>
+                          <VerifCell verified={issue.verified_on_stage} pending={isPendingStg(issue)} name="STAGE" />
+                        </HoverCard>
                       </div>
 
                       {/* PROD cell */}
                       <div className="pm-qa-cell pm-qa-cell--stage">
-                        <VerifCell verified={issue.verified_on_prod} pending={isPendingPrd(issue)} name="PROD" />
+                        <HoverCard content={qaStageHoverContent('PROD', issue.verified_on_prod, issue)} maxWidth={220}>
+                          <VerifCell verified={issue.verified_on_prod} pending={isPendingPrd(issue)} name="PROD" />
+                        </HoverCard>
                       </div>
                     </div>
                     {isExpanded && (
@@ -3441,7 +4097,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
                     <span className="pm-tracking-verif-badges pm-tracking-col-heading">Verified</span>
                     <span className="pm-tracking-assignee-cell pm-tracking-col-heading">Column</span>
                   </div>
-                  {group.issues.map(issue => renderIssueRow(issue))}
+                  {group.issues.map(issue => renderIssueRow(issue, true))}
                   {/* QA verified subsection */}
                   {(() => {
                     const qa = qaByPerson.get(group.assignee)
@@ -3478,6 +4134,133 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
         </div>
       )}
 
+      {/* ── Dev Time view ── */}
+      {viewMode === 'dev-time' && (() => {
+        const sk = (w: number | string, h: number, r = 5) => (
+          <div className="skeleton" style={{ width: w, height: h, borderRadius: r, flexShrink: 0 }} />
+        )
+        return (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {/* Variant tab strip */}
+            <div style={{ display: 'flex', gap: 4, padding: '6px 20px', borderBottom: '1px solid var(--border-color)', flexShrink: 0, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 4 }}>View</span>
+              {([
+                { id: 'a' as DevTimeVariant, label: 'Time Ledger' },
+                { id: 'b' as DevTimeVariant, label: 'Dev Cards' },
+                { id: 'c' as DevTimeVariant, label: 'Gantt' },
+              ]).map(v => (
+                <button
+                  key={v.id}
+                  className="pm-tt-variant-tab"
+                  data-active={String(devTimeVariant === v.id)}
+                  onClick={() => setDevTimeVariant(v.id)}
+                >
+                  {v.label}
+                </button>
+              ))}
+              <button
+                style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                onClick={() => { setDevTimeTimelines([]); getIssueTimelines(sprintStartMs, sprintFinishMs).then(res => setDevTimeTimelines(res.data ?? [])).catch(() => {}) }}
+              >
+                <RefreshCw size={11} /> Refresh
+              </button>
+            </div>
+
+            {devTimeTimelines.length === 0 ? (
+              /* Skeleton loader */
+              <div style={{ flex: 1, overflow: 'hidden', padding: '10px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* KPI chips skeleton */}
+                <div style={{ display: 'flex', gap: 8, paddingBottom: 10, borderBottom: '1px solid var(--border-color)' }}>
+                  {[110, 110, 120, 130].map((w, i) => (
+                    <div key={i} className="skeleton" style={{ width: w, height: 36, borderRadius: 8 }} />
+                  ))}
+                </div>
+                {/* Content skeleton — changes by variant */}
+                {devTimeVariant === 'b' ? (
+                  /* Dev Cards grid skeleton */
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(440px, 1fr))', gap: 14 }}>
+                    {[0,1,2].map(ci => (
+                      <div key={ci} className="skeleton" style={{ height: 220, borderRadius: 14 }} />
+                    ))}
+                  </div>
+                ) : devTimeVariant === 'c' ? (
+                  /* Gantt skeleton */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {sk('100%', 32, 6)}
+                    {[0,1,2,3].map(ri => (
+                      <div key={ri} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                        {sk(140, 44, 8)}
+                        {sk('70%', 24, 6)}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* Time Ledger (A) table skeleton */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {sk('100%', 32, 6)}
+                    {[0,1,2].map(gi => (
+                      <React.Fragment key={gi}>
+                        {sk('100%', 36, 6)}
+                        {[0,1,2,3].map(ri => (
+                          <div key={ri} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px 0 28px' }}>
+                            {sk(10, 10, 2)}
+                            {sk(80, 20, 4)}
+                            {sk(44, 18, 4)}
+                            {sk('40%', 12, 4)}
+                            {sk(72, 20, 4)}
+                            {sk(24, 12, 3)}
+                            {sk(50, 12, 3)}
+                          </div>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <DevTimeView
+                timelines={devTimeTimelines}
+                variant={devTimeVariant}
+                sprintStartMs={sprintStartMs}
+                sprintFinishMs={sprintFinishMs}
+                boardIssues={boardColumns.flatMap(col => col.issues)}
+                onTicketClick={async (issueId) => {
+                  setYtDetailLoading(true)
+                  try {
+                    const res = await api.getYouTrackIssue(issueId)
+                    const issue = (res as any).data as import('../services/api').YouTrackIssue
+                    if (issue) setYtDetailIssue(issue)
+                  } catch {}
+                  finally { setYtDetailLoading(false) }
+                }}
+                ytBaseUrl={ytBaseUrl}
+              />
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ── Feature Groups view ── */}
+      {viewMode === 'feature-groups' && (
+        <div style={{ flex: 1, overflow: 'auto', padding: '0 20px' }}>
+          <FeatureGroupsView
+            sprintId={sprintId || undefined}
+            groups={featureGroups}
+            loading={featureGroupsLoading}
+            onRefresh={() => {
+              if (!sprintId) return
+              featureGroupsSprintRef.current = undefined
+              setFeatureGroups([])
+              setFeatureGroupsLoading(true)
+              api.getFeatureGroups(sprintId)
+                .then(res => setFeatureGroups((res as any).data ?? []))
+                .catch(() => {})
+                .finally(() => setFeatureGroupsLoading(false))
+            }}
+          />
+        </div>
+      )}
+
       {/* ── Transition history modal ── */}
       {detailIssue && (
         <IssueDetailModal
@@ -3485,14 +4268,16 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintFinishMs }: { blockerIss
           logs={detailIssue.logs}
           columnHierarchy={columnHierarchy}
           onClose={() => setDetailIssue(null)}
+          ytBaseUrl={ytBaseUrl}
         />
       )}
 
-      {/* ── YouTrack issue detail panel (same as board view) ── */}
+      {/* ── YouTrack issue detail panel ── */}
       {ytDetailIssue && (
         <IssueDetailPanel
           issue={ytDetailIssue}
           onClose={() => setYtDetailIssue(null)}
+          ytBaseUrl={ytBaseUrl}
         />
       )}
     </div>
@@ -4438,9 +5223,10 @@ export function PMReportsPage({ initialTab = 'tracking', onTabChange }: PMReport
         <div className={`pm-tab-panel glass-card${activeTab === 'daily' ? ' pm-tab-panel--daily' : ''}`}>
           {activeTab === 'daily'      && <DailyReportTab sprintId={activeSprint?.id} sprintName={activeSprint?.name} />}
           {activeTab === 'assignees'  && <AssigneeStatsTab sprintId={activeSprint?.id} />}
-          {activeTab === 'tracking'   && <TrackingTab blockerIssueIds={blockerIssueIds} sprintId={activeSprint?.id} sprintFinishMs={activeSprint?.finish} />}
+          {activeTab === 'tracking'   && <TrackingTab blockerIssueIds={blockerIssueIds} sprintId={activeSprint?.id} sprintStartMs={activeSprint?.start} sprintFinishMs={activeSprint?.finish} />}
           {activeTab === 'dailyops'   && <DailyOpsTab onBlockersChange={setBlockerIssueIds} sprintId={activeSprint?.id} />}
           {activeTab === 'deployment' && <DeploymentReportTab activeSprint={activeSprint} />}
+          {activeTab === 'standup'    && <StandupCompilerPage />}
         </div>
       </div>
     </div>

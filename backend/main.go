@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
@@ -188,6 +189,8 @@ func main() {
 	youtrackRoutes.HandleFunc("/priorities", youtrackHandler.GetPriorities).Methods("GET")
 	youtrackRoutes.HandleFunc("/type-field-values", youtrackHandler.GetTypeFieldValues).Methods("GET")
 	youtrackRoutes.HandleFunc("/users", youtrackHandler.GetUsers).Methods("GET")
+	youtrackRoutes.HandleFunc("/form-meta", youtrackHandler.GetIssueFormMeta).Methods("GET")
+	youtrackRoutes.HandleFunc("/ai/parse-ticket", youtrackHandler.AIParseTicket).Methods("POST")
 	youtrackRoutes.HandleFunc("/issues", youtrackHandler.GetIssues).Methods("GET")
 	youtrackRoutes.HandleFunc("/issues", youtrackHandler.CreateIssue).Methods("POST")
 	youtrackRoutes.HandleFunc("/issues/grouped-by-assignee", youtrackHandler.GetIssuesGroupedByAssignee).Methods("GET") // Must be before {issue_id} wildcard
@@ -195,6 +198,7 @@ func main() {
 	youtrackRoutes.HandleFunc("/issues/{issue_id}", youtrackHandler.UpdateIssue).Methods("PUT", "PATCH")
 	youtrackRoutes.HandleFunc("/issues/{issue_id}", youtrackHandler.DeleteIssue).Methods("DELETE")
 	youtrackRoutes.HandleFunc("/issues/{issue_id}/state", youtrackHandler.UpdateIssueState).Methods("PATCH")
+	youtrackRoutes.HandleFunc("/issues/{issue_id}/attachments", youtrackHandler.UploadIssueAttachment).Methods("POST")
 	youtrackRoutes.HandleFunc("/issues/{issue_id}/comments", youtrackHandler.GetIssueComments).Methods("GET")
 	youtrackRoutes.HandleFunc("/issues/{issue_id}/comments", youtrackHandler.AddIssueComment).Methods("POST")
 	// Proxy is public (no JWT) — browser <img> tags can't send Authorization headers.
@@ -212,6 +216,7 @@ func main() {
 	youtrackRoutes.HandleFunc("/blocker-reasons", youtrackHandler.GetBlockerReasons).Methods("GET")
 	youtrackRoutes.HandleFunc("/save-plan", youtrackHandler.SaveCarryoverPlan).Methods("POST")
 	youtrackRoutes.HandleFunc("/carryover", youtrackHandler.GetCarryover).Methods("GET")
+	youtrackRoutes.HandleFunc("/feature-groups", youtrackHandler.GetFeatureGroups).Methods("GET")
 
 	// Task-specific YouTrack routes (protected)
 	taskYouTrackRoutes := api.PathPrefix("/tasks/{id}/youtrack").Subrouter()
@@ -235,6 +240,18 @@ func main() {
 	activityRoutes.Use(middleware.AuthMiddleware)
 	activityRoutes.HandleFunc("", activityHandler.GetActivity).Methods("GET")
 
+	// Standup Compiler routes (admin-only)
+	standupHandler := handlers.NewStandupCompilerHandler()
+	standupRoutes := api.PathPrefix("/standup").Subrouter()
+	standupRoutes.Use(middleware.AuthMiddleware)
+	standupRoutes.Use(middleware.AdminOnly)
+	standupRoutes.HandleFunc("/config", standupHandler.GetConfig).Methods("GET")
+	standupRoutes.HandleFunc("/config", standupHandler.SaveConfig).Methods("PUT")
+	standupRoutes.HandleFunc("/compile", standupHandler.Compile).Methods("POST")
+	standupRoutes.HandleFunc("/parse-one", standupHandler.ParseOne).Methods("POST")
+	standupRoutes.HandleFunc("/post", standupHandler.Post).Methods("POST")
+	standupRoutes.HandleFunc("/weekly", standupHandler.Weekly).Methods("POST")
+
 	// Slack routes (protected)
 	slackHandler := handlers.NewSlackHandler(notifHandler)
 	slackRoutes := api.PathPrefix("/slack").Subrouter()
@@ -257,6 +274,14 @@ func main() {
 	slackRoutes.HandleFunc("/digest", slackHandler.PostDigest).Methods("POST")
 	slackRoutes.HandleFunc("/reminders", slackHandler.CreateFollowupReminder).Methods("POST")
 	slackRoutes.HandleFunc("/post-morning-report", slackHandler.PostMorningReport).Methods("POST")
+	// Slack Intelligence v2
+	slackRoutes.HandleFunc("/reply", slackHandler.ReplyToThread).Methods("POST")
+	slackRoutes.HandleFunc("/thread-replies", slackHandler.GetThreadRepliesHandler).Methods("GET")
+	slackRoutes.HandleFunc("/mentions/{messageTS}/pin", slackHandler.PinMention).Methods("POST")
+	slackRoutes.HandleFunc("/templates", slackHandler.GetTemplates).Methods("GET")
+	slackRoutes.HandleFunc("/templates", slackHandler.CreateTemplate).Methods("POST")
+	slackRoutes.HandleFunc("/templates/{id}", slackHandler.DeleteTemplate).Methods("DELETE")
+	slackRoutes.HandleFunc("/saved-items", slackHandler.GetSavedItems).Methods("GET")
 
 	// AI Analysis routes (protected)
 	aiHandler := handlers.NewAIHandler()
@@ -288,6 +313,13 @@ func main() {
 	dailyTaskRoutes.HandleFunc("/next-day/task/{taskId}", dailyTaskHandler.DeleteNextDayTask).Methods("DELETE")
 	dailyTaskRoutes.HandleFunc("/next-day/reorder", dailyTaskHandler.ReorderNextDayTasks).Methods("PATCH")
 	dailyTaskRoutes.HandleFunc("/next-day/{date}/slack-format", dailyTaskHandler.GetFormattedSlackMessage).Methods("GET")
+
+	// Developer-subsystem config routes (protected)
+	devConfigHandler := handlers.NewDeveloperConfigHandler()
+	devConfigRoutes := api.PathPrefix("/developer-config").Subrouter()
+	devConfigRoutes.Use(middleware.AuthMiddleware)
+	devConfigRoutes.HandleFunc("", devConfigHandler.GetDeveloperConfigs).Methods("GET")
+	devConfigRoutes.HandleFunc("", devConfigHandler.SaveDeveloperConfigs).Methods("POST")
 
 	// Bot Config routes (protected)
 	botConfigHandler := handlers.NewBotConfigHandler()
@@ -394,6 +426,7 @@ func main() {
 	dayTrackRoutes.HandleFunc("/yt-scan", youtrackHandler.ScanYouTrackTickets).Methods("POST")
 	dayTrackRoutes.HandleFunc("/slack-resolve-user", dayTrackHandler.ResolveSlackUser).Methods("GET")
 	dayTrackRoutes.HandleFunc("/transcribe", dayTrackHandler.Transcribe).Methods("POST")
+	dayTrackRoutes.HandleFunc("/post-to-slack", dayTrackHandler.PostToSlack).Methods("POST")
 
 	// Start DayTrack Slack background scanner (5-min polling)
 	handlers.RunDayTrackSlackScanner(database.NewDayTrackRepository())
@@ -418,6 +451,9 @@ func main() {
 	whitelistRoutes.HandleFunc("/domains", whitelistHandler.GetAllowedDomainsHandler).Methods("GET")
 	whitelistRoutes.HandleFunc("/domains", whitelistHandler.AddAllowedDomainHandler).Methods("POST")
 	whitelistRoutes.HandleFunc("/domains/{domain}", whitelistHandler.RemoveAllowedDomainHandler).Methods("DELETE")
+	whitelistRoutes.HandleFunc("/denied", whitelistHandler.GetDeniedEmailsHandler).Methods("GET")
+	whitelistRoutes.HandleFunc("/denied", whitelistHandler.AddDeniedEmailHandler).Methods("POST")
+	whitelistRoutes.HandleFunc("/denied/{email}", whitelistHandler.RemoveDeniedEmailHandler).Methods("DELETE")
 
 	// Integration Settings routes
 	settingsHandler := handlers.NewSettingsHandler()
@@ -448,6 +484,23 @@ func main() {
 	userThemeRoutes.Use(middleware.AuthMiddleware)
 	userThemeRoutes.HandleFunc("", settingsHandler.GetUserTheme).Methods("GET")
 	userThemeRoutes.HandleFunc("", settingsHandler.SaveUserTheme).Methods("PUT")
+
+	// Serve Vite SPA static files from ./public (production: built into the container image).
+	// Any path not matched by /api routes falls through to here.
+	// For client-side routes (non-asset paths), serve index.html so the React router takes over.
+	publicDir := os.Getenv("PUBLIC_DIR")
+	if publicDir == "" {
+		publicDir = "./public"
+	}
+	fs := http.FileServer(http.Dir(publicDir))
+	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		fullPath := filepath.Join(publicDir, filepath.Clean("/"+req.URL.Path))
+		if _, err := os.Stat(fullPath); err == nil && fullPath != publicDir {
+			fs.ServeHTTP(w, req)
+			return
+		}
+		http.ServeFile(w, req, filepath.Join(publicDir, "index.html"))
+	})
 
 	// CORS configuration
 	frontendURL := os.Getenv("FRONTEND_URL")
@@ -573,11 +626,23 @@ func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Role models.Role `json:"role"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Role == "" {
+		sendJSON(w, http.StatusBadRequest, Response{Success: false, Message: "role is required"})
+		return
+	}
+
+	userID := vars["id"]
+	if database.GetPool() != nil {
+		repo := database.NewUserRepository()
+		if err := repo.UpdateRole(r.Context(), userID, body.Role); err != nil {
+			sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: "failed to update role: " + err.Error()})
+			return
+		}
+	}
 
 	sendJSON(w, http.StatusOK, Response{
 		Success: true,
-		Message: "User " + vars["id"] + " role updated to " + string(body.Role),
+		Message: "User " + userID + " role updated to " + string(body.Role),
 	})
 }
 

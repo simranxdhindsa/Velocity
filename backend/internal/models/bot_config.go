@@ -6,12 +6,13 @@ import "time"
 type BotType string
 
 const (
-	BotTypeSlackAnalysis BotType = "slack_analysis"
-	BotTypeDailyReport   BotType = "daily_report"
-	BotTypeCustom        BotType = "custom"
-	BotTypePMAssistant   BotType = "pm_assistant"
+	BotTypeSlackAnalysis    BotType = "slack_analysis"
+	BotTypeDailyReport      BotType = "daily_report"
+	BotTypeCustom           BotType = "custom"
+	BotTypePMAssistant      BotType = "pm_assistant"
 	BotTypeStageReport      BotType = "stage_report"
 	BotTypeDeploymentReport BotType = "deployment_report"
+	BotTypeTicketParser     BotType = "ticket_parser"
 )
 
 // BotConfig represents a configurable bot

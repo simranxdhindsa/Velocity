@@ -58,6 +58,7 @@ type SlackMention struct {
 	Replied         bool       `json:"replied" db:"replied"`
 	ReplyCheckedAt  *time.Time `json:"reply_checked_at,omitempty" db:"reply_checked_at"`
 	SnoozedUntil   *time.Time `json:"snoozed_until,omitempty" db:"snoozed_until"`
+	Pinned         bool       `json:"pinned" db:"pinned"`
 	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
 }
 
