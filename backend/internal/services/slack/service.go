@@ -385,6 +385,16 @@ func (s *Service) ScanUserThreads(ctx context.Context, userID, email string) ([]
 		return nil, fmt.Errorf("no channel configured for monitoring")
 	}
 
+	// Resolve the channel name from the already-loaded integration (no extra API call needed)
+	channelName := monitorChannelID
+	if integration.MonitorChannelName != nil && *integration.MonitorChannelName != "" &&
+		integration.MonitorChannelID != nil && *integration.MonitorChannelID == monitorChannelID {
+		channelName = *integration.MonitorChannelName
+	} else if integration.ChannelName != nil && *integration.ChannelName != "" &&
+		integration.ChannelID != nil && *integration.ChannelID == monitorChannelID {
+		channelName = *integration.ChannelName
+	}
+
 	client := NewClient(integration.BotToken)
 
 	// Resolve the user's Slack ID
@@ -393,6 +403,25 @@ func (s *Service) ScanUserThreads(ctx context.Context, userID, email string) ([]
 		return nil, fmt.Errorf("could not resolve Slack user: %w", err)
 	}
 	slackUserID := slackUser.ID
+
+	// User cache for resolving <@UXXX> mention tokens to real names
+	userCache := make(map[string]string)
+	resolveSlackUser := func(slackID string) string {
+		if n, ok := userCache[slackID]; ok {
+			return n
+		}
+		name := slackID
+		if u, err := client.GetUser(ctx, slackID); err == nil {
+			if u.RealName != "" {
+				name = u.RealName
+			} else if u.Profile.DisplayName != "" {
+				name = u.Profile.DisplayName
+			}
+		}
+		userCache[slackID] = name
+		return name
+	}
+	mentionRe := regexp.MustCompile(`<@([A-Z0-9]+)>`)
 
 	// Fetch last 7 days of messages
 	to := time.Now()
@@ -417,11 +446,21 @@ func (s *Service) ScanUserThreads(ctx context.Context, userID, email string) ([]
 			continue
 		}
 
+		// Resolve <@UXXX> tokens to real names so the frontend can display them directly
+		resolvedText := mentionRe.ReplaceAllStringFunc(msg.Text, func(match string) string {
+			sub := mentionRe.FindStringSubmatch(match)
+			if len(sub) < 2 {
+				return match
+			}
+			return "@" + resolveSlackUser(sub[1])
+		})
+
 		thread := models.SlackUserThread{
 			UserID:      userID,
 			ChannelID:   monitorChannelID,
+			ChannelName: channelName,
 			ThreadTS:    msg.TS,
-			MessageText: msg.Text,
+			MessageText: resolvedText,
 			ReplyCount:  msg.ReplyCount,
 			HasReply:    msg.ReplyCount > 0,
 			CreatedAt:   ts,

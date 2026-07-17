@@ -96,9 +96,10 @@ export function SlackIntelligencePage({
     api.getSlackStatus().then((res: any) => {
       if (res.team_id) setSlackTeamId(res.team_id)
       if (res.monitor_channel_id) setMonitorChannelId(res.monitor_channel_id)
-      if (res.monitor_channel_name) {
-        setMonitorChannelName(res.monitor_channel_name)
-        setResolvedMonitorChannelName(res.monitor_channel_name)
+      const resolvedName = res.monitor_channel_name || res.channel_name || ''
+      if (resolvedName) {
+        setMonitorChannelName(resolvedName)
+        setResolvedMonitorChannelName(resolvedName)
       }
     }).catch(() => {})
     api.getYouTrackStatus().then(res => {

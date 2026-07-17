@@ -172,13 +172,14 @@ func (r *SlackRepository) SaveUserThread(ctx context.Context, thread *models.Sla
 	pool := GetPool()
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO slack_user_threads (user_id, channel_id, thread_ts, message_text, reply_count, has_reply, reminder_sent, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		INSERT INTO slack_user_threads (user_id, channel_id, channel_name, thread_ts, message_text, reply_count, has_reply, reminder_sent, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
 		ON CONFLICT (user_id, thread_ts) DO UPDATE SET
-			reply_count = $5,
-			has_reply = $6,
+			channel_name = EXCLUDED.channel_name,
+			reply_count = $6,
+			has_reply = $7,
 			last_checked_at = NOW()
-	`, thread.UserID, thread.ChannelID, thread.ThreadTS, thread.MessageText,
+	`, thread.UserID, thread.ChannelID, thread.ChannelName, thread.ThreadTS, thread.MessageText,
 		thread.ReplyCount, thread.HasReply, thread.ReminderSent)
 
 	return err
@@ -189,7 +190,7 @@ func (r *SlackRepository) GetUnansweredThreads(ctx context.Context, userID strin
 	pool := GetPool()
 
 	rows, err := pool.Query(ctx, `
-		SELECT id, user_id, channel_id, thread_ts, message_text, reply_count,
+		SELECT id, user_id, channel_id, COALESCE(channel_name, channel_id), thread_ts, message_text, reply_count,
 		       last_checked_at, has_reply, reminder_sent, snoozed_until, created_at
 		FROM slack_user_threads
 		WHERE user_id = $1 AND has_reply = FALSE
@@ -204,7 +205,7 @@ func (r *SlackRepository) GetUnansweredThreads(ctx context.Context, userID strin
 	var threads []models.SlackUserThread
 	for rows.Next() {
 		var t models.SlackUserThread
-		err := rows.Scan(&t.ID, &t.UserID, &t.ChannelID, &t.ThreadTS, &t.MessageText,
+		err := rows.Scan(&t.ID, &t.UserID, &t.ChannelID, &t.ChannelName, &t.ThreadTS, &t.MessageText,
 			&t.ReplyCount, &t.LastCheckedAt, &t.HasReply, &t.ReminderSent, &t.SnoozedUntil, &t.CreatedAt)
 		if err != nil {
 			return nil, err
@@ -223,7 +224,7 @@ func (r *SlackRepository) GetAllUserThreads(ctx context.Context, userID string, 
 	}
 
 	rows, err := pool.Query(ctx, `
-		SELECT id, user_id, channel_id, thread_ts, message_text, reply_count,
+		SELECT id, user_id, channel_id, COALESCE(channel_name, channel_id), thread_ts, message_text, reply_count,
 		       last_checked_at, has_reply, reminder_sent, snoozed_until, created_at
 		FROM slack_user_threads
 		WHERE user_id = $1
@@ -238,7 +239,7 @@ func (r *SlackRepository) GetAllUserThreads(ctx context.Context, userID string, 
 	var threads []models.SlackUserThread
 	for rows.Next() {
 		var t models.SlackUserThread
-		err := rows.Scan(&t.ID, &t.UserID, &t.ChannelID, &t.ThreadTS, &t.MessageText,
+		err := rows.Scan(&t.ID, &t.UserID, &t.ChannelID, &t.ChannelName, &t.ThreadTS, &t.MessageText,
 			&t.ReplyCount, &t.LastCheckedAt, &t.HasReply, &t.ReminderSent, &t.SnoozedUntil, &t.CreatedAt)
 		if err != nil {
 			return nil, err

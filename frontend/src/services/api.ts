@@ -2239,6 +2239,7 @@ export interface SlackThread {
   id: string
   user_id: string
   channel_id: string
+  channel_name: string
   thread_ts: string
   message_text: string
   reply_count: number

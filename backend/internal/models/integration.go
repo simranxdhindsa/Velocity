@@ -67,6 +67,7 @@ type SlackUserThread struct {
 	ID            string     `json:"id" db:"id"`
 	UserID        string     `json:"user_id" db:"user_id"`
 	ChannelID     string     `json:"channel_id" db:"channel_id"`
+	ChannelName   string     `json:"channel_name" db:"channel_name"`
 	ThreadTS      string     `json:"thread_ts" db:"thread_ts"`
 	MessageText   string     `json:"message_text" db:"message_text"`
 	ReplyCount    int        `json:"reply_count" db:"reply_count"`

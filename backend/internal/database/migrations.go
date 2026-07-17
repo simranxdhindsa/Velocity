@@ -376,6 +376,8 @@ func RunMigrations() error {
 		`ALTER TABLE slack_mentions ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMP WITH TIME ZONE`,
 		// Snooze support for slack_user_threads
 		`ALTER TABLE slack_user_threads ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMP WITH TIME ZONE`,
+		// Channel name for display (avoids showing raw Slack channel IDs in the UI)
+		`ALTER TABLE slack_user_threads ADD COLUMN IF NOT EXISTS channel_name VARCHAR(255)`,
 
 		// Workflow configuration — user-customizable priority tags, column hierarchy, hotfix rules, report config
 		// No FK on user_id — avoids type mismatch issues (same pattern as reminders, pinned_issues, etc.)

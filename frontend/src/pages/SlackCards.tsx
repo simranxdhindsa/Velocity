@@ -385,7 +385,7 @@ export function ThreadCard({ t, slackTeamId, channelName, savedTemplates, onSnoo
           <div className="si2-thread-channel-icon">
             <MessageSquare size={14} />
           </div>
-          <span className="si2-card-sender"><Hash size={11} style={{ opacity: 0.7 }} />{channelName || t.channel_id}</span>
+          <span className="si2-card-sender"><Hash size={11} style={{ opacity: 0.7 }} />{t.channel_name || channelName || t.channel_id}</span>
           {t.has_reply
             ? <span className="si2-reply-chip has-reply"><CheckCircle size={10} /> {t.reply_count} {t.reply_count === 1 ? 'reply' : 'replies'}</span>
             : <span className="si2-reply-chip no-reply">No replies yet</span>
