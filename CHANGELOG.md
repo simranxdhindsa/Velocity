@@ -12,6 +12,7 @@
 
 
 ### Features
+- MCP OAuth 2.1 + manual Claude Queue scheduling
 - ClockTimePicker — analog clock-face time selector component, used in Update Reminders rule editor
 
 ### Bug Fixes
