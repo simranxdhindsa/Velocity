@@ -1139,6 +1139,24 @@ WHERE bot_type = 'ticket_parser'`,
 		`ALTER TABLE user_mcp_tokens ADD COLUMN IF NOT EXISTS default_send_timezone VARCHAR(100) NOT NULL DEFAULT 'UTC'`,
 		`CREATE INDEX IF NOT EXISTS idx_user_mcp_tokens_user_id ON user_mcp_tokens(user_id)`,
 
+		// ── MCP OAuth 2.1 — allows Claude.ai to connect via standard OAuth flow ──
+		`CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
+			client_id   TEXT PRIMARY KEY,
+			client_name TEXT NOT NULL DEFAULT '',
+			redirect_uris JSONB NOT NULL DEFAULT '[]',
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS mcp_oauth_codes (
+			code                  TEXT PRIMARY KEY,
+			user_id               VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			client_id             TEXT NOT NULL,
+			redirect_uri          TEXT NOT NULL,
+			code_challenge        TEXT NOT NULL DEFAULT '',
+			code_challenge_method TEXT NOT NULL DEFAULT 'S256',
+			expires_at            TIMESTAMPTZ NOT NULL,
+			used                  BOOLEAN NOT NULL DEFAULT FALSE
+		)`,
+
 		// ── Pending Slack messages — queued via MCP connector or Quick Send ──────
 		// Messages Claude queues land here; the scheduler fires them at scheduled_at.
 		// status: pending | sent | failed | cancelled

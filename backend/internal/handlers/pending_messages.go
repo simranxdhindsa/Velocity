@@ -134,6 +134,48 @@ func RunPendingMessagesScheduler() {
 	}()
 }
 
+// POST /api/slack/queued — manually schedule a new message
+func (h *PendingMessagesHandler) Create(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUserFromContext(r)
+	if u == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		Message      string `json:"message"`
+		ScheduledAt  string `json:"scheduled_at"`
+		ChannelID    string `json:"channel_id"`
+		ChannelLabel string `json:"channel_label"`
+		DmUserID     string `json:"dm_user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if req.Message == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message required"})
+		return
+	}
+
+	var scheduledAt *time.Time
+	if req.ScheduledAt != "" {
+		t, err := time.Parse(time.RFC3339, req.ScheduledAt)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid scheduled_at"})
+			return
+		}
+		scheduledAt = &t
+	}
+
+	msg, err := h.repo.Create(r.Context(), u.ID, req.Message, req.ChannelID, req.ChannelLabel, req.DmUserID, scheduledAt)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, msg)
+}
+
 // POST /api/slack/queued/{id}/send-now — send immediately regardless of scheduled_at
 func (h *PendingMessagesHandler) SendNow(w http.ResponseWriter, r *http.Request) {
 	u := middleware.GetUserFromContext(r)

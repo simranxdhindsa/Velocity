@@ -809,6 +809,37 @@ class ApiService {
     return this.request<PendingSlackMessage[]>('/slack/queued')
   }
 
+  async createQueuedMessage(
+    message: string,
+    scheduledAt?: string,
+    channelId?: string,
+    channelLabel?: string,
+    dmUserId?: string,
+  ) {
+    return this.request<PendingSlackMessage>('/slack/queued', {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        scheduled_at: scheduledAt ?? '',
+        channel_id: channelId ?? '',
+        channel_label: channelLabel ?? '',
+        dm_user_id: dmUserId ?? '',
+      }),
+    })
+  }
+
+  async createOAuthCode(params: {
+    client_id: string
+    redirect_uri: string
+    code_challenge: string
+    code_challenge_method: string
+  }) {
+    return this.request<{ code: string }>('/oauth/code', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
   async updateQueuedMessage(id: string, message: string, scheduledAt?: string, channelId?: string, channelLabel?: string) {
     return this.request<PendingSlackMessage>(`/slack/queued/${id}`, {
       method: 'PUT',

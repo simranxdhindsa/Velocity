@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bot, ChevronDown, Copy, Check, RefreshCw, Trash2,
   Clock, Send, Pencil, X, AlertCircle, Zap,
-  CheckCircle2, CircleDashed,
+  CheckCircle2, CircleDashed, Plus,
 } from 'lucide-react'
 import api from '../services/api'
 import type { PendingSlackMessage, ChannelRef } from '../services/api'
@@ -59,10 +59,12 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
       if (!m) return
       setMeta(m)
       if (m.default_send_time) onDefaultTime(m.default_send_time)
-      if (!m.exists || !storedToken) {
-        // No token in DB, or we lost the plain text — auto-generate silently
+      if (!m.exists) {
+        // No token in DB — auto-generate silently
         await generateToken()
       }
+      // If token exists but storedToken is empty it means the token was issued via
+      // OAuth on another device; don't overwrite it — the user can revoke to get a URL here.
     }
     init()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -126,7 +128,7 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
         )}
       </div>
 
-      {connectorUrl && (
+      {connectorUrl ? (
         <div className="cq-url-always">
           <div className="cq-url-label-sm">Claude.ai connector URL</div>
           <div className="cq-url-row">
@@ -144,6 +146,11 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
           <div className="cq-url-hint">
             Claude.ai → Settings → Connectors → Add custom connector
           </div>
+        </div>
+      ) : meta?.exists && (
+        <div className="cq-url-hint cq-url-hint--oauth">
+          Connected via Claude.ai OAuth — URL not visible here.
+          Revoke and regenerate if you need the connector URL on this device.
         </div>
       )}
 
@@ -475,12 +482,90 @@ function QueuedMessageCard({
   )
 }
 
+// ── Compose form — manually schedule a message into the queue ─────────────────
+
+function ComposeForm({
+  channels, defaultTime, onCreated, onClose,
+}: {
+  channels: ChannelRef[]
+  defaultTime: string
+  onCreated: (m: PendingSlackMessage) => void
+  onClose: () => void
+}) {
+  const [text, setText] = useState('')
+  const [channel, setChannel] = useState<ChannelRef | null>(null)
+  const [time, setTime] = useState(defaultTime)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const handleSubmit = async () => {
+    if (!text.trim()) { setErr('Message is required'); return }
+    setSaving(true)
+    setErr('')
+    try {
+      const base = new Date()
+      const [hh, mm] = time.split(':').map(Number)
+      base.setHours(hh, mm, 0, 0)
+      if (base <= new Date()) base.setDate(base.getDate() + 1)
+      const r = await api.createQueuedMessage(
+        text.trim(),
+        base.toISOString(),
+        channel?.id ?? '',
+        channel ? `#${channel.name}` : '',
+      )
+      const raw = r as any
+      const created = raw?.id ? raw : raw?.data
+      if (created) { onCreated(created as PendingSlackMessage); onClose() }
+    } catch (e: any) {
+      setErr(e?.message ?? 'Failed to schedule message')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="cq-compose">
+      <div className="cq-compose-hd">
+        <span className="cq-queue-title">Schedule message</span>
+        <button className="cq-msg-icon-btn" onClick={onClose}><X size={12} /></button>
+      </div>
+      <textarea
+        className="cq-msg-edit-input"
+        placeholder="Write your Slack message…"
+        value={text}
+        onChange={e => setText(e.target.value)}
+        rows={4}
+        autoFocus
+      />
+      <div className="cq-msg-edit-footer">
+        <div className="cq-msg-edit-time">
+          <span className="cq-label">Channel</span>
+          <InlineChannelPicker channels={channels} onPick={setChannel} />
+          {channel && <span className="cq-msg-channel">#{channel.name}</span>}
+        </div>
+        <div className="cq-msg-edit-time">
+          <span className="cq-label">Send at</span>
+          <ClockTimePicker value={time} onChange={setTime} />
+        </div>
+        {err && <span className="cq-compose-err">{err}</span>}
+        <div className="cq-msg-edit-actions">
+          <button className="cq-btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="cq-btn-primary" onClick={handleSubmit} disabled={saving}>
+            {saving ? 'Scheduling…' : <><Clock size={12} />Schedule</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main exported card ─────────────────────────────────────────────────────────
 
 export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?: ChannelRef[]; autoOpen?: boolean }) {
   const [open, setOpen] = useState(autoOpen)
   const [messages, setMessages] = useState<PendingSlackMessage[]>([])
   const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [composing, setComposing] = useState(false)
   const [defaultTime, setDefaultTime] = usePersistedState<string>(
     PERSIST.QUEUE_DEFAULT_TIME, '10:00'
   )
@@ -546,15 +631,33 @@ export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?
                   Queued
                   {pendingCount > 0 && <span className="cq-count-pill">{pendingCount}</span>}
                 </span>
-                <button
-                  className="cq-refresh-btn"
-                  onClick={loadMessages}
-                  disabled={loadingMsgs}
-                  title="Refresh"
-                >
-                  <RefreshCw size={12} className={loadingMsgs ? 'cq-spin' : ''} />
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    className="cq-refresh-btn"
+                    onClick={() => setComposing(c => !c)}
+                    title="Schedule a message"
+                  >
+                    <Plus size={12} />
+                  </button>
+                  <button
+                    className="cq-refresh-btn"
+                    onClick={loadMessages}
+                    disabled={loadingMsgs}
+                    title="Refresh"
+                  >
+                    <RefreshCw size={12} className={loadingMsgs ? 'cq-spin' : ''} />
+                  </button>
+                </div>
               </div>
+
+              {composing && (
+                <ComposeForm
+                  channels={channels}
+                  defaultTime={defaultTime}
+                  onCreated={m => setMessages(ms => [m, ...ms])}
+                  onClose={() => setComposing(false)}
+                />
+              )}
 
               {pendingMsgs.length === 0 ? (
                 <div className="cq-empty">

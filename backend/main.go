@@ -326,6 +326,7 @@ func main() {
 	// Pending message queue (Claude MCP connector sends messages here)
 	pendingMsgHandler := handlers.NewPendingMessagesHandler()
 	slackRoutes.HandleFunc("/queued", pendingMsgHandler.List).Methods("GET")
+	slackRoutes.HandleFunc("/queued", pendingMsgHandler.Create).Methods("POST")
 	slackRoutes.HandleFunc("/queued/{id}", pendingMsgHandler.Update).Methods("PUT")
 	slackRoutes.HandleFunc("/queued/{id}", pendingMsgHandler.Delete).Methods("DELETE")
 	slackRoutes.HandleFunc("/queued/{id}/send-now", pendingMsgHandler.SendNow).Methods("POST")
@@ -582,6 +583,18 @@ func main() {
 	userThemeRoutes.Use(middleware.AuthMiddleware)
 	userThemeRoutes.HandleFunc("", settingsHandler.GetUserTheme).Methods("GET")
 	userThemeRoutes.HandleFunc("", settingsHandler.SaveUserTheme).Methods("PUT")
+
+	// OAuth 2.1 routes — root-level so they work with or without /api prefix
+	// Claude.ai discovers these via /.well-known/oauth-authorization-server
+	oauthHandler := handlers.NewOAuthHandler()
+	r.HandleFunc("/.well-known/oauth-authorization-server", oauthHandler.Metadata).Methods("GET", "OPTIONS")
+	r.HandleFunc("/.well-known/oauth-protected-resource", oauthHandler.Metadata).Methods("GET", "OPTIONS")
+	r.HandleFunc("/oauth/register", oauthHandler.RegisterClient).Methods("POST", "OPTIONS")
+	r.HandleFunc("/oauth/token", oauthHandler.Token).Methods("POST", "OPTIONS")
+	// JWT-protected: frontend calls this after user approves the OAuth consent screen
+	oauthProtectedRoutes := api.PathPrefix("/oauth").Subrouter()
+	oauthProtectedRoutes.Use(middleware.AuthMiddleware)
+	oauthProtectedRoutes.HandleFunc("/code", oauthHandler.CreateCode).Methods("POST")
 
 	// Serve Vite SPA static files from ./public (production: built into the container image).
 	// Any path not matched by /api routes falls through to here.

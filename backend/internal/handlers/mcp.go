@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -99,6 +100,12 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Resolve user from ?token= query param or Authorization: Bearer header
 	userID := h.resolveUser(r)
 	if userID == "" {
+		// Include WWW-Authenticate so Claude.ai discovers our OAuth server
+		frontendURL := strings.TrimRight(os.Getenv("FRONTEND_URL"), "/")
+		if frontendURL == "" {
+			frontendURL = "http://localhost:5173"
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+frontendURL+`/.well-known/oauth-protected-resource"`)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(rpcErr(nil, -32001, "invalid or missing MCP token"))

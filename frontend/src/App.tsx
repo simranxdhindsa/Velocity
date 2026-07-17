@@ -10,6 +10,7 @@ import Dashboard from '@/pages/Dashboard'
 import ThemePreviewPage from '@/pages/ThemePreviewPage'
 import NoAccessPage from '@/pages/NoAccessPage'
 import GatewayError502Page from '@/pages/GatewayError502Page'
+import OAuthAuthorizePage from '@/pages/OAuthAuthorizePage'
 
 function AppContent() {
   const { isAuthenticated, isLoading, accessDenied, accessDeniedMessage, clearAccessDenied } = useAuth()
@@ -18,6 +19,7 @@ function AppContent() {
 
   if (location.pathname === '/theme-preview') return <ThemePreviewPage />
   if (location.pathname === '/502-preview') return <GatewayError502Page />
+  if (location.pathname === '/oauth/authorize') return <OAuthAuthorizePage />
 
   if (isDown) return <GatewayError502Page />
 
