@@ -2,8 +2,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -177,10 +175,9 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	var resp rpcResponse
 	switch req.Method {
 	case "initialize":
-		// Generate a session ID and echo protocol version 2025-06-18 (Streamable HTTP transport)
-		rawID := make([]byte, 16)
-		_, _ = rand.Read(rawID)
-		w.Header().Set("Mcp-Session-Id", hex.EncodeToString(rawID))
+		// No Mcp-Session-Id — we have no server-initiated events so sessions are not needed.
+		// Returning a session ID would cause Claude.ai to open a GET SSE connection, but
+		// claude.ai's shttp proxy returns 405 for browser-side GET, breaking the connection.
 		resp = rpcOK(req.ID, map[string]interface{}{
 			"protocolVersion": "2025-06-18",
 			"capabilities":    map[string]interface{}{"tools": map[string]bool{"listChanged": false}},
