@@ -113,7 +113,8 @@ func (h *OAuthHandler) Token(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"access_token": plain,
-		"token_type":   "bearer",
+		"token_type":   "Bearer",
+		"expires_in":   315360000, // 10 years — tokens don't expire, user revokes manually
 	})
 }
 

@@ -94,6 +94,57 @@ var mcpTools = []map[string]interface{}{
 	},
 }
 
+// ── GET /api/mcp — SSE stream (MCP 2025-06-18 Streamable HTTP transport) ────
+// Claude.ai opens this after OAuth to establish a server-sent events channel.
+// Velocity doesn't push server-initiated events, so we keep the connection
+// open and send periodic heartbeats until the client disconnects.
+
+func (h *MCPHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
+	userID := h.resolveUser(r)
+	if userID == "" {
+		frontendURL := strings.TrimRight(os.Getenv("FRONTEND_URL"), "/")
+		if frontendURL == "" {
+			frontendURL = "http://localhost:5173"
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+frontendURL+`/.well-known/oauth-protected-resource"`)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
+
+	// Propagate session-id from request back to client (MCP 2025-06-18)
+	if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
+		w.Header().Set("Mcp-Session-Id", sid)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, ": connected\n\n")
+	flusher.Flush()
+
+	// Send a heartbeat every 30s; exit when the client closes the connection.
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
 // ── Main entrypoint: POST /api/mcp ───────────────────────────────────────────
 
 func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
