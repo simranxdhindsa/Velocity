@@ -17,6 +17,7 @@
 - ClockTimePicker — analog clock-face time selector component, used in Update Reminders rule editor
 
 ### Bug Fixes
+- remove Mcp-Session-Id from initialize response to stop GET SSE attempt
 - fix oauth-protected-resource returning wrong metadata format
 - MCP GET/SSE endpoint + Bearer casing for OAuth 2025-06-18 protocol
 - Fix @user placeholder and raw channel ID in My Threads — resolve mentions + store channel_name
