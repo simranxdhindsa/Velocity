@@ -334,11 +334,12 @@ func main() {
 	slackRoutes.HandleFunc("/disconnect", slackHandler.Disconnect).Methods("POST")
 	slackRoutes.HandleFunc("/channel", slackHandler.SetChannel).Methods("POST")
 	slackRoutes.HandleFunc("/monitor-channel", slackHandler.SetMonitorChannel).Methods("POST")
+	// Per-user scan (mentions + threads for the requesting user)
+	slackRoutes.HandleFunc("/scan", slackHandler.Scan).Methods("POST")
 	// Slack write routes — broadcast/digest actions: manager or above only
 	slackWriteRoutes := api.PathPrefix("/slack").Subrouter()
 	slackWriteRoutes.Use(middleware.AuthMiddleware)
 	slackWriteRoutes.Use(middleware.ManagerOrAbove)
-	slackWriteRoutes.HandleFunc("/scan", slackHandler.Scan).Methods("POST")
 	slackWriteRoutes.HandleFunc("/digest", slackHandler.PostDigest).Methods("POST")
 	slackWriteRoutes.HandleFunc("/reply", slackHandler.ReplyToThread).Methods("POST")
 	slackWriteRoutes.HandleFunc("/post-morning-report", slackHandler.PostMorningReport).Methods("POST")

@@ -1224,12 +1224,17 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                 </div>
               </div>
 
-              {/* Fetch messages */}
-              <div className="int-section-box">
-                <div className="int-section-box-header"><Download size={15} /><span>Fetch Messages</span></div>
-                {slackStatus.channel_name && (
-                  <p className="int-help-text">Pull messages from #{slackStatus.channel_name} for a date range.</p>
-                )}
+              {/* Connection test — fetch messages */}
+              <div className="int-section-box int-section-box--test">
+                <div className="int-section-box-header">
+                  <Download size={15} />
+                  <span>Test Connection</span>
+                  <span className="int-test-badge">Preview only</span>
+                </div>
+                <p className="int-help-text">
+                  Verify your bot can read messages. Pick a date range and fetch — if messages appear, your token and channel are set up correctly.
+                  {slackStatus.channel_name && <> Fetching from <strong>#{slackStatus.channel_name}</strong>.</>}
+                </p>
                 <div className="int-date-row">
                   <div className="int-field">
                     <label>From</label>
