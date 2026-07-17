@@ -3,6 +3,7 @@
 ## 2026-07-17
 
 ### Enhancements
+- MCP protocol version 2025-06-18 + session ID in initialize response
 - Complete light-mode overrides for 502 page — orbit rings, particles, scanner, brand text
 - 502 page — full redesign with orbital rings, particles, shimmer scanner, global detection via DOM event, unlimited 2s retry
 - Global 502 detection via DOM event + unlimited 2s retry + Framer Motion animations on 502 page
