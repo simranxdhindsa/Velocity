@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -175,8 +177,12 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	var resp rpcResponse
 	switch req.Method {
 	case "initialize":
+		// Generate a session ID and echo protocol version 2025-06-18 (Streamable HTTP transport)
+		rawID := make([]byte, 16)
+		_, _ = rand.Read(rawID)
+		w.Header().Set("Mcp-Session-Id", hex.EncodeToString(rawID))
 		resp = rpcOK(req.ID, map[string]interface{}{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": "2025-06-18",
 			"capabilities":    map[string]interface{}{"tools": map[string]bool{"listChanged": false}},
 			"serverInfo":      map[string]string{"name": "velocity", "version": "1.0.0"},
 		})
