@@ -15,6 +15,7 @@
 - ClockTimePicker — analog clock-face time selector component, used in Update Reminders rule editor
 
 ### Bug Fixes
+- Allow members to set their own Slack channel — move SetChannel + SetMonitorChannel to any-auth routes
 - fix 5 QA issues in Update Reminders + Claude Queue scheduler
 
 ## 2026-07-16
