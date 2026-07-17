@@ -30,9 +30,8 @@ func frontendBase() string {
 	return base
 }
 
-// GET /.well-known/oauth-authorization-server
-// GET /.well-known/oauth-protected-resource
-// Both return the authorization server metadata — Claude.ai checks both variants.
+// GET /.well-known/oauth-authorization-server — RFC 8414 Authorization Server Metadata.
+// Claude.ai fetches this to discover the auth/token/registration endpoints.
 func (h *OAuthHandler) Metadata(w http.ResponseWriter, r *http.Request) {
 	base := frontendBase()
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -44,6 +43,19 @@ func (h *OAuthHandler) Metadata(w http.ResponseWriter, r *http.Request) {
 		"grant_types_supported":                 []string{"authorization_code"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
+	})
+}
+
+// GET /.well-known/oauth-protected-resource — RFC 9728 Protected Resource Metadata.
+// This is what Claude.ai fetches FIRST (from WWW-Authenticate resource_metadata=).
+// Must return the resource URI and which authorization_servers to use — NOT auth server metadata.
+func (h *OAuthHandler) ProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
+	base := frontendBase()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"resource":                 base + "/api/mcp",
+		"authorization_servers":    []string{base},
+		"bearer_methods_supported": []string{"header"},
+		"scopes_supported":         []string{"mcp"},
 	})
 }
 

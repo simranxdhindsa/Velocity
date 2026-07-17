@@ -586,10 +586,14 @@ func main() {
 	userThemeRoutes.HandleFunc("", settingsHandler.SaveUserTheme).Methods("PUT")
 
 	// OAuth 2.1 routes — root-level so they work with or without /api prefix
-	// Claude.ai discovers these via /.well-known/oauth-authorization-server
 	oauthHandler := handlers.NewOAuthHandler()
+	// RFC 8414: authorization server metadata (auth/token/registration endpoints)
 	r.HandleFunc("/.well-known/oauth-authorization-server", oauthHandler.Metadata).Methods("GET", "OPTIONS")
-	r.HandleFunc("/.well-known/oauth-protected-resource", oauthHandler.Metadata).Methods("GET", "OPTIONS")
+	// RFC 9728: protected resource metadata — Claude.ai fetches this FIRST from WWW-Authenticate.
+	// Must return resource + authorization_servers[], NOT auth server metadata.
+	r.HandleFunc("/.well-known/oauth-protected-resource", oauthHandler.ProtectedResourceMetadata).Methods("GET", "OPTIONS")
+	// Path-specific variant per RFC 9728 §3 (client may append the resource path)
+	r.HandleFunc("/.well-known/oauth-protected-resource/api/mcp", oauthHandler.ProtectedResourceMetadata).Methods("GET", "OPTIONS")
 	r.HandleFunc("/oauth/register", oauthHandler.RegisterClient).Methods("POST", "OPTIONS")
 	r.HandleFunc("/oauth/token", oauthHandler.Token).Methods("POST", "OPTIONS")
 	// JWT-protected: frontend calls this after user approves the OAuth consent screen
