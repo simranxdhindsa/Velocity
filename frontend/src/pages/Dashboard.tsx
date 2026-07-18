@@ -36,6 +36,7 @@ import {
   Menu,
 } from 'lucide-react'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { GlobalHoverCard } from '@/components/HoverCard'
 import { PMAssistantTab } from './PMReportsPage'
 import { SprintDashboardPage } from './SprintDashboardPage'
 import { IntegrationsPage } from './IntegrationsPage'
@@ -900,6 +901,9 @@ export default function Dashboard() {
         <span className="pm-float-bubble-glow" />
         {chatOpen ? <X size={22} /> : <Sparkles size={22} />}
       </button>
+
+      {/* Singleton hover card — one portal for the whole app */}
+      <GlobalHoverCard />
     </div>
   )
 }

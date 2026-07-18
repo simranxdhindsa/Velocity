@@ -320,6 +320,8 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
   const [showSlackInstructions, setShowSlackInstructions] = useState(false)
   const [slackError, setSlackError] = useState<string | null>(null)
   const [slackSuccess, setSlackSuccess] = useState<string | null>(null)
+  const [slackChecking, setSlackChecking] = useState(false)
+  const [showSlackForm, setShowSlackForm] = useState(false)
 
   // ── YT metadata ─────────────────────────────────────────────────────────────
   const [ytPriorities, setYtPriorities] = useState<string[]>([])
@@ -701,10 +703,33 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
       setSlackSuccess('Slack disconnected')
       setSlackStatus({ connected: false })
       setSlackChannels([])
+      setShowSlackForm(false)
       setTimeout(() => setSlackSuccess(null), 3000)
     } catch (err) {
       setSlackError(err instanceof Error ? err.message : 'Failed to disconnect Slack')
     }
+  }
+
+  const handleRecheckSlack = async () => {
+    setSlackChecking(true)
+    setSlackError(null)
+    setSlackSuccess(null)
+    try {
+      const res = await api.getSlackStatus()
+      const status = res as unknown as SlackStatus
+      setSlackStatus(status)
+      if (status.connected) {
+        setSlackSuccess('Slack is reachable')
+        fetchSlackChannels()
+        setTimeout(() => setSlackSuccess(null), 3000)
+      } else {
+        setSlackError('Cannot reach Slack — check your bot token')
+        setTimeout(() => setSlackError(null), 5000)
+      }
+    } catch {
+      setSlackError('Re-check failed — server did not respond')
+      setTimeout(() => setSlackError(null), 5000)
+    } finally { setSlackChecking(false) }
   }
 
   const handleSetChannel = async () => {
@@ -1409,10 +1434,32 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
               <h2>Slack</h2>
               <p>Monitor channels, pull messages, and track mentions</p>
             </div>
-            <div>
-              {slackStatus?.connected
-                ? <span className="int-badge int-badge-green"><CheckCircle size={12} /> Connected</span>
-                : <span className="int-badge int-badge-gray">Not connected</span>}
+            <div style={{ position: 'relative' }}>
+              <AnimatePresence mode="wait">
+                {slackStatus?.connected ? (
+                  <motion.span
+                    key="slack-connected"
+                    className="int-badge int-badge-green"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <CheckCircle size={12} /> Connected
+                  </motion.span>
+                ) : (
+                  <motion.span
+                    key="slack-not-connected"
+                    className="int-badge int-badge-gray"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    Not connected
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -1426,31 +1473,75 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
             <div className="int-alert int-alert-success"><CheckCircle size={14} /><span>{slackSuccess}</span></div>
           )}
 
+          <AnimatePresence mode="wait">
           {slackStatus?.connected ? (
-            <>
-              {/* Connection details */}
-              <div className="int-details-grid">
-                {slackStatus.team_name && (
-                  <div className="int-detail-card">
-                    <span className="int-detail-label">Workspace</span>
-                    <span className="int-detail-value">{slackStatus.team_name}</span>
-                  </div>
-                )}
-                {slackStatus.channel_name && (
-                  <div className="int-detail-card">
-                    <span className="int-detail-label">Digest Channel</span>
-                    <span className="int-detail-value">#{slackStatus.channel_name}</span>
-                  </div>
-                )}
-                {slackStatus.monitor_channel_name && (
-                  <div className="int-detail-card">
-                    <span className="int-detail-label">Monitor Channel</span>
-                    <span className="int-detail-value">#{slackStatus.monitor_channel_name}</span>
-                  </div>
-                )}
-              </div>
+            <motion.div
+              key="slack-connected-panel"
+              className="int-config-panel"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
+              {/* Config rows */}
+              {(() => {
+                const rowVariants = {
+                  hidden: { opacity: 0, x: -10 },
+                  visible: (i: number) => ({ opacity: 1, x: 0, transition: { delay: i * 0.06, duration: 0.22, ease: 'easeOut' } }),
+                }
 
-              {/* Channel select */}
+                const slackRows: Array<{ icon: React.ReactNode; label: string; value: React.ReactNode } | null> = [
+                  slackStatus.team_name ? {
+                    icon: (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+                      </svg>
+                    ),
+                    label: 'Workspace',
+                    value: <span style={{ fontWeight: 600 }}>{slackStatus.team_name}</span>,
+                  } : null,
+                  slackStatus.channel_name ? {
+                    icon: (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/>
+                        <line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>
+                      </svg>
+                    ),
+                    label: 'Post Channel',
+                    value: <span className="int-config-chip int-config-chip-accent">#{slackStatus.channel_name}</span>,
+                  } : null,
+                  slackStatus.monitor_channel_name ? {
+                    icon: (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    ),
+                    label: 'Monitor',
+                    value: <span className="int-config-chip">#{slackStatus.monitor_channel_name}</span>,
+                  } : null,
+                ]
+
+                return (
+                  <div className="int-config-rows">
+                    {slackRows.filter(Boolean).map((row, i) => (
+                      <motion.div
+                        key={row!.label}
+                        className="int-config-row"
+                        variants={rowVariants}
+                        initial="hidden"
+                        animate="visible"
+                        custom={i}
+                      >
+                        <span className="int-config-row-icon">{row!.icon}</span>
+                        <span className="int-config-row-label">{row!.label}</span>
+                        <span className="int-config-row-value">{row!.value}</span>
+                      </motion.div>
+                    ))}
+                  </div>
+                )
+              })()}
+
+              {/* Channel settings */}
               <div className="int-section-box">
                 <div className="int-section-box-header"><Settings size={15} /><span>Channel Settings</span></div>
                 <div className="int-field">
@@ -1497,7 +1588,7 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                 </div>
               </div>
 
-              {/* Connection test — fetch messages */}
+              {/* Test connection */}
               <div className="int-section-box int-section-box--test">
                 <div className="int-section-box-header">
                   <Download size={15} />
@@ -1526,7 +1617,6 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                     {fetchingMessages ? <><RefreshCw size={13} className="spin" /> Fetching…</> : <><Download size={13} /> Fetch</>}
                   </button>
                 </div>
-
                 {slackMessages.length > 0 && (
                   <div className="int-msg-list">
                     <div className="int-msg-count">{slackMessages.length} messages</div>
@@ -1545,17 +1635,72 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                 )}
               </div>
 
+              {/* Inline token update form */}
+              <AnimatePresence>
+                {showSlackForm && (
+                  <motion.form
+                    onSubmit={async e => {
+                      e.preventDefault()
+                      try {
+                        setConnectingSlack(true); setSlackError(null)
+                        await api.connectSlack(slackBotToken, selectedChannel)
+                        setSlackSuccess('Token updated!')
+                        setSlackBotToken('')
+                        setShowSlackForm(false)
+                        await fetchSlackStatus()
+                        setTimeout(() => setSlackSuccess(null), 3000)
+                      } catch (err) {
+                        setSlackError(err instanceof Error ? err.message : 'Failed to update token')
+                      } finally { setConnectingSlack(false) }
+                    }}
+                    className="int-form"
+                    style={{ marginTop: 0 }}
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.22, ease: 'easeOut' }}
+                  >
+                    <div className="int-field">
+                      <label>New Bot Token</label>
+                      <input
+                        type="password"
+                        value={slackBotToken}
+                        onChange={e => setSlackBotToken(e.target.value)}
+                        placeholder="xoxb-your-bot-token"
+                        className="int-input int-mono"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="int-form-actions">
+                      <button type="button" className="int-btn int-btn-ghost" onClick={() => { setShowSlackForm(false); setSlackBotToken('') }}>Cancel</button>
+                      <button type="submit" className="int-btn int-btn-primary" disabled={connectingSlack || !slackBotToken.trim()}>
+                        {connectingSlack ? 'Updating…' : <><Save size={14} /> Update Token</>}
+                      </button>
+                    </div>
+                  </motion.form>
+                )}
+              </AnimatePresence>
+
               <div className="int-row-actions">
-                <button className="int-btn int-btn-danger-ghost" onClick={handleDisconnectSlack}>
+                <button className="int-btn int-btn-ghost int-btn-sm" onClick={handleRecheckSlack} disabled={slackChecking}>
+                  <RefreshCw size={13} className={slackChecking ? 'spin' : ''} /> {slackChecking ? 'Checking…' : 'Re-check'}
+                </button>
+                <button className="int-btn int-btn-ghost int-btn-sm" onClick={() => setShowSlackForm(f => !f)}>
+                  <Settings size={13} /> Update Token
+                </button>
+                <button className="int-btn int-btn-danger-ghost int-btn-sm" onClick={handleDisconnectSlack}>
                   <Unlink size={13} /> Disconnect
                 </button>
               </div>
-            </>
+            </motion.div>
           ) : (
-            <>
-              <div style={{ display:'flex', justifyContent:'center', marginBottom:'16px' }}>
-                <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
-              </div>
+            <motion.div
+              key="slack-connect-form"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               <form onSubmit={handleConnectSlack} className="int-form int-connect-form">
                 <p className="int-help-text">
                   Enter your Slack Bot Token to connect. Required scopes:{' '}
@@ -1595,8 +1740,9 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                   </div>
                 )}
               </div>
-            </>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
       )}
 
