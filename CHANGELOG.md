@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-18
+
+### Enhancements
+- move priority indicator to top-right chip on board cards (dot + name, replaces absolute attachment anchor)
+- improve YouTrack integration UI with Framer Motion animations and error handling
+- progressive disclosure YouTrack setup — auto-fetch projects on URL+token fill, board fetch on project select, no save-first required
+- add date picking (shared CalendarPicker component) alongside time picking across Claude Queue compose/edit and Quick Send scheduling, so messages can be scheduled for any future date, not just today/tomorrow
+- standardize time format to 12-hour (AM/PM) across the app and improve mention rendering in messages
+
+
+### Features
+- dynamic YouTrack priority colors in board filter
+
 ## 2026-07-17
 
 ### Enhancements
