@@ -3,6 +3,7 @@
 ## 2026-07-18
 
 ### Enhancements
+- compact board cards
 - move priority indicator to top-right chip on board cards (dot + name, replaces absolute attachment anchor)
 - improve YouTrack integration UI with Framer Motion animations and error handling
 - progressive disclosure YouTrack setup — auto-fetch projects on URL+token fill, board fetch on project select, no save-first required
