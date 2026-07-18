@@ -12,6 +12,7 @@
 
 
 ### Features
+- add get_developer_load and create_youtrack_ticket to Velocity MCP — single connector for Claude ticket creation
 - dynamic YouTrack priority colors in board filter
 
 ## 2026-07-17
