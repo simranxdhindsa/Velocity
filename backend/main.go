@@ -191,6 +191,8 @@ func main() {
 	youtrackRoutes.Use(middleware.AuthMiddleware)
 	youtrackRoutes.HandleFunc("/status", youtrackHandler.GetStatus).Methods("GET")
 	youtrackRoutes.HandleFunc("/test", youtrackHandler.TestConnection).Methods("POST")
+	youtrackRoutes.HandleFunc("/probe", youtrackHandler.ProbeYouTrack).Methods("POST")
+	youtrackRoutes.HandleFunc("/probe/boards", youtrackHandler.ProbeYouTrackBoards).Methods("POST")
 	youtrackRoutes.HandleFunc("/projects", youtrackHandler.GetProjects).Methods("GET")
 	youtrackRoutes.HandleFunc("/boards", youtrackHandler.GetBoards).Methods("GET")
 	youtrackRoutes.HandleFunc("/board/columns", youtrackHandler.GetDefaultBoardColumns).Methods("GET")

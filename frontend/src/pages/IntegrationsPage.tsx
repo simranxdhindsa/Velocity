@@ -280,6 +280,12 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
   const [showYtForm, setShowYtForm] = useState(false)
   const [ytBoards, setYtBoards] = useState<Array<{ id: string; name: string }>>([])
   const [ytBoardsLoading, setYtBoardsLoading] = useState(false)
+  // Progressive setup state
+  const [ytProjects, setYtProjects] = useState<Array<{ id: string; name: string }>>([])
+  const [ytProbing, setYtProbing] = useState(false)
+  const [ytProbeError, setYtProbeError] = useState<string | null>(null)
+  const [ytProbed, setYtProbed] = useState(false)
+  const ytProbeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Asana ────────────────────────────────────────────────────────────────────
   const [asanaConnected, setAsanaConnected] = useState(false)
@@ -440,6 +446,47 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
       const boards = (res as any)?.data ?? res ?? []
       setYtBoards(Array.isArray(boards) ? boards : [])
     } catch { /* silently ignore */ }
+    finally { setYtBoardsLoading(false) }
+  }
+
+  // Auto-probe: called whenever base URL or token changes (debounced 600ms)
+  const triggerProbe = (url: string, token: string) => {
+    if (ytProbeTimerRef.current) clearTimeout(ytProbeTimerRef.current)
+    setYtProbed(false)
+    setYtProbeError(null)
+    setYtProjects([])
+    setYtBoards([])
+    setYtProjectID('')
+    setYtBoardID('')
+    if (!url.trim() || !token.trim()) return
+    ytProbeTimerRef.current = setTimeout(async () => {
+      setYtProbing(true)
+      setYtProbeError(null)
+      try {
+        const res = await api.probeYouTrack(url.trim(), token.trim())
+        const projects = (res as any)?.data ?? []
+        setYtProjects(Array.isArray(projects) ? projects : [])
+        setYtProbed(true)
+      } catch {
+        setYtProbeError('Cannot connect — check URL and token')
+      } finally {
+        setYtProbing(false)
+      }
+    }, 600)
+  }
+
+  // Auto-fetch boards when project is selected (using temp credentials)
+  const handleProjectSelect = async (projectId: string) => {
+    setYtProjectID(projectId)
+    setYtBoardID('')
+    setYtBoards([])
+    if (!projectId) return
+    setYtBoardsLoading(true)
+    try {
+      const res = await api.probeYouTrackBoards(ytBaseURL.trim(), ytToken.trim(), projectId)
+      const boards = (res as any)?.data ?? []
+      setYtBoards(Array.isArray(boards) ? boards : [])
+    } catch { /* boards optional */ }
     finally { setYtBoardsLoading(false) }
   }
 
@@ -958,46 +1005,90 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
             </>
           )}
 
-          {/* Connect / Edit form */}
+          {/* Connect / Edit form — progressive disclosure */}
           {(!ytConfigured || showYtForm) && (
             <form onSubmit={handleSaveYt} className="int-form">
               {!ytConfigured && (
-                <>
-                  <div style={{ display:'flex', justifyContent:'center', marginBottom:'16px' }}>
-                    <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
-                  </div>
-                  <p className="int-help-text">
-                    Enter your YouTrack credentials. They are stored securely in the database and never exposed to other users.
-                  </p>
-                </>
+                <p className="int-help-text">
+                  Enter your YouTrack URL and token — projects will load automatically.
+                </p>
               )}
+
+              {/* Step 1: credentials */}
               <div className="int-field">
                 <label>Base URL</label>
-                <input type="url" value={ytBaseURL} onChange={e => setYtBaseURL(e.target.value)} placeholder="https://yourteam.youtrack.cloud" className="int-input" autoComplete="off" required />
+                <input
+                  type="url"
+                  value={ytBaseURL}
+                  onChange={e => { setYtBaseURL(e.target.value); triggerProbe(e.target.value, ytToken) }}
+                  placeholder="https://yourteam.youtrack.cloud"
+                  className="int-input"
+                  autoComplete="off"
+                  required
+                />
               </div>
               <div className="int-field">
                 <label>Permanent Token</label>
-                <input type="password" value={ytToken} onChange={e => setYtToken(e.target.value)} placeholder={ytConfigured ? 'Enter new token to update' : 'perm:...'} className="int-input int-mono" autoComplete="new-password" required={!ytConfigured} />
+                <div className="int-input-row">
+                  <input
+                    type="password"
+                    value={ytToken}
+                    onChange={e => { setYtToken(e.target.value); triggerProbe(ytBaseURL, e.target.value) }}
+                    placeholder={ytConfigured ? 'Enter new token to update' : 'perm:...'}
+                    className="int-input int-mono"
+                    autoComplete="new-password"
+                    required={!ytConfigured}
+                  />
+                  {ytProbing && <span className="int-probe-spinner" />}
+                  {ytProbed && !ytProbing && <span className="int-probe-ok" title="Connected"><CheckCircle size={15} /></span>}
+                  {ytProbeError && !ytProbing && <span className="int-probe-err" title={ytProbeError}><AlertCircle size={15} /></span>}
+                </div>
+                {ytProbeError && <p className="int-field-error">{ytProbeError}</p>}
               </div>
-              <div className="int-field">
-                <label>Project ID <span className="int-label-hint">short ID, e.g. PM</span></label>
-                <input type="text" value={ytProjectID} onChange={e => setYtProjectID(e.target.value)} placeholder="PM" className="int-input" autoComplete="off" required />
-              </div>
-              <div className="int-field">
-                <label>Board <span className="int-label-hint">optional — for sprint tracking</span></label>
-                <WcObjDropdown
-                  value={ytBoardID}
-                  placeholder={ytBoardsLoading ? 'Loading boards…' : ytBoards.length === 0 ? 'No boards found' : '— Select a board —'}
-                  options={ytBoards}
-                  onChange={setYtBoardID}
-                  disabled={ytBoardsLoading}
-                />
-              </div>
+
+              {/* Step 2: project — only shown after probe succeeds */}
+              {(ytProbed || (ytConfigured && !ytToken)) && (
+                <div className="int-field int-field-reveal">
+                  <label>Project</label>
+                  {ytProjects.length > 0 ? (
+                    <WcObjDropdown
+                      value={ytProjectID}
+                      placeholder="— Select a project —"
+                      options={ytProjects}
+                      onChange={handleProjectSelect}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={ytProjectID}
+                      onChange={e => setYtProjectID(e.target.value)}
+                      placeholder="Project short ID, e.g. PM"
+                      className="int-input"
+                      autoComplete="off"
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Step 3: board — only shown after project selected */}
+              {ytProjectID && (ytProbed || (ytConfigured && !ytToken)) && (
+                <div className="int-field int-field-reveal">
+                  <label>Board <span className="int-label-hint">optional — for sprint tracking</span></label>
+                  <WcObjDropdown
+                    value={ytBoardID}
+                    placeholder={ytBoardsLoading ? 'Loading boards…' : ytBoards.length === 0 ? 'No boards for this project' : '— Select a board —'}
+                    options={ytBoards}
+                    onChange={setYtBoardID}
+                    disabled={ytBoardsLoading}
+                  />
+                </div>
+              )}
+
               <div className="int-form-actions">
                 {showYtForm && (
-                  <button type="button" className="int-btn int-btn-ghost" onClick={() => { setShowYtForm(false); setYtError(null) }}>Cancel</button>
+                  <button type="button" className="int-btn int-btn-ghost" onClick={() => { setShowYtForm(false); setYtError(null); setYtProbed(false); setYtProbeError(null) }}>Cancel</button>
                 )}
-                <button type="submit" className="int-btn int-btn-primary" disabled={ytSaving}>
+                <button type="submit" className="int-btn int-btn-primary" disabled={ytSaving || ytProbing}>
                   {ytSaving ? 'Connecting…' : <><Link2 size={14} /> {ytConfigured ? 'Update' : 'Connect YouTrack'}</>}
                 </button>
               </div>

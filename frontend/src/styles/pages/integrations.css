@@ -423,6 +423,51 @@
   letter-spacing: 0.02em;
 }
 
+/* Progressive probe status */
+.int-probe-spinner {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: int-spin 0.7s linear infinite;
+}
+
+@keyframes int-spin {
+  to { transform: rotate(360deg); }
+}
+
+.int-probe-ok {
+  flex-shrink: 0;
+  color: var(--color-success);
+  display: flex;
+  align-items: center;
+}
+
+.int-probe-err {
+  flex-shrink: 0;
+  color: var(--color-danger);
+  display: flex;
+  align-items: center;
+}
+
+.int-field-error {
+  font-size: 0.78rem;
+  color: var(--color-danger);
+  margin: 0;
+}
+
+/* Revealed step: subtle slide-in */
+.int-field-reveal {
+  animation: int-reveal 0.22s ease both;
+}
+
+@keyframes int-reveal {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .int-input-row {
   display: flex;
   gap: 0.5rem;

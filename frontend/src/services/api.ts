@@ -297,6 +297,20 @@ class ApiService {
     return this.request<YouTrackBoard[]>('/youtrack/boards')
   }
 
+  async probeYouTrack(baseUrl: string, token: string) {
+    return this.request<YouTrackProject[]>('/youtrack/probe', {
+      method: 'POST',
+      body: JSON.stringify({ base_url: baseUrl, token }),
+    })
+  }
+
+  async probeYouTrackBoards(baseUrl: string, token: string, projectId: string) {
+    return this.request<YouTrackBoard[]>('/youtrack/probe/boards', {
+      method: 'POST',
+      body: JSON.stringify({ base_url: baseUrl, token, project_id: projectId }),
+    })
+  }
+
   async getYouTrackBoardColumns(boardId: string) {
     return this.request<YouTrackColumn[]>(`/youtrack/boards/${boardId}/columns`)
   }

@@ -273,6 +273,52 @@ func (h *YouTrackHandler) TestConnection(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// ProbeYouTrack accepts temporary {base_url, token} credentials and returns projects + boards
+// without requiring them to be saved first — used by the setup wizard.
+func (h *YouTrackHandler) ProbeYouTrack(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BaseURL string `json:"base_url"`
+		Token   string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.BaseURL == "" || req.Token == "" {
+		http.Error(w, "base_url and token are required", http.StatusBadRequest)
+		return
+	}
+	client := youtrack.NewClient(req.BaseURL, req.Token, "")
+	projects, err := client.GetProjects(r.Context())
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "Cannot reach YouTrack — check URL and token"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": projects})
+}
+
+// ProbeYouTrackBoards returns boards for a given project using temporary credentials.
+func (h *YouTrackHandler) ProbeYouTrackBoards(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BaseURL   string `json:"base_url"`
+		Token     string `json:"token"`
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.BaseURL == "" || req.Token == "" {
+		http.Error(w, "base_url and token are required", http.StatusBadRequest)
+		return
+	}
+	client := youtrack.NewClient(req.BaseURL, req.Token, req.ProjectID)
+	boards, err := client.GetBoards(r.Context())
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "Failed to fetch boards"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": boards})
+}
+
 // GetProjects returns available YouTrack projects
 func (h *YouTrackHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
