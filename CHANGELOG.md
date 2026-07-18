@@ -16,6 +16,7 @@
 - dynamic YouTrack priority colors in board filter
 
 ### Bug Fixes
+- MCP create_youtrack_ticket — default state To Do, auto-assign to active sprint
 - add idReadable to CreateIssue response fields so MCP returns ARD-XXXX format
 
 ## 2026-07-17
