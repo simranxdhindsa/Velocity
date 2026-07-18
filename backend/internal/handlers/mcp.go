@@ -94,6 +94,17 @@ var mcpTools = []map[string]interface{}{
 		},
 	},
 	{
+		"name": "get_sprints",
+		"description": "Returns all sprints for the YouTrack project, with their ID, name, and whether they are completed. " +
+			"Use this when the user mentions a specific sprint by name (e.g. 'Sprint 6', 'Sprint 8') to resolve its ID before calling create_youtrack_ticket. " +
+			"The latest non-completed sprint is the active sprint.",
+		"inputSchema": map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+			"required":   []string{},
+		},
+	},
+	{
 		"name": "get_developer_load",
 		"description": "Returns the open ticket count for one or more YouTrack developer logins. " +
 			"Use this after get_developer_configs to decide who to auto-assign a ticket to — pick the developer with the lowest count. " +
@@ -303,6 +314,18 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 			return toolError(id, "Failed to fetch developer configs: "+err.Error())
 		}
 		data, _ := json.Marshal(configs)
+		return toolOK(id, string(data))
+
+	case "get_sprints":
+		ytClient := mcpYTClient(ctx)
+		if ytClient == nil {
+			return toolError(id, "YouTrack not configured")
+		}
+		sprints, err := ytClient.GetSprints(ctx)
+		if err != nil {
+			return toolError(id, "Failed to fetch sprints: "+err.Error())
+		}
+		data, _ := json.Marshal(sprints)
 		return toolOK(id, string(data))
 
 	case "get_developer_load":
