@@ -7,11 +7,12 @@ import type { YouTrackIssue } from '../../services/api'
 interface SortableTaskCardProps {
   issue: YouTrackIssue
   avatarMap: Record<string, string>
+  priorityColorMap?: Record<string, string>
   extraClass?: string
   onIssueClick?: (issue: YouTrackIssue) => void
 }
 
-export const SortableTaskCard = memo(function SortableTaskCard({ issue, avatarMap, extraClass, onIssueClick }: SortableTaskCardProps) {
+export const SortableTaskCard = memo(function SortableTaskCard({ issue, avatarMap, priorityColorMap, extraClass, onIssueClick }: SortableTaskCardProps) {
   const {
     attributes,
     listeners,
@@ -33,6 +34,7 @@ export const SortableTaskCard = memo(function SortableTaskCard({ issue, avatarMa
       <TaskCard
         issue={issue}
         avatarMap={avatarMap}
+        priorityColorMap={priorityColorMap}
         isDragging={isDragging}
         extraClass={extraClass}
         onClick={onIssueClick ? () => onIssueClick(issue) : undefined}

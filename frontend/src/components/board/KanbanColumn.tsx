@@ -20,6 +20,7 @@ interface KanbanColumnProps {
   title: string
   issues: YouTrackIssue[]
   avatarMap: Record<string, string>
+  priorityColorMap?: Record<string, string>
   onIssueClick?: (issue: YouTrackIssue) => void
   getExtraClass?: (issue: YouTrackIssue) => string
   hasMore?: boolean
@@ -29,7 +30,7 @@ interface KanbanColumnProps {
 }
 
 export const KanbanColumn = memo(function KanbanColumn({
-  id, title, issues, avatarMap, onIssueClick, getExtraClass,
+  id, title, issues, avatarMap, priorityColorMap, onIssueClick, getExtraClass,
   hasMore, isLoadingMore, onLoadMore, isHoverTarget,
 }: KanbanColumnProps) {
   const { isOver, setNodeRef } = useDroppable({ id })
@@ -84,6 +85,7 @@ export const KanbanColumn = memo(function KanbanColumn({
                 key={issue.id}
                 issue={issue}
                 avatarMap={avatarMap}
+                priorityColorMap={priorityColorMap}
                 extraClass={getExtraClass?.(issue)}
                 onIssueClick={onIssueClick}
               />

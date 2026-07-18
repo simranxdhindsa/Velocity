@@ -19,6 +19,7 @@ interface KanbanBoardProps {
   issues: YouTrackIssue[]
   columns: string[]
   avatarMap: Record<string, string>
+  priorityColorMap?: Record<string, string>
   getColumnIssues: (col: string) => YouTrackIssue[]
   onIssueMove: (issueId: string, newState: string) => void
   onIssueClick?: (issue: YouTrackIssue) => void
@@ -28,7 +29,7 @@ interface KanbanBoardProps {
 }
 
 export const KanbanBoard = memo(function KanbanBoard({
-  issues, columns, avatarMap, getColumnIssues, onIssueMove, onIssueClick, getExtraClass, colPagination, onLoadMore,
+  issues, columns, avatarMap, priorityColorMap, getColumnIssues, onIssueMove, onIssueClick, getExtraClass, colPagination, onLoadMore,
 }: KanbanBoardProps) {
   const [activeIssue, setActiveIssue] = useState<YouTrackIssue | null>(null)
   // Track hovered column locally — only for CSS highlight, never touches parent state
@@ -93,6 +94,7 @@ export const KanbanBoard = memo(function KanbanBoard({
               title={col}
               issues={getColumnIssues(col)}
               avatarMap={avatarMap}
+              priorityColorMap={priorityColorMap}
               onIssueClick={onIssueClick}
               getExtraClass={getExtraClass}
               hasMore={pg?.hasMore}
@@ -111,6 +113,9 @@ export const KanbanBoard = memo(function KanbanBoard({
             style={{ opacity: 0.9, boxShadow: '0 8px 25px rgba(0,0,0,0.3)', transform: 'rotate(3deg)', pointerEvents: 'none' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+              {activeIssue.priority && priorityColorMap?.[activeIssue.priority] && (
+                <span className="board-priority-dot" style={{ background: priorityColorMap[activeIssue.priority] }} />
+              )}
               <span style={{ color: 'var(--color-primary)', fontSize: '0.75rem', fontWeight: 600 }}>{activeIssue.idReadable || activeIssue.id}</span>
             </div>
             <h4 className="task-title">{activeIssue.summary}</h4>

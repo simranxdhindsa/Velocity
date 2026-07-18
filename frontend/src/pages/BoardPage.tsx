@@ -585,6 +585,7 @@ export function BoardPage() {
             issues={issues}
             columns={columns}
             avatarMap={avatarMap}
+            priorityColorMap={Object.fromEntries(priorities.map(p => [p.name, p.background ?? '']))}
             getColumnIssues={getColumnIssues}
             onIssueMove={handleIssueMove}
             onIssueClick={setSelectedIssue}

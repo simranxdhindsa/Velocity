@@ -118,6 +118,45 @@
   box-shadow: 0 4px 20px rgba(99,102,241,0.15);
 }
 
+/* ── Task card top row: ID left, priority chip right ─────── */
+.task-card-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.task-card-id {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+.task-priority-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 2px 7px 2px 5px;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-theme="light"] .task-priority-chip {
+  background: rgba(0,0,0,0.05);
+  color: var(--text-secondary);
+}
+
 .task-title      { font-size: 0.875rem; font-weight: 500; line-height: 1.4; color: var(--text-primary); }
 .task-card-title { font-size: 0.8375rem; font-weight: 500; line-height: 1.4; color: var(--text-secondary); }
 .task-description {
@@ -195,9 +234,6 @@
 
 /* ── Attachment count badge (board card) ─────────────────── */
 .task-attachment-count {
-  position: absolute;
-  top: 10px;
-  right: 10px;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -208,6 +244,7 @@
   border-radius: 10px;
   padding: 2px 7px;
   line-height: 1.5;
+  flex-shrink: 0;
   cursor: default;
 }
 [data-theme="light"] .task-attachment-count {
