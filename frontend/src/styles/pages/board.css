@@ -47,6 +47,30 @@
   flex-wrap: wrap;
 }
 
+/* Priority dot inside dropdown item — color comes from YouTrack API via inline style */
+.board-priority-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted); /* fallback when YT returns no color */
+}
+
+/* Active filter count badge on dropdown trigger */
+.board-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: var(--color-primary);
+  color: #fff;
+  line-height: 1;
+}
+
 .board-kanban-wrap {
   flex: 1;
   min-height: 0;

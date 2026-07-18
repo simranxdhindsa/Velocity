@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   RefreshCw, Search, Users, ChevronDown, X,
   AlertTriangle, ArrowDownUp, ArrowUpNarrowWide, ArrowDownNarrowWide,
-  ExternalLink, Loader2, Filter, LayoutDashboard, CalendarDays,
+  Filter, LayoutDashboard, CalendarDays,
 } from 'lucide-react'
 import { SprintScanLoader, QuantumOrbitLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
@@ -22,42 +22,14 @@ interface ColPaginationState {
   loading: boolean
 }
 
-// ── Priority helpers (same as PMReportsPage pattern) ─────────────────────────
 
-function ytPriorityLabel(priority: string): string {
-  const p = (priority || '').toLowerCase()
-  if (p.includes('critical') || p.includes('show-stopper') || p.includes('blocker')) return 'P0'
-  if (p.includes('major')) return 'P1'
-  if (p.includes('normal') || p.includes('medium')) return 'P2'
-  if (p.includes('minor') || p.includes('cosmetic') || p.includes('low')) return 'P3'
-  return priority || '—'
-}
-
-function ytPriorityBadgeClass(priority: string): string {
-  const label = ytPriorityLabel(priority)
-  if (label === 'P0') return 'priority-badge p0'
-  if (label === 'P1') return 'priority-badge p1'
-  if (label === 'P2') return 'priority-badge p2'
-  if (label === 'P3') return 'priority-badge p3'
-  return 'priority-badge other'
-}
-
-function priorityOrder(priority: string): number {
-  const label = ytPriorityLabel(priority)
-  if (label === 'P0') return 0
-  if (label === 'P1') return 1
-  if (label === 'P2') return 2
-  if (label === 'P3') return 3
+function priorityOrder(name: string): number {
+  const p = (name || '').toLowerCase()
+  if (p.includes('critical') || p.includes('show-stopper') || p.includes('blocker')) return 0
+  if (p.includes('major')) return 1
+  if (p.includes('normal') || p.includes('medium')) return 2
+  if (p.includes('minor') || p.includes('cosmetic') || p.includes('low')) return 3
   return 4
-}
-
-function isOverdue(issue: YouTrackIssue): boolean {
-  const p = (issue.priority || '').toLowerCase()
-  const s = (issue.status || '').toLowerCase()
-  const isDone = s.includes('done') || s.includes('fixed') || s.includes('closed')
-    || s.includes('verified') || s.includes('mobile done') || s.includes("won't fix")
-    || s.includes('duplicate')
-  return !isDone && (p.includes('critical') || p.includes('show-stopper') || p.includes('blocker'))
 }
 
 
@@ -87,9 +59,11 @@ export function BoardPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterAssignee, setFilterAssignee] = useState('')
   const [filterPriorities, setFilterPriorities] = useState<string[]>([])
-  const [filterOverdue, setFilterOverdue] = useState(false)
+  const [priorities, setPriorities] = useState<{ name: string; background?: string; foreground?: string }[]>([])
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false)
   const assigneeDropdownRef = useRef<HTMLDivElement>(null)
+  const [priorityDropdownOpen, setPriorityDropdownOpen] = useState(false)
+  const priorityDropdownRef = useRef<HTMLDivElement>(null)
 
   // ── Sort state ─────────────────────────────────────────────────────────────
   const [sortKey, setSortKey] = useState<SortKey>('newest')
@@ -103,6 +77,8 @@ export function BoardPage() {
         setAssigneeDropdownOpen(false)
       if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node))
         setSortDropdownOpen(false)
+      if (priorityDropdownRef.current && !priorityDropdownRef.current.contains(e.target as Node))
+        setPriorityDropdownOpen(false)
       if (sprintDropdownRef.current && !sprintDropdownRef.current.contains(e.target as Node))
         setSprintDropdownOpen(false)
     }
@@ -203,9 +179,19 @@ export function BoardPage() {
     }
   }, [colPagination, activeSprint])
 
-  // Avatar map — fetch once on mount
+  // Avatar map + live priorities — fetch once on mount
   useEffect(() => {
     getYouTrackAvatarMap().then(setAvatarMap)
+    api.getYouTrackPriorities().then(res => {
+      const raw = (res as any)?.data ?? []
+      const items = Array.isArray(raw)
+        ? raw.map((p: any) => typeof p === 'string'
+            ? { name: p }
+            : { name: p?.name ?? '', background: p?.background, foreground: p?.foreground }
+          ).filter(p => p.name)
+        : []
+      setPriorities(items)
+    }).catch(() => {})
   }, [])
 
   // Auto-select active sprint when sprints become available from cache.
@@ -237,7 +223,6 @@ export function BoardPage() {
     searchQuery !== '',
     filterAssignee !== '',
     filterPriorities.length > 0,
-    filterOverdue,
   ].filter(Boolean).length
 
   const getColumnIssues = useCallback((colName: string): YouTrackIssue[] => {
@@ -252,17 +237,14 @@ export function BoardPage() {
       )
     }
     if (filterPriorities.length > 0) {
-      list = list.filter(i => filterPriorities.includes(ytPriorityLabel(i.priority || '')))
-    }
-    if (filterOverdue) {
-      list = list.filter(i => isOverdue(i))
+      list = list.filter(i => filterPriorities.includes(i.priority || ''))
     }
     return list.sort((a, b) => {
       if (sortKey === 'alpha') return a.summary.localeCompare(b.summary)
       if (sortKey === 'priority') return priorityOrder(a.priority || '') - priorityOrder(b.priority || '')
       return (b.updated || 0) - (a.updated || 0)
     })
-  }, [issues, searchQuery, filterAssignee, filterPriorities, filterOverdue, sortKey])
+  }, [issues, searchQuery, filterAssignee, filterPriorities, sortKey])
 
   const handleSprintChange = useCallback((sprint: YouTrackSprint | null) => {
     setActiveSprint(sprint)
@@ -283,7 +265,6 @@ export function BoardPage() {
     setSearchQuery('')
     setFilterAssignee('')
     setFilterPriorities([])
-    setFilterOverdue(false)
   }
 
   const visibleCount = useMemo(() =>
@@ -316,9 +297,12 @@ export function BoardPage() {
             {sk(110, 30, 8)}{sk(90, 30, 8)}{sk(80, 30, 8)}
           </div>
         </div>
-        {/* Skeleton filter bar */}
-        <div className="board-filter-bar" style={{ pointerEvents: 'none', gap: 8 }}>
-          {sk(120, 28, 20)}{sk(90, 28, 20)}{sk(80, 28, 20)}
+        {/* Skeleton filter bar — mirrors real bar: search | assignee | priority | sort */}
+        <div className="board-filter-bar" style={{ pointerEvents: 'none', gap: 8, alignItems: 'center' }}>
+          {sk(160, 30, 8)}
+          {sk(110, 30, 8)}
+          {sk(130, 30, 8)}
+          {sk(95, 30, 8)}
         </div>
         {/* Skeleton kanban board — fills full width + height */}
         <div className="board-kanban-wrap">
@@ -501,20 +485,56 @@ export function BoardPage() {
           )}
         </div>
 
-        {/* Priority chips */}
-        <div className="pm-priority-chips">
-          {(['P0', 'P1', 'P2', 'P3'] as const).map(p => (
-            <button
-              key={p}
-              className={`priority-chip ${filterPriorities.includes(p) ? 'active' : ''} ${ytPriorityBadgeClass(p)}`}
-              onClick={() => setFilterPriorities(prev =>
-                prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]
+        {/* Priority dropdown — multi-select, live from YouTrack */}
+        {priorities.length > 0 && (
+          <div className="pm-custom-dropdown" ref={priorityDropdownRef}>
+            <button className="pm-custom-dropdown-trigger" onClick={() => setPriorityDropdownOpen(o => !o)}>
+              <ArrowUpNarrowWide size={14} />
+              {filterPriorities.length === 1 && (() => {
+                const match = priorities.find(p => p.name === filterPriorities[0])
+                return match ? <span className="board-priority-dot" style={match.background ? { background: match.background } : undefined} /> : null
+              })()}
+              <span>
+                {filterPriorities.length === 0
+                  ? 'All Priorities'
+                  : filterPriorities.length === 1
+                    ? filterPriorities[0]
+                    : `${filterPriorities.length} priorities`}
+              </span>
+              {filterPriorities.length > 0 && (
+                <span className="board-filter-count">{filterPriorities.length}</span>
               )}
-            >
-              {p}
+              <ChevronDown size={12} className={`dropdown-chevron ${priorityDropdownOpen ? 'open' : ''}`} />
             </button>
-          ))}
-        </div>
+            {priorityDropdownOpen && (
+              <div className="pm-custom-dropdown-menu">
+                <button
+                  className={`pm-dropdown-item ${filterPriorities.length === 0 ? 'active' : ''}`}
+                  onClick={() => { setFilterPriorities([]); setPriorityDropdownOpen(false) }}
+                >
+                  <ArrowUpNarrowWide size={14} /><span>All Priorities</span>
+                </button>
+                <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '4px 0' }} />
+                {priorities.map(({ name, background }) => (
+                  <button
+                    key={name}
+                    className={`pm-dropdown-item ${filterPriorities.includes(name) ? 'active' : ''}`}
+                    onClick={() => setFilterPriorities(prev =>
+                      prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]
+                    )}
+                  >
+                    <span
+                      className="board-priority-dot"
+                      style={background ? { background } : undefined}
+                    />
+                    <span>{name}</span>
+                    {filterPriorities.includes(name) && <span style={{ marginLeft: 'auto', color: 'var(--color-primary)', fontSize: '0.7rem' }}>✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Sort dropdown */}
         <div className="pm-custom-dropdown" ref={sortDropdownRef}>
@@ -542,20 +562,12 @@ export function BoardPage() {
           )}
         </div>
 
-        {/* Toggle filters */}
-        <div className="pm-toggle-filters">
-          <button
-            className={`btn-sm ${filterOverdue ? 'btn-danger-active' : 'btn-secondary'}`}
-            onClick={() => setFilterOverdue(f => !f)}
-          >
-            <AlertTriangle size={13} /> Overdue
+        {/* Clear filters */}
+        {activeFilterCount > 0 && (
+          <button className="btn-sm btn-ghost tl-clear-filters" onClick={clearFilters}>
+            <X size={12} /> Clear
           </button>
-          {activeFilterCount > 0 && (
-            <button className="btn-sm btn-ghost tl-clear-filters" onClick={clearFilters}>
-              <X size={12} /> Clear filters
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* ── Board ──────────────────────────────────────────────────────────── */}
