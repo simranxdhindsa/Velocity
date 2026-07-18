@@ -834,7 +834,7 @@ func (c *Client) CreateIssue(ctx context.Context, req CreateIssueRequest) (*Issu
 		}
 	}
 
-	path := "/api/issues?fields=id,summary,description,created,updated,customFields(name,value(name,presentation)),project(shortName)"
+	path := "/api/issues?fields=id,idReadable,summary,description,created,updated,customFields(name,value(name,presentation)),project(shortName)"
 	body, err := c.doRequest(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return nil, err

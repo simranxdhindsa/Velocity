@@ -371,9 +371,13 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		if err != nil {
 			return toolError(id, "Failed to create ticket: "+err.Error())
 		}
+		displayID := issue.IDReadable
+		if displayID == "" {
+			displayID = issue.ID
+		}
 		baseURL := strings.TrimRight(os.Getenv("YOUTRACK_BASE_URL"), "/")
-		ticketURL := fmt.Sprintf("%s/issue/%s", baseURL, issue.ID)
-		result := fmt.Sprintf("Created %s — %s\n%s", issue.ID, issue.Summary, ticketURL)
+		ticketURL := fmt.Sprintf("%s/issue/%s", baseURL, displayID)
+		result := fmt.Sprintf("Created %s — %s\n%s", displayID, issue.Summary, ticketURL)
 		return toolOK(id, result)
 
 	case "queue_slack_message":
