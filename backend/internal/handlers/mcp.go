@@ -18,16 +18,56 @@ import (
 
 // devConfigRepo is a package-level repo for the MCP tool; no state, safe to share.
 var devConfigRepo = database.NewDeveloperConfigRepository()
+var mcpSettingsRepo = database.NewSettingsRepository()
 
-// mcpYTClient builds a YouTrack client from env vars (MCP has no user session).
-func mcpYTClient(ctx context.Context) *youtrack.Client {
-	baseURL := os.Getenv("YOUTRACK_BASE_URL")
-	token := os.Getenv("YOUTRACK_TOKEN")
-	projectID := os.Getenv("YOUTRACK_PROJECT_ID")
+// mcpYTClient builds a YouTrack client for MCP tools.
+// Resolution order: per-user DB integration → global settings DB → env vars.
+// This mirrors getYouTrackClientForUser so the MCP tools pick up whatever the
+// user configured in Integrations → YouTrack, not just env vars.
+func mcpYTClient(ctx context.Context, userID string) *youtrack.Client {
+	var baseURL, token, projectID, boardID string
+
+	// 1. Per-user integration from DB
+	if userID != "" {
+		if integration, err := mcpSettingsRepo.GetYouTrackIntegration(ctx, userID); err == nil && integration != nil && integration.Connected {
+			baseURL = integration.BaseURL
+			token = integration.Token
+			projectID = integration.ProjectID
+			boardID = integration.BoardID
+		}
+	}
+
+	// 2. Global (org-wide) settings from DB
+	if baseURL == "" {
+		if settings, err := mcpSettingsRepo.GetYouTrackSettings(ctx); err == nil && settings != nil && settings.Configured {
+			baseURL = settings.BaseURL
+			token = settings.Token
+			projectID = settings.ProjectID
+		}
+	}
+
+	// 3. Env vars (last resort)
+	if baseURL == "" {
+		baseURL = os.Getenv("YOUTRACK_BASE_URL")
+	}
+	if token == "" {
+		token = os.Getenv("YOUTRACK_TOKEN")
+	}
+	if projectID == "" {
+		projectID = os.Getenv("YOUTRACK_PROJECT_ID")
+	}
+	if boardID == "" {
+		boardID = os.Getenv("YOUTRACK_BOARD_ID")
+	}
+
 	if baseURL == "" || token == "" || projectID == "" {
 		return nil
 	}
-	return youtrack.NewClient(baseURL, token, projectID)
+	client := youtrack.NewClient(baseURL, token, projectID)
+	if boardID != "" {
+		client.SetBoardID(boardID)
+	}
+	return client
 }
 
 // MCPHandler serves the MCP protocol endpoint used by Claude's custom connector.
@@ -317,9 +357,9 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		return toolOK(id, string(data))
 
 	case "get_sprints":
-		ytClient := mcpYTClient(ctx)
+		ytClient := mcpYTClient(ctx, userID)
 		if ytClient == nil {
-			return toolError(id, "YouTrack not configured")
+			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 		}
 		sprints, err := ytClient.GetSprints(ctx)
 		if err != nil {
@@ -335,9 +375,9 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		if err := json.Unmarshal(p.Arguments, &args); err != nil || len(args.Logins) == 0 {
 			return rpcErr(id, -32602, "invalid arguments: logins array is required")
 		}
-		ytClient := mcpYTClient(ctx)
+		ytClient := mcpYTClient(ctx, userID)
 		if ytClient == nil {
-			return toolError(id, "YouTrack not configured — set YOUTRACK_BASE_URL, YOUTRACK_TOKEN, YOUTRACK_PROJECT_ID in backend env")
+			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 		}
 		load := map[string]int{}
 		for _, login := range args.Logins {
@@ -364,9 +404,9 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.Summary == "" {
 			return rpcErr(id, -32602, "invalid arguments: summary is required")
 		}
-		ytClient := mcpYTClient(ctx)
+		ytClient := mcpYTClient(ctx, userID)
 		if ytClient == nil {
-			return toolError(id, "YouTrack not configured — set YOUTRACK_BASE_URL, YOUTRACK_TOKEN, YOUTRACK_PROJECT_ID in backend env")
+			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 		}
 
 		req := youtrack.CreateIssueRequest{Summary: args.Summary, Description: args.Description}
