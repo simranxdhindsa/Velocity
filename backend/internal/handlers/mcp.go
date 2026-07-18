@@ -201,6 +201,20 @@ var mcpTools = []map[string]interface{}{
 		},
 	},
 	{
+		"name":        "delete_youtrack_ticket",
+		"description": "Permanently deletes a YouTrack ticket by its readable ID (e.g. ARD-123). Always confirm with the user before calling this.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"issue_id": map[string]string{
+					"type":        "string",
+					"description": "Readable ticket ID, e.g. ARD-123.",
+				},
+			},
+			"required": []string{"issue_id"},
+		},
+	},
+	{
 		"name": "queue_slack_message",
 		"description": "Queue a Slack message to be reviewed and sent by the Velocity bot. " +
 			"Only `message` is required — channel and time are optional. " +
@@ -473,10 +487,26 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		if displayID == "" {
 			displayID = issue.ID
 		}
-		baseURL := strings.TrimRight(os.Getenv("YOUTRACK_BASE_URL"), "/")
-		ticketURL := fmt.Sprintf("%s/issue/%s", baseURL, displayID)
+		ytBaseURL := strings.TrimRight(ytClient.GetBaseURL(), "/")
+		ticketURL := fmt.Sprintf("%s/issue/%s", ytBaseURL, displayID)
 		result := fmt.Sprintf("Created %s — %s\n%s", displayID, issue.Summary, ticketURL)
 		return toolOK(id, result)
+
+	case "delete_youtrack_ticket":
+		var args struct {
+			IssueID string `json:"issue_id"`
+		}
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.IssueID == "" {
+			return rpcErr(id, -32602, "invalid arguments: issue_id is required")
+		}
+		ytClient := mcpYTClient(ctx, userID)
+		if ytClient == nil {
+			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
+		}
+		if err := ytClient.DeleteIssue(ctx, args.IssueID); err != nil {
+			return toolError(id, "failed to delete "+args.IssueID+": "+err.Error())
+		}
+		return toolOK(id, "Deleted "+args.IssueID)
 
 	case "queue_slack_message":
 		var args struct {
