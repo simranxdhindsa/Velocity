@@ -15,7 +15,8 @@ import type {
 import { CustomDropdown } from '../components/CustomDropdown'
 import { ClockTimePicker, displayTime, upperAmPm } from '../components/ClockTimePicker'
 import { ConfirmModal } from '../components/ConfirmModal'
-import { ClaudeQueueCard } from './ClaudeQueueCard'
+import { ClaudeQueueCard, toYMD } from './ClaudeQueueCard'
+import { CalendarPicker } from '../components/CalendarPicker'
 import '../styles/pages/slack-update-reminders.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -253,6 +254,11 @@ function QuickSendCard({ channels, autoOpen = false }: { channels: ChannelRef[];
   const [mentionIdx, setMentionIdx] = useState(0)
   const [confirmDeleteIdx, setConfirmDeleteIdx] = useState<number | null>(null)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [scheduleMode, setScheduleMode] = useState(false)
+  const [schedDate, setSchedDate] = useState(toYMD(new Date()))
+  const [schedTime, setSchedTime] = useState('10:00')
+  const [schedErr, setSchedErr] = useState('')
+  const [scheduled, setScheduled] = useState(false)
   const dmRef = useRef<HTMLDivElement>(null)
   const editRef = useRef<HTMLDivElement>(null)
   const sendingRef = useRef(false)
@@ -406,6 +412,36 @@ function QuickSendCard({ channels, autoOpen = false }: { channels: ChannelRef[];
     }
   }
 
+  const handleSchedule = async () => {
+    const slackMsg = getSlackMessage()
+    if (!slackMsg || sendingRef.current) return
+    const [y, mo, d] = schedDate.split('-').map(Number)
+    const [hh, mm] = schedTime.split(':').map(Number)
+    const base = new Date(y, mo - 1, d, hh, mm, 0, 0)
+    if (base <= new Date()) { setSchedErr('Selected date and time is in the past'); return }
+    setSchedErr('')
+    sendingRef.current = true
+    setSending(true)
+    try {
+      const label = mode === 'dm' ? (selectedUser?.profile.display_name || selectedUser?.real_name || dmUserId) : (selectedChannel?.name || channelId)
+      await api.createQueuedMessage(
+        slackMsg, base.toISOString(),
+        mode === 'channel' ? channelId : '',
+        mode === 'channel' ? `#${label}` : label,
+        mode === 'dm' ? dmUserId : undefined,
+      )
+      if (editRef.current) editRef.current.innerHTML = ''
+      setHasContent(false)
+      setScheduled(true)
+      setTimeout(() => setScheduled(false), 2500)
+    } catch {
+      setSchedErr('Failed to schedule message')
+    } finally {
+      sendingRef.current = false
+      setSending(false)
+    }
+  }
+
   return (
     <div className="cq-card">
       <button className={`cq-header${open ? ' cq-header--open' : ''}`} onClick={() => setOpen(o => !o)}>
@@ -503,15 +539,41 @@ function QuickSendCard({ channels, autoOpen = false }: { channels: ChannelRef[];
             document.body
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              className="ur-qs-send-btn"
-              onClick={handleSend}
-              disabled={sending || !hasContent || (mode === 'channel' ? !channelId : !dmUserId)}
-            >
-              {sent ? <CheckCircle size={13} /> : <Send size={13} />}
-              {sent ? 'Sent!' : sending ? 'Sending…' : 'Send Now'}
-            </button>
+          <div className="ur-qs-send-row">
+            <div className="ur-qs-target">
+              <button className={`ur-qs-mode-btn${!scheduleMode ? ' active' : ''}`} onClick={() => setScheduleMode(false)}>Send now</button>
+              <button className={`ur-qs-mode-btn${scheduleMode ? ' active' : ''}`} onClick={() => setScheduleMode(true)}>Schedule</button>
+            </div>
+
+            {scheduleMode && (
+              <div className="ur-qs-sched-row">
+                <CalendarPicker value={schedDate} onChange={setSchedDate} minDate={toYMD(new Date())} />
+                <ClockTimePicker value={schedTime} onChange={setSchedTime} />
+                {schedErr && <span className="cq-compose-err">{schedErr}</span>}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              {scheduleMode ? (
+                <button
+                  className="ur-qs-send-btn"
+                  onClick={handleSchedule}
+                  disabled={sending || !hasContent || (mode === 'channel' ? !channelId : !dmUserId)}
+                >
+                  {scheduled ? <CheckCircle size={13} /> : <Clock size={13} />}
+                  {scheduled ? 'Scheduled!' : sending ? 'Scheduling…' : 'Schedule'}
+                </button>
+              ) : (
+                <button
+                  className="ur-qs-send-btn"
+                  onClick={handleSend}
+                  disabled={sending || !hasContent || (mode === 'channel' ? !channelId : !dmUserId)}
+                >
+                  {sent ? <CheckCircle size={13} /> : <Send size={13} />}
+                  {sent ? 'Sent!' : sending ? 'Sending…' : 'Send Now'}
+                </button>
+              )}
+            </div>
           </div>
 
           {history.length > 0 && (

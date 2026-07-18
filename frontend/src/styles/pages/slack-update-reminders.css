@@ -366,6 +366,19 @@
 }
 .ur-qs-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.ur-qs-send-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ur-qs-sched-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .ur-qs-history {
   margin-top: 8px;
   display: flex;

@@ -10,6 +10,7 @@ import api from '../services/api'
 import type { PendingSlackMessage, ChannelRef, SlackWorkspaceUser } from '../services/api'
 import { usePersistedState, PERSIST } from '../hooks/usePersistedState'
 import { ClockTimePicker, displayTime, upperAmPm } from '../components/ClockTimePicker'
+import { CalendarPicker } from '../components/CalendarPicker'
 import { ConfirmModal } from '../components/ConfirmModal'
 import '../styles/pages/claude-queue.css'
 
@@ -282,6 +283,9 @@ function QueuedMessageCard({
   const [editChannel, setEditChannel] = useState<ChannelRef | null>(
     msg.channel_id ? { id: msg.channel_id, name: msg.channel_label.replace(/^#/, '') } : null
   )
+  const [editDate, setEditDate] = useState(
+    msg.scheduled_at ? toYMD(new Date(msg.scheduled_at)) : toYMD(new Date())
+  )
   const [editTime, setEditTime] = useState(
     msg.scheduled_at
       ? new Date(msg.scheduled_at).toTimeString().slice(0, 5)
@@ -289,11 +293,16 @@ function QueuedMessageCard({
   )
   const [saving, setSaving] = useState(false)
   const [sending, setSending] = useState(false)
+  const [editErr, setEditErr] = useState('')
 
   const [editingTime, setEditingTime] = useState(false)
+  const [quickDate, setQuickDate] = useState(
+    msg.scheduled_at ? toYMD(new Date(msg.scheduled_at)) : toYMD(new Date())
+  )
   const [quickTime, setQuickTime] = useState(
     msg.scheduled_at ? new Date(msg.scheduled_at).toTimeString().slice(0, 5) : defaultTime
   )
+  const [quickErr, setQuickErr] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showSlackDeleteConfirm, setShowSlackDeleteConfirm] = useState(false)
   const [deletingFromSlack, setDeletingFromSlack] = useState(false)
@@ -306,14 +315,16 @@ function QueuedMessageCard({
     if (updated) onUpdated(updated as PendingSlackMessage)
   }
 
-  // Save time immediately when changed inline
-  const handlePickTime = async (hhmm: string) => {
+  // Save date+time immediately when changed inline
+  const handlePickQuick = async (ymd: string, hhmm: string) => {
+    const [y, mo, d] = ymd.split('-').map(Number)
+    const [hh, mm] = hhmm.split(':').map(Number)
+    const base = new Date(y, mo - 1, d, hh, mm, 0, 0)
+    if (base <= new Date()) { setQuickErr('Selected date and time is in the past'); return }
+    setQuickErr('')
+    setQuickDate(ymd)
     setQuickTime(hhmm)
     setEditingTime(false)
-    const base = msg.scheduled_at ? new Date(msg.scheduled_at) : new Date()
-    const [hh, mm] = hhmm.split(':').map(Number)
-    base.setHours(hh, mm, 0, 0)
-    if (base < new Date()) base.setDate(base.getDate() + 1)
     const r = await api.updateQueuedMessage(msg.id, msg.message, base.toISOString(), msg.channel_id, msg.channel_label)
     const raw = r as any
     const updated = raw?.id ? raw : raw?.data
@@ -327,15 +338,17 @@ function QueuedMessageCard({
     : `Default (${displayTime(defaultTime)})`
 
   const handleSave = async () => {
+    let scheduledAt: string | undefined
+    if (editTime) {
+      const [y, mo, d] = editDate.split('-').map(Number)
+      const [hh, mm] = editTime.split(':').map(Number)
+      const base = new Date(y, mo - 1, d, hh, mm, 0, 0)
+      if (base <= new Date()) { setEditErr('Selected date and time is in the past'); return }
+      scheduledAt = base.toISOString()
+    }
+    setEditErr('')
     setSaving(true)
     try {
-      let scheduledAt: string | undefined
-      if (editTime) {
-        const base = msg.scheduled_at ? new Date(msg.scheduled_at) : new Date()
-        const [hh, mm] = editTime.split(':').map(Number)
-        base.setHours(hh, mm, 0, 0)
-        scheduledAt = base.toISOString()
-      }
       const r = await api.updateQueuedMessage(
         msg.id, editText, scheduledAt,
         editChannel?.id ?? msg.channel_id,
@@ -392,7 +405,13 @@ function QueuedMessageCard({
             <Clock size={10} />{scheduledLabel}
             {editingTime && (
               <span className="cq-time-inline" onClick={e => e.stopPropagation()}>
-                <ClockTimePicker value={quickTime} onChange={handlePickTime} />
+                <CalendarPicker
+                  value={quickDate}
+                  onChange={d => handlePickQuick(d, quickTime)}
+                  minDate={toYMD(new Date())}
+                />
+                <ClockTimePicker value={quickTime} onChange={t => handlePickQuick(quickDate, t)} />
+                {quickErr && <span className="cq-compose-err">{quickErr}</span>}
               </span>
             )}
           </span>
@@ -428,9 +447,11 @@ function QueuedMessageCard({
               {editChannel && <span className="cq-msg-channel">#{editChannel.name}</span>}
             </div>
             <div className="cq-msg-edit-time">
-              <span className="cq-label">Send at</span>
+              <span className="cq-label">Send on</span>
+              <CalendarPicker value={editDate} onChange={setEditDate} minDate={toYMD(new Date())} />
               <ClockTimePicker value={editTime} onChange={setEditTime} />
             </div>
+            {editErr && <span className="cq-compose-err">{editErr}</span>}
             <div className="cq-msg-edit-actions">
               <button className="cq-btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
               <button className="cq-btn-primary" onClick={handleSave} disabled={saving}>
@@ -518,6 +539,7 @@ function ComposeForm({
 }) {
   const [text, setText] = useState('')
   const [channel, setChannel] = useState<ChannelRef | null>(null)
+  const [date, setDate] = useState(toYMD(new Date()))
   const [time, setTime] = useState(defaultTime)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -576,10 +598,10 @@ function ComposeForm({
     setSaving(true)
     setErr('')
     try {
-      const base = new Date()
+      const [y, mo, d] = date.split('-').map(Number)
       const [hh, mm] = time.split(':').map(Number)
-      base.setHours(hh, mm, 0, 0)
-      if (base <= new Date()) base.setDate(base.getDate() + 1)
+      const base = new Date(y, mo - 1, d, hh, mm, 0, 0)
+      if (base <= new Date()) { setErr('Selected date and time is in the past'); setSaving(false); return }
       const r = await api.createQueuedMessage(
         text.trim(),
         base.toISOString(),
@@ -658,7 +680,8 @@ function ComposeForm({
           {channel && <span className="cq-msg-channel">#{channel.name}</span>}
         </div>
         <div className="cq-msg-edit-time">
-          <span className="cq-label">Send at</span>
+          <span className="cq-label">Send on</span>
+          <CalendarPicker value={date} onChange={setDate} minDate={toYMD(new Date())} />
           <ClockTimePicker value={time} onChange={setTime} />
         </div>
         {err && <span className="cq-compose-err">{err}</span>}

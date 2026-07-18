@@ -13,9 +13,11 @@ interface CalendarPickerProps {
   label?: string
   placeholder?: string
   className?: string
+  /** Days before this date ('YYYY-MM-DD') render disabled — e.g. today, for scheduling forms. */
+  minDate?: string
 }
 
-export function CalendarPicker({ value, onChange, label, placeholder = 'Select date', className }: CalendarPickerProps) {
+export function CalendarPicker({ value, onChange, label, placeholder = 'Select date', className, minDate }: CalendarPickerProps) {
   const [open, setOpen] = useState(false)
   const [calDate, setCalDate] = useState(() => value ? new Date(value + 'T00:00:00') : new Date())
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -81,9 +83,12 @@ export function CalendarPicker({ value, onChange, label, placeholder = 'Select d
               {Array.from({ length: firstDayOfMonth }).map((_, i) => <span key={`e${i}`}/>)}
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const dayStr = `${calDate.getFullYear()}-${String(calDate.getMonth()+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`
+                const disabled = !!minDate && dayStr < minDate
                 return (
                   <button key={i}
                     className={`calendar-day${dayStr === value ? ' selected' : ''}${dayStr === todayStr ? ' today' : ''}`}
+                    style={disabled ? { opacity: 0.35, cursor: 'not-allowed', pointerEvents: 'none' } : undefined}
+                    disabled={disabled}
                     onClick={() => { onChange(dayStr); setOpen(false) }}>
                     {i + 1}
                   </button>
