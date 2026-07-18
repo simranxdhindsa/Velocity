@@ -13,10 +13,22 @@ import (
 	"github.com/dhindsa/project-management/internal/middleware"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 	updatesvc "github.com/dhindsa/project-management/internal/services/update_reminder"
+	youtrack "github.com/dhindsa/project-management/internal/services/youtrack"
 )
 
 // devConfigRepo is a package-level repo for the MCP tool; no state, safe to share.
 var devConfigRepo = database.NewDeveloperConfigRepository()
+
+// mcpYTClient builds a YouTrack client from env vars (MCP has no user session).
+func mcpYTClient(ctx context.Context) *youtrack.Client {
+	baseURL := os.Getenv("YOUTRACK_BASE_URL")
+	token := os.Getenv("YOUTRACK_TOKEN")
+	projectID := os.Getenv("YOUTRACK_PROJECT_ID")
+	if baseURL == "" || token == "" || projectID == "" {
+		return nil
+	}
+	return youtrack.NewClient(baseURL, token, projectID)
+}
 
 // MCPHandler serves the MCP protocol endpoint used by Claude's custom connector.
 // Auth: ?token= query param (plain MCP token, NOT a JWT).
@@ -79,6 +91,62 @@ var mcpTools = []map[string]interface{}{
 			"type":       "object",
 			"properties": map[string]interface{}{},
 			"required":   []string{},
+		},
+	},
+	{
+		"name": "get_developer_load",
+		"description": "Returns the open ticket count for one or more YouTrack developer logins. " +
+			"Use this after get_developer_configs to decide who to auto-assign a ticket to — pick the developer with the lowest count. " +
+			"Pass a list of logins (e.g. [\"parv\", \"harpreet\"]) and get back {login: count} pairs.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"logins": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]string{"type": "string"},
+					"description": "List of YouTrack developer login names to check workload for.",
+				},
+			},
+			"required": []string{"logins"},
+		},
+	},
+	{
+		"name": "create_youtrack_ticket",
+		"description": "Creates a new ticket in YouTrack. Call this only after the user has confirmed the ticket details. " +
+			"Returns the created ticket ID (e.g. ARD-123) and its URL.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"summary": map[string]string{
+					"type":        "string",
+					"description": "Ticket title. Format: '<Subsystem>: <Action Verb> <What>'. Max 80 chars.",
+				},
+				"description": map[string]string{
+					"type":        "string",
+					"description": "Full ticket description (markdown supported).",
+				},
+				"type_name": map[string]string{
+					"type":        "string",
+					"description": "Issue type: Bug, Feature, Enhancement, Hotfix, or Regression.",
+				},
+				"priority": map[string]string{
+					"type":        "string",
+					"description": "Priority: Show-stopper, P0, P1, P2, P3, A0, A1, A2, A3, or Normal.",
+				},
+				"subsystem": map[string]string{
+					"type":        "string",
+					"description": "Subsystem name exactly as configured in Velocity (e.g. 'FE UI', 'BE MC', 'Mobile').",
+				},
+				"assignee_login": map[string]string{
+					"type":        "string",
+					"description": "YouTrack login of the assignee. Omit or pass empty string to leave unassigned.",
+				},
+				"sprint_id": map[string]string{
+					"type":        "string",
+					"description": "Optional. YouTrack sprint ID to attach the ticket to.",
+				},
+			},
+			"required": []string{"summary", "type_name", "priority"},
 		},
 	},
 	{
@@ -236,6 +304,77 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		}
 		data, _ := json.Marshal(configs)
 		return toolOK(id, string(data))
+
+	case "get_developer_load":
+		var args struct {
+			Logins []string `json:"logins"`
+		}
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || len(args.Logins) == 0 {
+			return rpcErr(id, -32602, "invalid arguments: logins array is required")
+		}
+		ytClient := mcpYTClient(ctx)
+		if ytClient == nil {
+			return toolError(id, "YouTrack not configured — set YOUTRACK_BASE_URL, YOUTRACK_TOKEN, YOUTRACK_PROJECT_ID in backend env")
+		}
+		load := map[string]int{}
+		for _, login := range args.Logins {
+			count, err := ytClient.CountOpenIssuesByAssignee(ctx, login)
+			if err != nil {
+				load[login] = -1
+			} else {
+				load[login] = count
+			}
+		}
+		data, _ := json.Marshal(load)
+		return toolOK(id, string(data))
+
+	case "create_youtrack_ticket":
+		var args struct {
+			Summary       string `json:"summary"`
+			Description   string `json:"description"`
+			TypeName      string `json:"type_name"`
+			Priority      string `json:"priority"`
+			Subsystem     string `json:"subsystem"`
+			AssigneeLogin string `json:"assignee_login"`
+			SprintID      string `json:"sprint_id"`
+		}
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.Summary == "" {
+			return rpcErr(id, -32602, "invalid arguments: summary is required")
+		}
+		ytClient := mcpYTClient(ctx)
+		if ytClient == nil {
+			return toolError(id, "YouTrack not configured — set YOUTRACK_BASE_URL, YOUTRACK_TOKEN, YOUTRACK_PROJECT_ID in backend env")
+		}
+
+		req := youtrack.CreateIssueRequest{Summary: args.Summary, Description: args.Description}
+		var fields []youtrack.CustomField
+		if args.TypeName != "" {
+			fields = append(fields, youtrack.CustomField{Name: "Type", Value: map[string]string{"name": args.TypeName}})
+		}
+		if args.Priority != "" {
+			fields = append(fields, youtrack.CustomField{Name: "Priority", Value: map[string]string{"name": args.Priority}})
+		}
+		if args.Subsystem != "" {
+			fields = append(fields, youtrack.CustomField{Name: "Subsystem", Value: map[string]string{"name": args.Subsystem}})
+		}
+		if args.AssigneeLogin != "" {
+			fields = append(fields, youtrack.CustomField{Name: "Assignee", Value: map[string]string{"login": args.AssigneeLogin}})
+		}
+		if args.SprintID != "" {
+			fields = append(fields, youtrack.CustomField{Name: "Sprint", Value: map[string]string{"id": args.SprintID}})
+		}
+		if len(fields) > 0 {
+			req.CustomFields = fields
+		}
+
+		issue, err := ytClient.CreateIssue(ctx, req)
+		if err != nil {
+			return toolError(id, "Failed to create ticket: "+err.Error())
+		}
+		baseURL := strings.TrimRight(os.Getenv("YOUTRACK_BASE_URL"), "/")
+		ticketURL := fmt.Sprintf("%s/issue/%s", baseURL, issue.ID)
+		result := fmt.Sprintf("Created %s — %s\n%s", issue.ID, issue.Summary, ticketURL)
+		return toolOK(id, result)
 
 	case "queue_slack_message":
 		var args struct {

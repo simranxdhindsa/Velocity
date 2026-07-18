@@ -878,6 +878,21 @@ func (c *Client) DeleteIssue(ctx context.Context, issueID string) error {
 	return err
 }
 
+// CountOpenIssuesByAssignee returns the number of unresolved tickets assigned to a given login.
+func (c *Client) CountOpenIssuesByAssignee(ctx context.Context, login string) (int, error) {
+	query := url.QueryEscape(fmt.Sprintf("project: %s assignee: %s #Unresolved", c.projectID, login))
+	path := fmt.Sprintf("/api/issues?fields=id&query=%s&$top=500", query)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return 0, err
+	}
+	var issues []struct{ ID string `json:"id"` }
+	if err := json.Unmarshal(body, &issues); err != nil {
+		return 0, err
+	}
+	return len(issues), nil
+}
+
 // GetUsers returns all YouTrack users with avatar URLs
 func (c *Client) GetUsers(ctx context.Context) ([]User, error) {
 	path := "/api/users?fields=id,login,fullName,email,avatarUrl&$top=200"
