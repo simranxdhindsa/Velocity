@@ -561,6 +561,54 @@ func (c *Client) GetPriorities(ctx context.Context) ([]PriorityValue, error) {
 	return []PriorityValue{}, nil
 }
 
+// GetSwimlaneField returns the custom field name configured as the board's swimlane grouping field,
+// along with the ordered values (with colors) for that field.
+func (c *Client) GetSwimlaneField(ctx context.Context) (fieldName string, values []PriorityValue, err error) {
+	boardID, err := c.resolveBoard(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	path := fmt.Sprintf("/api/agiles/%s?fields=swimlaneSettings(field(name),enabled,values(name,color(background,foreground)))", boardID)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	var board map[string]interface{}
+	if err := json.Unmarshal(body, &board); err != nil {
+		return "", nil, fmt.Errorf("failed to unmarshal board: %w", err)
+	}
+	settings, ok := board["swimlaneSettings"].(map[string]interface{})
+	if !ok {
+		return "", nil, nil
+	}
+	if enabled, _ := settings["enabled"].(bool); !enabled {
+		return "", nil, nil
+	}
+	field, ok := settings["field"].(map[string]interface{})
+	if !ok {
+		return "", nil, nil
+	}
+	fieldName, _ = field["name"].(string)
+	if fieldName == "" {
+		return "", nil, nil
+	}
+	if rawVals, ok := settings["values"].([]interface{}); ok {
+		for _, v := range rawVals {
+			vm, ok := v.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			pv := PriorityValue{Name: fmt.Sprintf("%v", vm["name"])}
+			if colorMap, ok := vm["color"].(map[string]interface{}); ok {
+				pv.Background, _ = colorMap["background"].(string)
+				pv.Foreground, _ = colorMap["foreground"].(string)
+			}
+			values = append(values, pv)
+		}
+	}
+	return fieldName, values, nil
+}
+
 // GetCustomFieldValues returns enum values (with colors) for any named custom field.
 // Works identically to GetPriorities but parameterised by field name.
 func (c *Client) GetCustomFieldValues(ctx context.Context, fieldName string) ([]PriorityValue, error) {

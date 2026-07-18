@@ -331,6 +331,10 @@ class ApiService {
     return this.request<{ name: string; background?: string; foreground?: string }[]>('/youtrack/priorities')
   }
 
+  async getYouTrackSwimlaneField() {
+    return this.request<{ field_name: string; values: { name: string; background?: string; foreground?: string }[] }>('/youtrack/swimlane-field')
+  }
+
   async getYouTrackTypeFieldValues(fieldName: string) {
     return this.request<{ name: string; background?: string; foreground?: string }[]>(`/youtrack/type-field-values?field_name=${encodeURIComponent(fieldName)}`)
   }
@@ -2109,6 +2113,7 @@ export interface YouTrackIssue {
   permalink?: string
   section?: string
   due_date?: number
+  swimlane_value?: string
 }
 
 export interface YouTrackAttachment {

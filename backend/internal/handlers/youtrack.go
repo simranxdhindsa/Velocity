@@ -460,6 +460,35 @@ func (h *YouTrackHandler) GetPriorities(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// GetSwimlaneField returns the board's swimlane field name and its values with colors
+func (h *YouTrackHandler) GetSwimlaneField(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := h.getYouTrackClient(r.Context())
+	if err != nil || client == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": map[string]interface{}{"field_name": "", "values": []interface{}{}}})
+		return
+	}
+	fieldName, values, err := client.GetSwimlaneField(r.Context())
+	if err != nil || fieldName == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": map[string]interface{}{"field_name": "", "values": []interface{}{}}})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"field_name": fieldName,
+			"values":     values,
+		},
+	})
+}
+
 // GetBoardColumns returns columns from a specific agile board
 func (h *YouTrackHandler) GetBoardColumns(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

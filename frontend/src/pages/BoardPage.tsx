@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   RefreshCw, Search, Users, ChevronDown, X,
   AlertTriangle, ArrowDownUp, ArrowUpNarrowWide, ArrowDownNarrowWide,
-  Filter, LayoutDashboard, CalendarDays,
+  Filter, LayoutDashboard, CalendarDays, Rows3,
 } from 'lucide-react'
 import { SprintScanLoader, QuantumOrbitLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
@@ -70,6 +70,16 @@ export function BoardPage() {
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false)
   const sortDropdownRef = useRef<HTMLDivElement>(null)
 
+  // ── Swimlane state ─────────────────────────────────────────────────────────
+  type SwimlaneBy = 'none' | 'assignee' | 'priority' | 'board'
+  const [swimlaneBy, setSwimlaneBy] = useState<SwimlaneBy>('none')
+  const [swimlaneDropdownOpen, setSwimlaneDropdownOpen] = useState(false)
+  const swimlaneDropdownRef = useRef<HTMLDivElement>(null)
+  const [boardSwimlaneField, setBoardSwimlaneField] = useState<{
+    field_name: string
+    values: { name: string; background?: string; foreground?: string }[]
+  } | null>(null)
+
   // ── Close dropdowns on outside click ──────────────────────────────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -81,6 +91,8 @@ export function BoardPage() {
         setPriorityDropdownOpen(false)
       if (sprintDropdownRef.current && !sprintDropdownRef.current.contains(e.target as Node))
         setSprintDropdownOpen(false)
+      if (swimlaneDropdownRef.current && !swimlaneDropdownRef.current.contains(e.target as Node))
+        setSwimlaneDropdownOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -192,6 +204,11 @@ export function BoardPage() {
         : []
       setPriorities(items)
     }).catch(() => {})
+
+    api.getYouTrackSwimlaneField().then(res => {
+      const data = (res as any)?.data
+      if (data?.field_name) setBoardSwimlaneField(data)
+    }).catch(() => {})
   }, [])
 
   // Auto-select active sprint when sprints become available from cache.
@@ -297,11 +314,12 @@ export function BoardPage() {
             {sk(110, 30, 8)}{sk(90, 30, 8)}{sk(80, 30, 8)}
           </div>
         </div>
-        {/* Skeleton filter bar — mirrors real bar: search | assignee | priority | sort */}
+        {/* Skeleton filter bar — search | assignee | priority | group by | sort */}
         <div className="board-filter-bar" style={{ pointerEvents: 'none', gap: 8, alignItems: 'center' }}>
           {sk(160, 30, 8)}
           {sk(110, 30, 8)}
           {sk(130, 30, 8)}
+          {sk(105, 30, 8)}
           {sk(95, 30, 8)}
         </div>
         {/* Skeleton kanban board — fills full width + height */}
@@ -536,6 +554,41 @@ export function BoardPage() {
           </div>
         )}
 
+        {/* Group By (swimlane) dropdown */}
+        <div className="pm-custom-dropdown" ref={swimlaneDropdownRef}>
+          <button
+            className={`pm-custom-dropdown-trigger${swimlaneBy !== 'none' ? ' active' : ''}`}
+            onClick={() => setSwimlaneDropdownOpen(o => !o)}
+          >
+            <Rows3 size={14} />
+            <span>{
+              swimlaneBy === 'assignee' ? 'By Assignee'
+              : swimlaneBy === 'priority' ? 'By Priority'
+              : swimlaneBy === 'board' ? `By ${boardSwimlaneField?.field_name ?? 'Board'}`
+              : 'Group By'
+            }</span>
+            <ChevronDown size={12} className={`dropdown-chevron ${swimlaneDropdownOpen ? 'open' : ''}`} />
+          </button>
+          {swimlaneDropdownOpen && (
+            <div className="pm-custom-dropdown-menu">
+              {([
+                { key: 'none', label: 'No Grouping' },
+                { key: 'assignee', label: 'Assignee' },
+                { key: 'priority', label: 'Priority' },
+                ...(boardSwimlaneField ? [{ key: 'board', label: `${boardSwimlaneField.field_name} (Board)` }] : []),
+              ] as { key: SwimlaneBy; label: string }[]).map(({ key, label }) => (
+                <button
+                  key={key}
+                  className={`pm-dropdown-item ${swimlaneBy === key ? 'active' : ''}`}
+                  onClick={() => { setSwimlaneBy(key); setSwimlaneDropdownOpen(false) }}
+                >
+                  <Rows3 size={14} /><span>{label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Sort dropdown */}
         <div className="pm-custom-dropdown" ref={sortDropdownRef}>
           <button className="pm-custom-dropdown-trigger" onClick={() => setSortDropdownOpen(o => !o)}>
@@ -586,6 +639,8 @@ export function BoardPage() {
             columns={columns}
             avatarMap={avatarMap}
             priorityColorMap={Object.fromEntries(priorities.map(p => [p.name, p.background ?? '']))}
+            swimlaneBy={swimlaneBy}
+            boardSwimlaneField={boardSwimlaneField ?? undefined}
             getColumnIssues={getColumnIssues}
             onIssueMove={handleIssueMove}
             onIssueClick={setSelectedIssue}

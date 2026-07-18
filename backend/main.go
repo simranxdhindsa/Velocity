@@ -200,6 +200,7 @@ func main() {
 	youtrackRoutes.HandleFunc("/sprints", youtrackHandler.GetSprints).Methods("GET")
 	youtrackRoutes.HandleFunc("/states", youtrackHandler.GetStates).Methods("GET")
 	youtrackRoutes.HandleFunc("/priorities", youtrackHandler.GetPriorities).Methods("GET")
+	youtrackRoutes.HandleFunc("/swimlane-field", youtrackHandler.GetSwimlaneField).Methods("GET")
 	youtrackRoutes.HandleFunc("/type-field-values", youtrackHandler.GetTypeFieldValues).Methods("GET")
 	youtrackRoutes.HandleFunc("/users", youtrackHandler.GetUsers).Methods("GET")
 	youtrackRoutes.HandleFunc("/form-meta", youtrackHandler.GetIssueFormMeta).Methods("GET")
