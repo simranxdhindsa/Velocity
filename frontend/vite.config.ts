@@ -15,7 +15,11 @@ export default defineConfig({
     host: true,
     proxy: {
       // OAuth endpoints are served by the Go backend; /oauth/authorize is the React SPA
-      '/.well-known': { target: 'http://localhost:8080', changeOrigin: true },
+      '/.well-known': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        bypass: (req) => req.url?.includes('com.chrome.devtools') ? req.url : undefined,
+      },
       '/oauth/register': { target: 'http://localhost:8080', changeOrigin: true },
       '/oauth/token': { target: 'http://localhost:8080', changeOrigin: true },
     },

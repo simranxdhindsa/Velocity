@@ -15,6 +15,9 @@ import (
 	updatesvc "github.com/dhindsa/project-management/internal/services/update_reminder"
 )
 
+// devConfigRepo is a package-level repo for the MCP tool; no state, safe to share.
+var devConfigRepo = database.NewDeveloperConfigRepository()
+
 // MCPHandler serves the MCP protocol endpoint used by Claude's custom connector.
 // Auth: ?token= query param (plain MCP token, NOT a JWT).
 // All JWT-protected token management lives in MCPTokenHandler below.
@@ -66,6 +69,18 @@ func rpcErr(id interface{}, code int, msg string) rpcResponse {
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
 var mcpTools = []map[string]interface{}{
+	{
+		"name": "get_developer_configs",
+		"description": "Returns the developer→subsystem mapping configured in Velocity (Integrations → Developers tab). " +
+			"Use this when creating a YouTrack ticket to find which developers own a given subsystem, " +
+			"so you can auto-assign the ticket to the developer with the lowest current workload. " +
+			"Each entry has: developer_login (YouTrack login), developer_name (display name), subsystems (list of subsystems they own), is_qa (true if QA role).",
+		"inputSchema": map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+			"required":   []string{},
+		},
+	},
 	{
 		"name": "queue_slack_message",
 		"description": "Queue a Slack message to be reviewed and sent by the Velocity bot. " +
@@ -214,6 +229,14 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 	ctx := r.Context()
 
 	switch p.Name {
+	case "get_developer_configs":
+		configs, err := devConfigRepo.GetAll(ctx)
+		if err != nil {
+			return toolError(id, "Failed to fetch developer configs: "+err.Error())
+		}
+		data, _ := json.Marshal(configs)
+		return toolOK(id, string(data))
+
 	case "queue_slack_message":
 		var args struct {
 			Message  string `json:"message"`

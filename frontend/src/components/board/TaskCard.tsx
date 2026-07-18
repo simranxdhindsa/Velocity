@@ -1,6 +1,5 @@
 import { Paperclip } from 'lucide-react'
 import type { YouTrackIssue } from '../../services/api'
-import HoverCard, { HCRow, HCDivider } from '../HoverCard'
 
 interface TaskCardProps {
   issue: YouTrackIssue
@@ -34,21 +33,6 @@ function getStatusBadge(status: string): { label: string; cls: string } {
   return { label: status || 'Backlog', cls: 'badge-todo' }
 }
 
-function cardHoverContent(issue: YouTrackIssue) {
-  const id = issue.idReadable || issue.id
-  const assigneeName = issue.assignee?.fullName || issue.assignee?.login
-  return (
-    <div>
-      <div className="hc-title">{id}</div>
-      <div className="hc-subtitle">{issue.summary}</div>
-      <HCDivider />
-      <HCRow label="State" value={issue.status || '—'} />
-      {issue.priority && <HCRow label="Priority" value={issue.priority} />}
-      {assigneeName && <HCRow label="Assignee" value={assigneeName} />}
-    </div>
-  )
-}
-
 export function TaskCard({ issue, avatarMap, priorityColorMap, isDragging, extraClass, onClick }: TaskCardProps) {
   const priorityCls = getPriorityClass(issue.priority || '')
   const priorityColor = issue.priority ? priorityColorMap?.[issue.priority] : undefined
@@ -57,11 +41,10 @@ export function TaskCard({ issue, avatarMap, priorityColorMap, isDragging, extra
   const avatarUrl = assigneeName ? avatarMap[assigneeName] : undefined
 
   return (
-    <HoverCard content={cardHoverContent(issue)} maxWidth={280}>
-      <div
-        className={`task-card ${priorityCls} ${isDragging ? 'dragging' : ''} ${extraClass || ''}`}
-        onClick={onClick}
-      >
+    <div
+      className={`task-card ${priorityCls} ${isDragging ? 'dragging' : ''} ${extraClass || ''}`}
+      onClick={onClick}
+    >
         {/* Top row: issue ID (left) + priority chip (right) */}
         <div className="task-card-top-row">
           <span className="task-card-id">{issue.idReadable || issue.id}</span>
@@ -105,7 +88,6 @@ export function TaskCard({ issue, avatarMap, priorityColorMap, isDragging, extra
             )
           )}
         </div>
-      </div>
-    </HoverCard>
+    </div>
   )
 }

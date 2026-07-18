@@ -1414,13 +1414,18 @@ Good examples:
 
 ━━━ DESCRIPTION ━━━
 
-PRESERVE MODE — if input contains ANY structured headings such as:
-  Problem Statement, Current Behavior, Actual Behavior, Steps to Reproduce, Expected Behavior,
-  Acceptance Criteria, References, or any Markdown heading (#, ##, ###)
+STRUCTURED TICKET MODE — if input starts with a ## Title heading (pattern: "## Title\n\n<title text>\n\n## Description..."):
+  • Use the text under ## Title as the summary.
+  • Set description = everything from ## Description onwards. Do NOT include the ## Title block in description.
+  • Preserve all remaining sections CHARACTER-FOR-CHARACTER.
+
+PRESERVE MODE — if input contains bug-report headings such as:
+  Problem Statement, Current Behavior, Actual Behavior, Steps to Reproduce, Acceptance Criteria
 THEN:
   • Return description CHARACTER-FOR-CHARACTER. Changing even one character is incorrect.
   • Do NOT add or remove ## markers. Do NOT reword, reorder, merge, shorten, or add sections.
   • Only derive: summary, priority, subsystem, type_name, assignee_login, sprint_id.
+  • "Expected Behavior" alone does NOT trigger PRESERVE MODE — only trigger when bug-report headings above are present.
 
 REWRITE MODE — if input is rough notes, Slack message, meeting notes, voice-to-text, or informal prose:
 Target 150–400 words. Use this structure:
@@ -1507,9 +1512,11 @@ Return ONLY this JSON object (no other text):
 	// Detect PRESERVE MODE in Go before calling the LLM.
 	// If the raw input already has structured headings, the LLM description output
 	// is unreliable (it adds/removes ## markers). We override it with the raw text directly.
+	// PRESERVE MODE triggers only on true bug-report template headings.
+	// "expected behavior" alone is NOT enough — it appears in feature/task tickets too.
 	preserveKeywords := []string{
 		"problem statement", "actual behavior", "steps to reproduce",
-		"expected behavior", "acceptance criteria",
+		"acceptance criteria",
 	}
 	rawLower := strings.ToLower(req.RawText)
 	isPreserveMode := false
