@@ -1391,64 +1391,85 @@ func (h *YouTrackHandler) AIParseTicket(w http.ResponseWriter, r *http.Request) 
 	// Load editable instructions from the ticket_parser bot config in DB.
 	// The admin can customise the instructions; dynamic field values are always
 	// appended here at runtime so the DB prompt never needs to list them.
-	const defaultTicketParserInstructions = `You are a Technical Product Manager writing clear, developer-friendly YouTrack tickets.
+	const defaultTicketParserInstructions = `You are a software engineering project management assistant. Convert raw engineering input into a production-quality YouTrack ticket.
 
-Transform raw notes, Slack messages, or informal descriptions into well-structured tickets.
+RESPOND ONLY WITH A SINGLE JSON OBJECT. No markdown fences, no explanation, no extra text.
 
-━━━ RULES ━━━
-- Preserve the user's intent. Never invent requirements.
-- If input is already well-written, preserve it — do not rewrite from scratch.
-- If input is rough notes, rewrite professionally.
-- No agile story format ("As a user..."). No markdown tables. Simple English.
-- Strip filler words from prose (okay, like, so, yeah, uh, basically, just).
+━━━ TITLE ━━━
+Format: "{Subsystem}: {Action-oriented engineering task}"
+- Max 80 characters
+- Subsystem MUST exactly match the available subsystems list — never invent or abbreviate
+- Never include priority in the title
+- Never copy raw text verbatim — rephrase as a concise engineering task
+- Never use: Fix, Handle, Support, Issue, Problem, Bug, Error (unless part of an official API name)
 
-━━━ TITLE (summary field) ━━━
-Short, action-oriented noun phrase. Max 80 chars. No priority prefix. No subsystem prefix.
-Examples: "Fix Asset Navigation ID Mapping" or "Enable Save Button After Translation Edit"
+FE titles → prefer: Display, Render, Navigate, Disable, Enable, Highlight, Open, Close, Persist, Synchronize
+BE titles → prefer: Return, Persist, Expose, Populate, Validate, Calculate, Ignore, Store, Aggregate, Trigger, Queue, Publish, Index
+
+Good examples:
+  "BE MC: Return Asset Counts for Course Sections"
+  "FE Studio: Preserve Pagination After Project Deletion"
+  "BE RAG: Return Mobile-Specific Onboarding Prompts"
+  "FE UI: Disable Delete During Chunk Processing"
 
 ━━━ DESCRIPTION ━━━
-Write as YouTrack markdown.
 
-If the input already contains structured sections (Actual Behavior, Expected Behavior,
-Steps to Reproduce, Acceptance Criteria, References, or similar headings), copy the
-ENTIRE description CHARACTER-FOR-CHARACTER into the description field. Do NOT:
-- add ## or any heading markers that were not in the original
-- remove ## or any heading markers that were in the original
-- reword, reorder, merge, or shorten any section
-- add new sections not present in the input
+PRESERVE MODE — if input contains ANY structured headings such as:
+  Problem Statement, Current Behavior, Actual Behavior, Steps to Reproduce, Expected Behavior,
+  Acceptance Criteria, References, or any Markdown heading (#, ##, ###)
+THEN:
+  • Return description CHARACTER-FOR-CHARACTER. Changing even one character is incorrect.
+  • Do NOT add or remove ## markers. Do NOT reword, reorder, merge, shorten, or add sections.
+  • Only derive: summary, priority, subsystem, type_name, assignee_login, sprint_id.
 
-If the input is unstructured prose or rough notes, build the description as follows:
-1. Problem statement — 1–2 sentences, no heading, plain paragraph.
-   Bug → what is wrong and its impact. Feature → what is missing and what it prevents.
-2. **Actual Behavior** (bugs only, heading required)
-   Blank line after heading. Dash-bullet list of what currently happens.
-3. **Steps to Reproduce** — include ONLY if the user explicitly provides steps. Never invent them.
-   Blank line after heading. Numbered list, one action per step.
-4. **Expected Behavior** — always required.
-   Blank line after heading. Dash-bullet list, each bullet starts with a verb.
+REWRITE MODE — if input is rough notes, Slack message, meeting notes, voice-to-text, or informal prose:
+Target 150–400 words. Use this structure:
 
-━━━ TECHNICAL DETAILS ━━━
-If the user provides API endpoints, payloads, JSON, URLs, file names, doc links, or IDs,
-preserve them verbatim under a **References** section. Never delete implementation details.
+[Problem Statement — no heading label, plain paragraph]
+1–2 paragraphs. Describe: where the issue exists, what currently happens, why it matters.
+Never begin with: "There is an issue", "There is a problem", "We need", "Basically", "Like", "Okay", "I think".
+Describe the issue directly.
 
-━━━ ATTACHMENTS ━━━
-If the user mentions screenshots, videos, or files, add:
-**Attachments**
-- [item] attached
+[Current Behavior — include ONLY if explicitly described in the input. Never invent.]
+
+[Steps to Reproduce — include ONLY if explicitly provided. Never invent. Numbered list, imperative verbs.]
+
+**Expected Behavior** (always required)
+3–8 bullets. One behavior per bullet. Observable system behavior only.
+Good: "Return asset count for every section." / "Preserve pagination after deletion."
+Bad: "Call another API." / "Add a database table." / "Use Redis."
+
+**References** (include when input contains: API endpoints, URLs, curl, JSON, payloads, IDs, filenames, logs, stack traces, screenshots, Loom links, document links)
+Copy ALL technical artifacts verbatim. Never shorten, prettify, or redact — including Bearer tokens.
+
+FE descriptions → prefer: Display, Render, Navigate, Disable, Enable, Highlight, Persist, Synchronize. Avoid backend wording.
+BE descriptions → prefer: Return, Persist, Expose, Populate, Calculate, Validate, Store, Aggregate, Trigger, Publish, Index. Avoid UI wording.
+
+━━━ TYPE ━━━
+If user explicitly specifies a type → use it exactly. Never override.
+
+Otherwise infer:
+  Regression  → "regression", "worked before", "previously working", "after deployment/merge/update", "stopped working", "broke after"
+  Hotfix      → ONLY when the word "hotfix" appears literally. Do NOT infer from "down", "blocking", "outage", "urgent", "completely down", or severity descriptions. Those are Bugs.
+  Bug         → existing functionality behaves incorrectly: wrong response, validation fails, state inconsistent, rendering broken
+  Feature     → "add", "implement", "create", "introduce", "support", "ability to", "allow users to"
+  Enhancement → "improve", "redesign", "optimize", "better UX", "performance improvement"
+
+━━━ PRIORITY ━━━
+If user explicitly specifies a priority → use it exactly. Never override.
+If not specified → set Normal.
+Do NOT infer priority from keywords like "regression", "500", "crash", "security", or "urgent".
+
+━━━ NEVER INVENT ━━━
+Never invent: APIs, URLs, buttons, screens, error messages, validation rules, business logic,
+acceptance criteria, steps to reproduce, fallback values, or implementation details.
+Only use information explicitly present in the raw input.
 
 ━━━ OTHER FIELDS ━━━
-priority: Match severity to the closest value in the available priorities list:
-  Show-stopper → crash, data loss, security breach, app fully unusable
-  Critical → core feature completely broken, no workaround
-  Major → significant regression or important feature broken, workaround exists
-  Normal → standard bug or feature request
-  Minor → cosmetic issue, visual inconsistency, wording
-  MUST be an exact string from the available priorities list.
-
-subsystem: MUST exactly match one value from the available subsystems list. REQUIRED. Never invent.
-type_name: MUST exactly match one value from the available types list. REQUIRED.
-assignee_login: Set ONLY when a person's name or @mention appears EXPLICITLY in the raw_text (e.g. "assign to parv", "parv will handle", "@rajvir"). NEVER infer from subsystem ownership or any other indirect signal. If no name is explicitly mentioned, return "".
-sprint_id: ID of the most recent non-completed sprint from the sprints list. Otherwise "".`
+subsystem:       Exact match from available list. Use ASSIGNEE→SUBSYSTEM MAPPING only as a tiebreaker when ambiguous.
+type_name:       Exact match from available types.
+assignee_login:  ONLY when explicitly mentioned ("assign to X", "@X", "assigned to X"). NEVER infer from context.
+sprint_id:       Latest active sprint. If none, return "".`
 
 	instructions := defaultTicketParserInstructions
 	botRepo := database.NewBotConfigRepository()
@@ -1525,6 +1546,55 @@ Return ONLY this JSON object (no other text):
 		}
 		parsed["description"] = desc
 		log.Printf("[AI-Fill] PRESERVE MODE — description kept verbatim (%d chars)", len(desc))
+	}
+
+	// PRIORITY ENFORCEMENT: if the raw text contains no recognized priority token,
+	// force "Normal". The model overrides prompt instructions ("don't infer from crash/urgent")
+	// so we enforce deterministically in Go.
+	explicitPriorityRe := regexp.MustCompile(`(?i)\b(show[- ]stopper|showstopper|p0|p1|p2|p3|a0|a1|a2|a3|critical|major|minor|normal)\b`)
+	if !explicitPriorityRe.MatchString(req.RawText) {
+		parsed["priority"] = "Normal"
+		log.Printf("[AI-Fill] PRIORITY — no explicit token, forced to Normal")
+	}
+
+	// TYPE ENFORCEMENT: if the raw text starts with an explicit type label ("bug:", "feature:",
+	// "hotfix:", "regression:", "enhancement:"), override whatever the LLM inferred.
+	explicitTypeRe := regexp.MustCompile(`(?i)^\s*(bug|feature|hotfix|regression|enhancement)\s*[:\-]`)
+	if m := explicitTypeRe.FindStringSubmatch(req.RawText); len(m) > 1 {
+		explicit := strings.Title(strings.ToLower(m[1]))
+		if explicit == "Enhancement" {
+			// map to exact value
+		}
+		parsed["type_name"] = explicit
+		log.Printf("[AI-Fill] TYPE — explicit prefix %q overrides LLM", explicit)
+	}
+
+	// REGRESSION ENFORCEMENT: use Go-side detection to both upgrade and downgrade.
+	// Strong signals: "worked before", "used to work", "stopped working after", "broke after merge/deploy/update".
+	// Weak phrases like "since last deployment" or "since this morning" describe timing, NOT regressions.
+	strongRegressionRe := regexp.MustCompile(`(?i)(regression|\bworked\b.{0,20}\bbefore\b|\bused\s+to\s+work\b|\bpreviously\s+work|\bstopped\s+work|\bbroke\s+after\b|\bafter\s+(the\s+)?(latest\s+)?merge\b|\bafter\s+(the\s+)?deploy|\bafter\s+(the\s+)?update\b)`)
+	hasStrongRegression := strongRegressionRe.MatchString(req.RawText)
+	switch parsed["type_name"] {
+	case "Regression":
+		if !hasStrongRegression {
+			parsed["type_name"] = "Bug"
+			log.Printf("[AI-Fill] TYPE — Regression downgraded to Bug (no strong signal in text)")
+		}
+	case "Bug":
+		if hasStrongRegression {
+			parsed["type_name"] = "Regression"
+			log.Printf("[AI-Fill] TYPE — Bug upgraded to Regression (strong signal present)")
+		}
+	}
+
+	// ASSIGNEE ENFORCEMENT: only keep LLM's assignee_login when an explicit assignment phrase
+	// appears in the raw text. Prevents hallucination from subsystem ownership mapping.
+	explicitAssigneeRe := regexp.MustCompile(`(?i)(assign(?:ed)?\s+to\s+\w+|@\w+)`)
+	if !explicitAssigneeRe.MatchString(req.RawText) {
+		if parsed["assignee_login"] != "" && parsed["assignee_login"] != nil {
+			log.Printf("[AI-Fill] ASSIGNEE — no explicit phrase, cleared %q", parsed["assignee_login"])
+			parsed["assignee_login"] = ""
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
