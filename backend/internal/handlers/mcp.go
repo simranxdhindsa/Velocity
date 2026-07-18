@@ -348,29 +348,64 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 
 		req := youtrack.CreateIssueRequest{Summary: args.Summary, Description: args.Description}
 		var fields []youtrack.CustomField
+
+		// Always default state to "To Do"
+		fields = append(fields, youtrack.CustomField{
+			Type:  "StateIssueCustomField",
+			Name:  "State",
+			Value: map[string]string{"name": "To Do"},
+		})
 		if args.TypeName != "" {
-			fields = append(fields, youtrack.CustomField{Name: "Type", Value: map[string]string{"name": args.TypeName}})
+			fields = append(fields, youtrack.CustomField{
+				Type:  "SingleEnumIssueCustomField",
+				Name:  "Type",
+				Value: map[string]string{"name": args.TypeName},
+			})
 		}
 		if args.Priority != "" {
-			fields = append(fields, youtrack.CustomField{Name: "Priority", Value: map[string]string{"name": args.Priority}})
+			fields = append(fields, youtrack.CustomField{
+				Type:  "SingleEnumIssueCustomField",
+				Name:  "Priority",
+				Value: map[string]string{"name": args.Priority},
+			})
 		}
 		if args.Subsystem != "" {
-			fields = append(fields, youtrack.CustomField{Name: "Subsystem", Value: map[string]string{"name": args.Subsystem}})
+			fields = append(fields, youtrack.CustomField{
+				Type:  "SingleOwnedIssueCustomField",
+				Name:  "Subsystem",
+				Value: map[string]interface{}{"$type": "OwnedBundleElement", "name": args.Subsystem},
+			})
 		}
 		if args.AssigneeLogin != "" {
-			fields = append(fields, youtrack.CustomField{Name: "Assignee", Value: map[string]string{"login": args.AssigneeLogin}})
+			fields = append(fields, youtrack.CustomField{
+				Type:  "SingleUserIssueCustomField",
+				Name:  "Assignee",
+				Value: map[string]string{"login": args.AssigneeLogin},
+			})
 		}
-		if args.SprintID != "" {
-			fields = append(fields, youtrack.CustomField{Name: "Sprint", Value: map[string]string{"id": args.SprintID}})
-		}
-		if len(fields) > 0 {
-			req.CustomFields = fields
-		}
+		req.CustomFields = fields
 
 		issue, err := ytClient.CreateIssue(ctx, req)
 		if err != nil {
 			return toolError(id, "Failed to create ticket: "+err.Error())
 		}
+
+		// Assign to sprint — use provided sprint_id or auto-pick the latest active sprint
+		sprintID := args.SprintID
+		if sprintID == "" {
+			if sprints, sErr := ytClient.GetSprints(ctx); sErr == nil {
+				for i := len(sprints) - 1; i >= 0; i-- {
+					if !sprints[i].IsCompleted {
+						sprintID = sprints[i].ID
+						break
+					}
+				}
+			}
+		}
+		if sprintID != "" && issue != nil && issue.ID != "" {
+			_ = ytClient.AddIssueToSprint(ctx, sprintID, issue.ID)
+		}
+
 		displayID := issue.IDReadable
 		if displayID == "" {
 			displayID = issue.ID
