@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { SprintScanLoader, SvgSprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
@@ -382,10 +383,10 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
       .finally(() => setLoading(false))
   }, [])
 
-  // Fetch boards whenever the form is shown (so dropdown is populated)
+  // Fetch boards on mount (to resolve board name) and when form opens
   useEffect(() => {
-    if (showYtForm && ytConnected) fetchYtBoards()
-  }, [showYtForm]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (ytConnected) fetchYtBoards()
+  }, [ytConnected]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (ytMappingOpen === null) return
@@ -464,8 +465,17 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
       setYtProbeError(null)
       try {
         const res = await api.probeYouTrack(url.trim(), token.trim())
-        const projects = (res as any)?.data ?? []
-        setYtProjects(Array.isArray(projects) ? projects : [])
+        if ((res as any)?.success === false) {
+          setYtProbeError((res as any)?.message ?? 'Cannot connect — check URL and token')
+          return
+        }
+        const raw: Array<{ id: string; name: string; shortName: string }> = (res as any)?.data ?? []
+        // Use shortName as the value — YQL queries need `project: {shortName}` not internal IDs
+        const mapped = raw.filter(p => p.shortName).map(p => ({
+          id: p.shortName,
+          name: `${p.name} (${p.shortName})`,
+        }))
+        setYtProjects(Array.isArray(mapped) ? mapped : [])
         setYtProbed(true)
       } catch {
         setYtProbeError('Cannot connect — check URL and token')
@@ -484,6 +494,7 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
     setYtBoardsLoading(true)
     try {
       const res = await api.probeYouTrackBoards(ytBaseURL.trim(), ytToken.trim(), projectId)
+      if ((res as any)?.success === false) return // silent — boards optional
       const boards = (res as any)?.data ?? []
       setYtBoards(Array.isArray(boards) ? boards : [])
     } catch { /* boards optional */ }
@@ -533,11 +544,23 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
 
   const handleRecheckYt = async () => {
     setYtChecking(true)
+    setYtError(null)
+    setYtSuccess(null)
     try {
       const res = await api.getYouTrackStatus()
-      setYtStatus(res as unknown as YouTrackStatus)
+      const status = res as unknown as YouTrackStatus
+      setYtStatus(status)
+      if (status.connected) {
+        setYtSuccess('YouTrack is reachable')
+        setTimeout(() => setYtSuccess(null), 3000)
+      } else {
+        setYtError(status.error ?? 'Cannot reach YouTrack — check your URL and token')
+        setTimeout(() => setYtError(null), 5000)
+      }
     } catch {
       setYtStatus({ connected: false, configured: false })
+      setYtError('Re-check failed — server did not respond')
+      setTimeout(() => setYtError(null), 5000)
     } finally { setYtChecking(false) }
   }
 
@@ -937,13 +960,43 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
               <h2>YouTrack</h2>
               <p>Primary issue tracker — boards, reports, PM assistant</p>
             </div>
-            <div>
-              {ytStatus?.connected
-                ? <span className="int-badge int-badge-green"><CheckCircle size={12} /> Connected</span>
-                : ytConfigured
-                  ? <span className="int-badge int-badge-yellow"><AlertCircle size={12} /> Saved, not reachable</span>
-                  : <span className="int-badge int-badge-gray">Not configured</span>
-              }
+            <div style={{ position: 'relative' }}>
+              <AnimatePresence mode="wait">
+                {ytStatus?.connected ? (
+                  <motion.span
+                    key="connected"
+                    className="int-badge int-badge-green"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <CheckCircle size={12} /> Connected
+                  </motion.span>
+                ) : ytConfigured ? (
+                  <motion.span
+                    key="unreachable"
+                    className="int-badge int-badge-yellow"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <AlertCircle size={12} /> Unreachable
+                  </motion.span>
+                ) : (
+                  <motion.span
+                    key="not-configured"
+                    className="int-badge int-badge-gray"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    Not configured
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -957,57 +1010,105 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
             <div className="int-alert int-alert-success"><CheckCircle size={14} /><span>{ytSuccess}</span></div>
           )}
 
-          {/* Show saved config details when connected */}
-          {ytConfigured && !showYtForm && (
-            <>
-              <div className="int-details-grid">
-                <div className="int-detail-card">
-                  <span className="int-detail-label">Base URL</span>
-                  <span className="int-detail-value">{ytBaseURL}</span>
-                </div>
-                <div className="int-detail-card">
-                  <span className="int-detail-label">Project ID</span>
-                  <span className="int-detail-value">{ytProjectID}</span>
-                </div>
-                {ytBoardID && (
-                  <div className="int-detail-card">
-                    <span className="int-detail-label">Board ID</span>
-                    <span className="int-detail-value">{ytBoardID}</span>
+          {/* ── Connected state — redesigned ── */}
+          {ytConfigured && !showYtForm && (() => {
+            const boardName = ytBoards.find(b => b.id === ytBoardID)?.name
+            const rowVariants = {
+              hidden: { opacity: 0, x: -10 },
+              visible: (i: number) => ({ opacity: 1, x: 0, transition: { delay: i * 0.06, duration: 0.22, ease: 'easeOut' } }),
+            }
+
+            const configRows: Array<{ icon: React.ReactNode; label: string; value: React.ReactNode } | null> = [
+              {
+                icon: <ExternalLink size={13} />,
+                label: 'Base URL',
+                value: (
+                  <a href={ytBaseURL} target="_blank" rel="noopener noreferrer" className="int-config-link">
+                    {ytBaseURL}
+                    <ExternalLink size={11} />
+                  </a>
+                ),
+              },
+              {
+                icon: (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                  </svg>
+                ),
+                label: 'Project',
+                value: <span className="int-config-chip int-config-chip-accent">{ytProjectID}</span>,
+              },
+              ytBoardID ? {
+                icon: (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/>
+                  </svg>
+                ),
+                label: 'Board',
+                value: boardName
+                  ? <>{boardName} <span className="int-config-sub">{ytBoardID}</span></>
+                  : <span className="int-config-chip">{ytBoardID}</span>,
+              } : null,
+            ]
+
+            return (
+              <motion.div
+                className="int-config-panel"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, ease: 'easeOut' }}
+              >
+                {ytStatus && !ytStatus.connected && (
+                  <div className="int-section-box int-section-box-warn" style={{ marginBottom: '1rem' }}>
+                    <div className="int-section-box-header"><AlertCircle size={15} className="int-icon-warn" /><span>Connection failed</span></div>
+                    {ytStatus.error && <p className="int-help-text int-text-warn">{ytStatus.error}</p>}
+                    <p className="int-help-text">Credentials saved but YouTrack is not reachable. Check your URL and token.</p>
                   </div>
                 )}
-                <div className="int-detail-card">
-                  <span className="int-detail-label">Credentials source</span>
-                  <span className="int-detail-value">
-                    {ytStatus?.source === 'user_db' ? 'Your profile' : ytStatus?.source === 'global_db' ? 'Org-wide (DB)' : 'Environment variables'}
-                  </span>
+
+                <div className="int-config-rows">
+                  {configRows.filter(Boolean).map((row, i) => (
+                    <motion.div
+                      key={row!.label}
+                      className="int-config-row"
+                      variants={rowVariants}
+                      initial="hidden"
+                      animate="visible"
+                      custom={i}
+                    >
+                      <span className="int-config-row-icon">{row!.icon}</span>
+                      <span className="int-config-row-label">{row!.label}</span>
+                      <span className="int-config-row-value">{row!.value}</span>
+                    </motion.div>
+                  ))}
                 </div>
-              </div>
 
-              {ytStatus && !ytStatus.connected && (
-                <div className="int-section-box int-section-box-warn">
-                  <div className="int-section-box-header"><AlertCircle size={15} className="int-icon-warn" /><span>Connection failed</span></div>
-                  {ytStatus.error && <p className="int-help-text int-text-warn">{ytStatus.error}</p>}
-                  <p className="int-help-text">The credentials are saved but YouTrack is not reachable. Check your base URL and token.</p>
+                <div className="int-row-actions">
+                  <button className="int-btn int-btn-ghost int-btn-sm" onClick={handleRecheckYt} disabled={ytChecking}>
+                    <RefreshCw size={13} className={ytChecking ? 'spin' : ''} /> {ytChecking ? 'Checking…' : 'Re-check'}
+                  </button>
+                  <button className="int-btn int-btn-ghost int-btn-sm" onClick={() => setShowYtForm(true)}>
+                    <Settings size={13} /> Update Credentials
+                  </button>
+                  <button className="int-btn int-btn-danger-ghost int-btn-sm" onClick={handleDisconnectYt}>
+                    <Unlink size={13} /> Disconnect
+                  </button>
                 </div>
-              )}
+              </motion.div>
+            )
+          })()}
 
-              <div className="int-row-actions">
-                <button className="int-btn int-btn-ghost int-btn-sm" onClick={handleRecheckYt} disabled={ytChecking}>
-                  <RefreshCw size={13} className={ytChecking ? 'spin' : ''} /> {ytChecking ? 'Checking…' : 'Re-check'}
-                </button>
-                <button className="int-btn int-btn-ghost int-btn-sm" onClick={() => setShowYtForm(true)}>
-                  <Settings size={13} /> Update Credentials
-                </button>
-                <button className="int-btn int-btn-danger-ghost int-btn-sm" onClick={handleDisconnectYt}>
-                  <Unlink size={13} /> Disconnect
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* Connect / Edit form — progressive disclosure */}
+          {/* Connect / Edit form — progressive disclosure with Framer Motion */}
+          <AnimatePresence>
           {(!ytConfigured || showYtForm) && (
-            <form onSubmit={handleSaveYt} className="int-form">
+            <motion.form
+              onSubmit={handleSaveYt}
+              className="int-form"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               {!ytConfigured && (
                 <p className="int-help-text">
                   Enter your YouTrack URL and token — projects will load automatically.
@@ -1039,50 +1140,130 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                     autoComplete="new-password"
                     required={!ytConfigured}
                   />
-                  {ytProbing && <span className="int-probe-spinner" />}
-                  {ytProbed && !ytProbing && <span className="int-probe-ok" title="Connected"><CheckCircle size={15} /></span>}
-                  {ytProbeError && !ytProbing && <span className="int-probe-err" title={ytProbeError}><AlertCircle size={15} /></span>}
+                  {/* Probe status icon — crossfades between states */}
+                  <AnimatePresence mode="wait">
+                    {ytProbing && (
+                      <motion.span
+                        key="probing"
+                        className="int-probe-spinner"
+                        initial={{ opacity: 0, scale: 0.6 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.6 }}
+                        transition={{ duration: 0.15 }}
+                      />
+                    )}
+                    {ytProbed && !ytProbing && (
+                      <motion.span
+                        key="ok"
+                        className="int-probe-ok"
+                        title="Connected"
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.5 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                      >
+                        <CheckCircle size={15} />
+                      </motion.span>
+                    )}
+                    {ytProbeError && !ytProbing && (
+                      <motion.span
+                        key="err"
+                        className="int-probe-err"
+                        title={ytProbeError}
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.5 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                      >
+                        <AlertCircle size={15} />
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
                 </div>
-                {ytProbeError && <p className="int-field-error">{ytProbeError}</p>}
+                <AnimatePresence>
+                  {ytProbeError && (
+                    <motion.p
+                      className="int-field-error"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      {ytProbeError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
               </div>
 
-              {/* Step 2: project — only shown after probe succeeds */}
-              {(ytProbed || (ytConfigured && !ytToken)) && (
-                <div className="int-field int-field-reveal">
-                  <label>Project</label>
-                  {ytProjects.length > 0 ? (
-                    <WcObjDropdown
-                      value={ytProjectID}
-                      placeholder="— Select a project —"
-                      options={ytProjects}
-                      onChange={handleProjectSelect}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={ytProjectID}
-                      onChange={e => setYtProjectID(e.target.value)}
-                      placeholder="Project short ID, e.g. PM"
-                      className="int-input"
-                      autoComplete="off"
-                    />
-                  )}
-                </div>
-              )}
+              {/* Step 2: project — slides in after probe succeeds */}
+              <AnimatePresence>
+                {(ytProbed || (ytConfigured && !ytToken)) && (
+                  <motion.div
+                    className="int-field"
+                    key="yt-project-step"
+                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                    animate={{ opacity: 1, height: 'auto', marginTop: 0 }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <motion.div
+                      initial={{ y: 8 }}
+                      animate={{ y: 0 }}
+                      transition={{ duration: 0.2, delay: 0.08 }}
+                    >
+                      <label>Project</label>
+                      {ytProjects.length > 0 ? (
+                        <WcObjDropdown
+                          value={ytProjectID}
+                          placeholder="— Select a project —"
+                          options={ytProjects}
+                          onChange={handleProjectSelect}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={ytProjectID}
+                          onChange={e => setYtProjectID(e.target.value)}
+                          placeholder="Project short ID, e.g. PM"
+                          className="int-input"
+                          autoComplete="off"
+                        />
+                      )}
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              {/* Step 3: board — only shown after project selected */}
-              {ytProjectID && (ytProbed || (ytConfigured && !ytToken)) && (
-                <div className="int-field int-field-reveal">
-                  <label>Board <span className="int-label-hint">optional — for sprint tracking</span></label>
-                  <WcObjDropdown
-                    value={ytBoardID}
-                    placeholder={ytBoardsLoading ? 'Loading boards…' : ytBoards.length === 0 ? 'No boards for this project' : '— Select a board —'}
-                    options={ytBoards}
-                    onChange={setYtBoardID}
-                    disabled={ytBoardsLoading}
-                  />
-                </div>
-              )}
+              {/* Step 3: board — slides in after project selected */}
+              <AnimatePresence>
+                {ytProjectID && (ytProbed || (ytConfigured && !ytToken)) && (
+                  <motion.div
+                    className="int-field"
+                    key="yt-board-step"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <motion.div
+                      initial={{ y: 8 }}
+                      animate={{ y: 0 }}
+                      transition={{ duration: 0.2, delay: 0.08 }}
+                    >
+                      <label>Board <span className="int-label-hint">optional — for sprint tracking</span></label>
+                      <WcObjDropdown
+                        value={ytBoardID}
+                        placeholder={ytBoardsLoading ? 'Loading boards…' : ytBoards.length === 0 ? 'No boards for this project' : '— Select a board —'}
+                        options={ytBoards}
+                        onChange={setYtBoardID}
+                        disabled={ytBoardsLoading}
+                      />
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div className="int-form-actions">
                 {showYtForm && (
@@ -1092,8 +1273,9 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                   {ytSaving ? 'Connecting…' : <><Link2 size={14} /> {ytConfigured ? 'Update' : 'Connect YouTrack'}</>}
                 </button>
               </div>
-            </form>
+            </motion.form>
           )}
+          </AnimatePresence>
         </div>
       )}
 

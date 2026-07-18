@@ -286,13 +286,13 @@ func (h *YouTrackHandler) ProbeYouTrack(w http.ResponseWriter, r *http.Request) 
 	}
 	client := youtrack.NewClient(req.BaseURL, req.Token, "")
 	projects, err := client.GetProjects(r.Context())
+	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
+		// Return 200 so api.ts does NOT fire the global gateway-down overlay —
+		// YouTrack being unreachable is a config error, not our server going down.
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "Cannot reach YouTrack — check URL and token"})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": projects})
 }
 
@@ -309,13 +309,11 @@ func (h *YouTrackHandler) ProbeYouTrackBoards(w http.ResponseWriter, r *http.Req
 	}
 	client := youtrack.NewClient(req.BaseURL, req.Token, req.ProjectID)
 	boards, err := client.GetBoards(r.Context())
+	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "Failed to fetch boards"})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": boards})
 }
 

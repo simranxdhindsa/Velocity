@@ -287,6 +287,134 @@
   word-break: break-all;
 }
 
+/* ── Redesigned connected config panel ──────────────────────────────────── */
+.int-config-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.int-config-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.int-config-row {
+  display: grid;
+  grid-template-columns: 24px 90px 1fr;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.8rem 1.1rem;
+  border-bottom: 1px solid var(--glass-border);
+  transition: background 0.15s;
+}
+
+.int-config-row:last-child {
+  border-bottom: none;
+}
+
+.int-config-row:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.int-config-row-icon {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.int-config-row-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.int-config-row-value {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  word-break: break-all;
+}
+
+/* Accent chip — project shortname */
+.int-config-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: monospace;
+  letter-spacing: 0.03em;
+  background: rgba(var(--color-primary-rgb), 0.12);
+  color: var(--color-primary);
+  border: 1px solid rgba(var(--color-primary-rgb), 0.25);
+}
+
+.int-config-chip-accent {
+  background: rgba(var(--color-primary-rgb), 0.15);
+  color: var(--color-primary);
+  border-color: rgba(var(--color-primary-rgb), 0.3);
+  box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.12);
+}
+
+/* Board name + sub-id */
+.int-config-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+/* Source label */
+.int-config-source {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+/* External link in config row */
+.int-config-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: color 0.15s;
+  word-break: break-all;
+}
+
+.int-config-link:hover {
+  color: var(--color-primary);
+}
+
+.int-config-link svg {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+/* Light mode overrides */
+[data-theme="light"] .int-config-rows {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+[data-theme="light"] .int-config-row:hover {
+  background: rgba(0, 0, 0, 0.025);
+}
+
 /* Section boxes */
 .int-section-box {
   background: rgba(0, 0, 0, 0.15);
@@ -458,15 +586,6 @@
   margin: 0;
 }
 
-/* Revealed step: subtle slide-in */
-.int-field-reveal {
-  animation: int-reveal 0.22s ease both;
-}
-
-@keyframes int-reveal {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
 
 .int-input-row {
   display: flex;
