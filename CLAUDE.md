@@ -198,6 +198,12 @@ Never build new dropdown or calendar implementations.
 
 **`CalendarView`** — `frontend/src/components/calendar/CalendarView.tsx`. Use for all date-range displays.
 
+**Time format — always 12-hour (AM/PM), never 24-hour.** This applies to every time picker and every displayed time string, anywhere in the app.
+- Picking a time → use `ClockTimePicker` (`frontend/src/components/ClockTimePicker.tsx`) or `TimePicker`, both already render 12-hour with AM/PM.
+- Displaying a stored `"HH:MM"` (24-hour) value as text → convert with `displayTime()` exported from `ClockTimePicker.tsx`, never interpolate the raw string.
+- Never use `<input type="time">` (renders 24-hour in most locales) and never format with `toLocaleTimeString`/`Intl` options that default to `hour12: false`.
+- `Intl`/`toLocaleString` output must always pass through `upperAmPm()` (exported from `ClockTimePicker.tsx`) — some locales (e.g. `en-IN`) lowercase `am`/`pm`, which reads inconsistently next to `displayTime()`'s uppercase `AM`/`PM`.
+
 ### 3 — Persisted UI State
 
 Use `usePersistedState` from `frontend/src/hooks/usePersistedState.ts`. Never call `localStorage` directly in a component.

@@ -28,7 +28,12 @@ function toHHMM(hour: number, minute: number, ampm: AMPM): string {
   return `${String(h).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
-function displayTime(value: string): string {
+// Some locales (e.g. en-IN) lowercase am/pm in Intl output — normalize to uppercase everywhere.
+export function upperAmPm(s: string): string {
+  return s.replace(/\b(am|pm)\b/i, m => m.toUpperCase())
+}
+
+export function displayTime(value: string): string {
   const { hour, minute, ampm } = parse(value)
   return `${hour}:${String(minute).padStart(2, '0')} ${ampm}`
 }

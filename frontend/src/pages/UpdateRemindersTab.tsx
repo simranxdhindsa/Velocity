@@ -13,7 +13,7 @@ import type {
   UpdateReminderRunResult, SlackWorkspaceUser, ChannelRef,
 } from '../services/api'
 import { CustomDropdown } from '../components/CustomDropdown'
-import { ClockTimePicker } from '../components/ClockTimePicker'
+import { ClockTimePicker, displayTime, upperAmPm } from '../components/ClockTimePicker'
 import { ConfirmModal } from '../components/ConfirmModal'
 import { ClaudeQueueCard } from './ClaudeQueueCard'
 import '../styles/pages/slack-update-reminders.css'
@@ -393,7 +393,7 @@ function QuickSendCard({ channels, autoOpen = false }: { channels: ChannelRef[];
         : { message: slackMsg, channel_id: channelId }
       const res = await api.quickSend(payload)
       const label = mode === 'dm' ? (selectedUser?.profile.display_name || selectedUser?.real_name || dmUserId) : (selectedChannel?.name || channelId)
-      setHistory(h => [{ channel: label, channelId: res?.channel_id || channelId, msg: getDisplayText(), ts: new Date().toLocaleTimeString(), slackTs: res?.slack_ts || '' }, ...h.slice(0, 19)])
+      setHistory(h => [{ channel: label, channelId: res?.channel_id || channelId, msg: getDisplayText(), ts: upperAmPm(new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })), slackTs: res?.slack_ts || '' }, ...h.slice(0, 19)])
       if (editRef.current) editRef.current.innerHTML = ''
       setHasContent(false)
       setSent(true)
@@ -1209,7 +1209,7 @@ function HistoryModal({ ruleId, ruleName, onClose }: { ruleId: string; ruleName:
           ) : runs.length === 0 ? <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No runs yet.</div>
           : runs.map(run => (
             <div key={run.id} className="ur-history-row">
-              <div className="ur-history-date">{new Date(run.ran_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</div>
+              <div className="ur-history-date">{upperAmPm(new Date(run.ran_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short', hour12: true }))}</div>
               <span className="ur-history-by">{run.triggered_by}</span>
               <div className="ur-history-counts">
                 <span className="ur-history-count-item" style={{ color: 'var(--color-success)' }}><CheckCircle size={11} />{run.posted_names.length} posted</span>
@@ -1278,7 +1278,7 @@ const RuleCard = React.memo(function RuleCard({ rule, channels, onRefresh }: {
 
   const schedLabel = (() => {
     const days = (rule.schedule_days ?? []).sort().map(d => DAYS[d]).join(' ')
-    return `${days} at ${rule.schedule_time} ${rule.timezone.split('/')[1] ?? rule.timezone}`
+    return `${days} at ${displayTime(rule.schedule_time)} ${rule.timezone.split('/')[1] ?? rule.timezone}`
   })()
 
   const srcLabel = (rule.source_channel_ids ?? []).map(c => `#${c.name}`).join(', ') || 'No channels'

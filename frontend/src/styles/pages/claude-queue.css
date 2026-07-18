@@ -261,6 +261,21 @@
   white-space: nowrap;
 }
 
+.cq-date-input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.3;
+}
+
+.cq-date-input:focus { outline: none; border-color: var(--color-primary); }
+.cq-date-input::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+[data-theme="light"] .cq-date-input::-webkit-calendar-picker-indicator { filter: none; }
+
 /* ── Queue section ───────────────────────────────────────────────────────────── */
 
 .cq-queue {
@@ -430,6 +445,21 @@
   line-height: 1.55;
   margin: 0;
   white-space: pre-wrap;
+}
+
+.cq-mention-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.cq-mention {
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.12);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-weight: 600;
 }
 
 .cq-msg-error {

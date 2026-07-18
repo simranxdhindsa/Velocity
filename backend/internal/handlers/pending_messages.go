@@ -75,7 +75,8 @@ func (h *PendingMessagesHandler) Update(w http.ResponseWriter, r *http.Request) 
 		scheduledAt = &t
 	}
 
-	msg, err := h.repo.Update(r.Context(), id, u.ID, req.Message, scheduledAt, req.ChannelID, req.ChannelLabel)
+	message := resolveSlackMentions(r.Context(), h.slackSvc, u.ID, req.Message)
+	msg, err := h.repo.Update(r.Context(), id, u.ID, message, scheduledAt, req.ChannelID, req.ChannelLabel)
 	if err != nil || msg == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "message not found or already sent"})
 		return
@@ -168,7 +169,8 @@ func (h *PendingMessagesHandler) Create(w http.ResponseWriter, r *http.Request) 
 		scheduledAt = &t
 	}
 
-	msg, err := h.repo.Create(r.Context(), u.ID, req.Message, req.ChannelID, req.ChannelLabel, req.DmUserID, scheduledAt)
+	message := resolveSlackMentions(r.Context(), h.slackSvc, u.ID, req.Message)
+	msg, err := h.repo.Create(r.Context(), u.ID, message, req.ChannelID, req.ChannelLabel, req.DmUserID, scheduledAt)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

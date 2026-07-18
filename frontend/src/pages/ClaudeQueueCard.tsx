@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bot, ChevronDown, Copy, Check, RefreshCw, Trash2,
   Clock, Send, Pencil, X, AlertCircle, Zap,
-  CheckCircle2, CircleDashed, Plus,
+  CheckCircle2, CircleDashed, Plus, Search,
 } from 'lucide-react'
 import api from '../services/api'
-import type { PendingSlackMessage, ChannelRef } from '../services/api'
+import type { PendingSlackMessage, ChannelRef, SlackWorkspaceUser } from '../services/api'
 import { usePersistedState, PERSIST } from '../hooks/usePersistedState'
-import { ClockTimePicker } from '../components/ClockTimePicker'
+import { ClockTimePicker, displayTime, upperAmPm } from '../components/ClockTimePicker'
 import { ConfirmModal } from '../components/ConfirmModal'
 import '../styles/pages/claude-queue.css'
 
@@ -22,6 +22,28 @@ const MCP_BASE_URL = (() => {
   }
   return `${window.location.origin}/api/mcp`
 })()
+
+// ── Date helpers ────────────────────────────────────────────────────────────────
+
+// Local YYYY-MM-DD (never UTC — toISOString() would shift the date near midnight).
+export function toYMD(d: Date): string {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// ── Mention rendering — replace <@UXXXX> tokens with highlighted display names ─
+
+function renderMentionedText(text: string, userNames: Map<string, string>): React.ReactNode {
+  const parts = text.split(/(<@[A-Z0-9]+>)/g)
+  return parts.map((part, i) => {
+    const match = part.match(/^<@([A-Z0-9]+)>$/)
+    if (!match) return part
+    const name = userNames.get(match[1])
+    return (
+      <span key={i} className="cq-mention">@{name ?? match[1]}</span>
+    )
+  })
+}
 
 // ── Compact connection status + manage panel ──────────────────────────────────
 
@@ -86,9 +108,9 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
   }
 
   const lastUsedLabel = meta?.last_used_at
-    ? `last used ${new Date(meta.last_used_at).toLocaleString(undefined, {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-      })}`
+    ? `last used ${upperAmPm(new Date(meta.last_used_at).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+      }))}`
     : null
 
   // Revoked state — token explicitly removed, show generate button
@@ -245,11 +267,12 @@ function InlineChannelPicker({ channels, onPick }: {
 // ── Individual queued message card ─────────────────────────────────────────────
 
 function QueuedMessageCard({
-  msg, defaultTime, channels, onUpdated, onDeleted, onSent,
+  msg, defaultTime, channels, userNames, onUpdated, onDeleted, onSent,
 }: {
   msg: PendingSlackMessage
   defaultTime: string
   channels: ChannelRef[]
+  userNames: Map<string, string>
   onUpdated: (m: PendingSlackMessage) => void
   onDeleted: (id: string) => void
   onSent: (id: string, slackTs: string) => void
@@ -298,10 +321,10 @@ function QueuedMessageCard({
   }
 
   const scheduledLabel = msg.scheduled_at
-    ? new Date(msg.scheduled_at).toLocaleString(undefined, {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-      })
-    : `Default (${defaultTime})`
+    ? upperAmPm(new Date(msg.scheduled_at).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+      }))
+    : `Default (${displayTime(defaultTime)})`
 
   const handleSave = async () => {
     setSaving(true)
@@ -418,7 +441,7 @@ function QueuedMessageCard({
         </div>
       ) : (
         <>
-          <p className="cq-msg-text">{msg.message}</p>
+          <p className="cq-msg-text">{renderMentionedText(msg.message, userNames)}</p>
           {isFailed && msg.error_message && (
             <div className="cq-msg-error"><AlertCircle size={11} />{msg.error_message}</div>
           )}
@@ -485,10 +508,11 @@ function QueuedMessageCard({
 // ── Compose form — manually schedule a message into the queue ─────────────────
 
 function ComposeForm({
-  channels, defaultTime, onCreated, onClose,
+  channels, defaultTime, users, onCreated, onClose,
 }: {
   channels: ChannelRef[]
   defaultTime: string
+  users: SlackWorkspaceUser[]
   onCreated: (m: PendingSlackMessage) => void
   onClose: () => void
 }) {
@@ -497,7 +521,56 @@ function ComposeForm({
   const [time, setTime] = useState(defaultTime)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionIdx, setMentionIdx] = useState(0)
+  const [mentionDropStyle, setMentionDropStyle] = useState<React.CSSProperties>({})
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  const mentionResults = mentionQuery !== null
+    ? users.filter(u => !u.is_bot && !u.deleted && (u.profile.display_name || u.real_name).toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 8)
+    : []
+
+  // Detect "@query" typed right before the cursor and open the mention dropdown.
+  const detectMention = (value: string, cursor: number) => {
+    const textBefore = value.slice(0, cursor)
+    const atIdx = textBefore.lastIndexOf('@')
+    if (atIdx === -1) { setMentionQuery(null); return }
+    const query = textBefore.slice(atIdx + 1)
+    if (query.includes(' ') || query.includes('\n')) { setMentionQuery(null); return }
+    setMentionQuery(query)
+    setMentionIdx(0)
+    if (textareaRef.current) {
+      const r = textareaRef.current.getBoundingClientRect()
+      setMentionDropStyle({ position: 'fixed', top: r.bottom + 4, left: r.left, width: Math.min(r.width, 320), zIndex: 9999 })
+    }
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setText(e.target.value)
+    detectMention(e.target.value, e.target.selectionStart)
+  }
+
+  const handleMentionSelect = (u: SlackWorkspaceUser) => {
+    const name = u.profile.display_name || u.real_name
+    const ta = textareaRef.current
+    if (!ta) return
+    const cursor = ta.selectionStart
+    const textBefore = text.slice(0, cursor)
+    const atIdx = textBefore.lastIndexOf('@')
+    if (atIdx === -1) return
+    const next = `${text.slice(0, atIdx)}@${name} ${text.slice(cursor)}`
+    setText(next)
+    setMentionQuery(null)
+    const newCursor = atIdx + name.length + 2
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(newCursor, newCursor)
+    })
+  }
+
+  // Mention resolution ("@Name" → Slack's <@UID> format) happens server-side in
+  // resolveSlackMentions (backend/internal/handlers/mcp.go) — single source of truth,
+  // shared by the MCP tool path and this compose form's Create/Update calls.
   const handleSubmit = async () => {
     if (!text.trim()) { setErr('Message is required'); return }
     setSaving(true)
@@ -530,13 +603,54 @@ function ComposeForm({
         <button className="cq-msg-icon-btn" onClick={onClose}><X size={12} /></button>
       </div>
       <textarea
+        ref={textareaRef}
         className="cq-msg-edit-input"
-        placeholder="Write your Slack message…"
+        placeholder="Write your Slack message… use @ to mention a member"
         value={text}
-        onChange={e => setText(e.target.value)}
+        onChange={handleChange}
+        onKeyDown={e => {
+          if (mentionQuery !== null && mentionResults.length > 0) {
+            if (e.key === 'ArrowDown' || e.key === 'Tab') {
+              e.preventDefault()
+              setMentionIdx(i => (i + 1) % mentionResults.length)
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              setMentionIdx(i => (i - 1 + mentionResults.length) % mentionResults.length)
+            } else if (e.key === 'Enter') {
+              e.preventDefault()
+              handleMentionSelect(mentionResults[mentionIdx])
+            } else if (e.key === 'Escape') {
+              setMentionQuery(null)
+            }
+          }
+        }}
+        onBlur={() => setTimeout(() => setMentionQuery(null), 150)}
         rows={4}
         autoFocus
       />
+
+      {mentionQuery !== null && mentionResults.length > 0 && createPortal(
+        <div className="cd-portal-menu" style={mentionDropStyle}>
+          <div className="cd-option-list" style={{ maxHeight: 200 }}>
+            {mentionResults.map((u, idx) => {
+              const name = u.profile.display_name || u.real_name
+              return (
+                <button
+                  key={u.id} type="button"
+                  className={`pm-dropdown-item${idx === mentionIdx ? ' active' : ''}`}
+                  onMouseDown={e => { e.preventDefault(); handleMentionSelect(u) }}
+                  onMouseEnter={() => setMentionIdx(idx)}
+                >
+                  {u.profile.image_48 && <img src={u.profile.image_48} className="cq-mention-avatar" alt="" />}
+                  <span>{name}</span>
+                  <span style={{ marginLeft: 4, color: 'var(--text-muted)', fontSize: 11 }}>@{u.name}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>,
+        document.body
+      )}
       <div className="cq-msg-edit-footer">
         <div className="cq-msg-edit-time">
           <span className="cq-label">Channel</span>
@@ -569,6 +683,17 @@ export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?
   const [defaultTime, setDefaultTime] = usePersistedState<string>(
     PERSIST.QUEUE_DEFAULT_TIME, '10:00'
   )
+  const [users, setUsers] = useState<SlackWorkspaceUser[]>([])
+  const userNames = useMemo(
+    () => new Map(users.map(u => [u.id, u.profile?.display_name || u.real_name || u.name])),
+    [users]
+  )
+
+  useEffect(() => {
+    api.getWorkspaceUsers().then(r => {
+      if (Array.isArray(r)) setUsers(r as SlackWorkspaceUser[])
+    }).catch(() => {})
+  }, [])
 
   const loadMessages = useCallback(async () => {
     setLoadingMsgs(true)
@@ -654,6 +779,7 @@ export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?
                 <ComposeForm
                   channels={channels}
                   defaultTime={defaultTime}
+                  users={users}
                   onCreated={m => setMessages(ms => [m, ...ms])}
                   onClose={() => setComposing(false)}
                 />
@@ -668,7 +794,7 @@ export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?
                 <div className="cq-msg-list">
                   {pendingMsgs.map(m => (
                     <QueuedMessageCard
-                      key={m.id} msg={m} defaultTime={defaultTime} channels={channels}
+                      key={m.id} msg={m} defaultTime={defaultTime} channels={channels} userNames={userNames}
                       onUpdated={u => setMessages(ms => ms.map(x => x.id === u.id ? u : x))}
                       onDeleted={id => setMessages(ms => ms.filter(x => x.id !== id))}
                       onSent={(id, ts) => setMessages(ms => ms.map(x =>
@@ -687,7 +813,7 @@ export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?
                   <div className="cq-msg-list">
                     {recentMsgs.map(m => (
                       <QueuedMessageCard
-                        key={m.id} msg={m} defaultTime={defaultTime} channels={channels}
+                        key={m.id} msg={m} defaultTime={defaultTime} channels={channels} userNames={userNames}
                         onUpdated={u => setMessages(ms => ms.map(x => x.id === u.id ? u : x))}
                         onDeleted={id => setMessages(ms => ms.filter(x => x.id !== id))}
                         onSent={(id, ts) => setMessages(ms => ms.map(x =>

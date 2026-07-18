@@ -85,8 +85,11 @@ var mcpTools = []map[string]interface{}{
 					"description": "Optional. Channel name as the user mentioned it, e.g. 'ardoise-pm', 'simran-demo', '#general'. Omit if not specified.",
 				},
 				"send_time": map[string]string{
-					"type":        "string",
-					"description": "Optional. When to send — accepts natural time like '3:00 PM', '15:30', '9am', or a full ISO 8601 datetime. Omit to use the user's saved default send time.",
+					"type": "string",
+					"description": "Optional. Accepts a time-of-day today/tomorrow ('3:00 PM', '15:30', '9am') or a full ISO 8601 datetime ('2026-07-21T11:00:00'). " +
+						"Does NOT understand relative phrases like 'next Monday' or 'tomorrow' as raw text — if the user says something like " +
+						"'next Monday at 11am', compute the actual calendar date yourself (you know today's date) and pass the resolved ISO 8601 datetime instead. " +
+						"Omit to use the user's saved default send time.",
 				},
 			},
 			"required": []string{"message"},
@@ -225,7 +228,7 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		channelID, channelLabel := h.resolveChannel(ctx, userID, args.Channel)
 
 		// Resolve @DisplayName → <@UXXX> mentions in message text
-		message := h.resolveMentions(ctx, userID, args.Message)
+		message := resolveSlackMentions(ctx, h.slackSvc, userID, args.Message)
 
 		// Fetch user's default settings once — timezone used for both explicit and default paths
 		defaultHHMM, tzName := h.tokenRepo.GetDefaultSendSettings(ctx, userID)
@@ -294,33 +297,41 @@ func (h *MCPHandler) resolveChannel(ctx context.Context, userID, name string) (s
 	return "", "#" + name
 }
 
-// resolveMentions replaces @DisplayName tokens with Slack <@UXXX> format.
-// Unknown names are left as-is so the user can correct in Velocity.
-func (h *MCPHandler) resolveMentions(ctx context.Context, userID, text string) string {
+// resolveSlackMentions replaces @DisplayName tokens with Slack <@UXXX> format.
+// Unknown names are left as-is so the user can correct in Velocity. Shared by the
+// MCP tool path (mcp.go) and the manual compose form (pending_messages.go).
+func resolveSlackMentions(ctx context.Context, slackSvc *slacksvc.Service, userID, text string) string {
 	if !strings.Contains(text, "@") {
 		return text
 	}
-	users, err := h.slackSvc.GetWorkspaceUsers(ctx, userID)
+	users, err := slackSvc.GetWorkspaceUsers(ctx, userID)
 	if err != nil || len(users) == 0 {
 		return text
 	}
-	// Build name→ID map (display_name and real_name, case-insensitive)
-	nameMap := make(map[string]string, len(users)*2)
+	// Build name→ID map (display_name and real_name, case-insensitive). Track the
+	// longest name in words so multi-word names (e.g. "Simran Dhindsa") can match.
+	nameMap := make(map[string]string, len(users)*3)
+	maxWords := 1
+	addName := func(name, id string) {
+		if name == "" {
+			return
+		}
+		nameMap[strings.ToLower(name)] = id
+		if w := len(strings.Fields(name)); w > maxWords {
+			maxWords = w
+		}
+	}
 	for _, u := range users {
 		if u.ID == "" || u.IsBot || u.Deleted {
 			continue
 		}
-		if u.Profile.DisplayName != "" {
-			nameMap[strings.ToLower(u.Profile.DisplayName)] = u.ID
-		}
-		if u.RealName != "" {
-			nameMap[strings.ToLower(u.RealName)] = u.ID
-		}
-		if u.Name != "" {
-			nameMap[strings.ToLower(u.Name)] = u.ID
-		}
+		addName(u.Profile.DisplayName, u.ID)
+		addName(u.RealName, u.ID)
+		addName(u.Name, u.ID)
 	}
-	// Replace @Name tokens — greedy word match after @
+
+	// Replace @Name tokens — try the longest space-separated run of words after @
+	// first (so "@Simran Dhindsa" matches before falling back to just "@Simran").
 	var result strings.Builder
 	i := 0
 	for i < len(text) {
@@ -329,18 +340,43 @@ func (h *MCPHandler) resolveMentions(ctx context.Context, userID, text string) s
 			i++
 			continue
 		}
-		// Extract the word following @
-		j := i + 1
-		for j < len(text) && (text[j] != ' ' && text[j] != '\n' && text[j] != ',' && text[j] != ':') {
-			j++
+		var tokens []string
+		var tokenEnds []int
+		pos := i + 1
+		for w := 0; w < maxWords; w++ {
+			start := pos
+			for pos < len(text) && text[pos] != ' ' && text[pos] != '\n' && text[pos] != ',' && text[pos] != ':' {
+				pos++
+			}
+			if pos == start {
+				break
+			}
+			tokens = append(tokens, text[start:pos])
+			tokenEnds = append(tokenEnds, pos)
+			if pos >= len(text) || text[pos] != ' ' {
+				break
+			}
+			pos++ // skip the space, try to extend the match
 		}
-		mention := text[i+1 : j]
-		if uid, ok := nameMap[strings.ToLower(mention)]; ok {
-			result.WriteString("<@" + uid + ">")
-		} else {
-			result.WriteString(text[i:j]) // leave as-is
+		matched := false
+		for w := len(tokens); w >= 1; w-- {
+			candidate := strings.ToLower(strings.Join(tokens[:w], " "))
+			if uid, ok := nameMap[candidate]; ok {
+				result.WriteString("<@" + uid + ">")
+				i = tokenEnds[w-1]
+				matched = true
+				break
+			}
 		}
-		i = j
+		if !matched {
+			if len(tokens) > 0 {
+				result.WriteString("@" + tokens[0]) // leave as-is
+				i = tokenEnds[0]
+			} else {
+				result.WriteByte('@')
+				i++
+			}
+		}
 	}
 	return result.String()
 }
