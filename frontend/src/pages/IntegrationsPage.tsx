@@ -2187,17 +2187,30 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
 
 // ─── Developers Tab ──────────────────────────────────────────────────────────
 
+const pillVariants = {
+  initial: { opacity: 0, scale: 0.7 },
+  animate: { opacity: 1, scale: 1, transition: { type: 'spring' as const, stiffness: 400, damping: 22 } },
+  exit:    { opacity: 0, scale: 0.6, transition: { duration: 0.12 } },
+}
+
+const dropdownVariants = {
+  initial: { opacity: 0, y: -6, scale: 0.97 },
+  animate: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.14, ease: 'easeOut' } },
+  exit:    { opacity: 0, y: -4, scale: 0.97, transition: { duration: 0.1 } },
+}
+
 function DevelopersTab() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
 
-  const [users, setUsers] = useState<YouTrackUser[]>([])
-  const [subsystems, setSubsystems] = useState<string[]>([])
-  const [configs, setConfigs] = useState<DeveloperSubsystemConfig[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [savedOk, setSavedOk] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [users,        setUsers]        = useState<YouTrackUser[]>([])
+  const [subsystems,   setSubsystems]   = useState<string[]>([])
+  const [configs,      setConfigs]      = useState<DeveloperSubsystemConfig[]>([])
+  const [search,       setSearch]       = useState('')
+  const [loading,      setLoading]      = useState(true)
+  const [saving,       setSaving]       = useState(false)
+  const [savedOk,      setSavedOk]      = useState(false)
+  const [error,        setError]        = useState<string | null>(null)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -2209,8 +2222,8 @@ function DevelopersTab() {
       if (metaRes.success && metaRes.data) {
         setUsers(metaRes.data.users)
         setSubsystems(metaRes.data.subsystems.map((s: any) => s.name))
-        const saved = configRes.success && configRes.data ? configRes.data as DeveloperSubsystemConfig[] : []
-        const savedMap = new Map(saved.map((c: DeveloperSubsystemConfig) => [c.developer_login, c]))
+        const savedList = configRes.success && configRes.data ? configRes.data as DeveloperSubsystemConfig[] : []
+        const savedMap = new Map(savedList.map((c: DeveloperSubsystemConfig) => [c.developer_login, c]))
         setConfigs(metaRes.data.users.map((u: YouTrackUser) => ({
           developer_login: u.login,
           developer_name:  u.fullName || u.login,
@@ -2224,9 +2237,8 @@ function DevelopersTab() {
   useEffect(() => {
     if (!openDropdown) return
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node))
         setOpenDropdown(null)
-      }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -2235,8 +2247,7 @@ function DevelopersTab() {
   const addSubsystem = (login: string, sub: string) => {
     setConfigs(prev => prev.map(c =>
       c.developer_login === login && !c.subsystems.includes(sub)
-        ? { ...c, subsystems: [...c.subsystems, sub] }
-        : c
+        ? { ...c, subsystems: [...c.subsystems, sub] } : c
     ))
     setSavedOk(false)
     setOpenDropdown(null)
@@ -2244,9 +2255,7 @@ function DevelopersTab() {
 
   const removeSubsystem = (login: string, sub: string) => {
     setConfigs(prev => prev.map(c =>
-      c.developer_login === login
-        ? { ...c, subsystems: c.subsystems.filter(s => s !== sub) }
-        : c
+      c.developer_login === login ? { ...c, subsystems: c.subsystems.filter(s => s !== sub) } : c
     ))
     setSavedOk(false)
   }
@@ -2259,18 +2268,19 @@ function DevelopersTab() {
   }
 
   const handleSave = async () => {
-    setSaving(true)
-    setError(null)
+    setSaving(true); setError(null)
     try {
       await api.saveDeveloperConfigs(configs)
       setSavedOk(true)
-      setTimeout(() => setSavedOk(false), 2000)
-    } catch {
-      setError('Failed to save')
-    } finally {
-      setSaving(false)
-    }
+      setTimeout(() => setSavedOk(false), 2200)
+    } catch { setError('Failed to save') }
+    finally { setSaving(false) }
   }
+
+  const visible = configs.filter(c =>
+    !search.trim() ||
+    (c.developer_name || c.developer_login).toLowerCase().includes(search.toLowerCase())
+  )
 
   if (loading) return (
     <div className="int-content">
@@ -2282,18 +2292,30 @@ function DevelopersTab() {
 
   return (
     <div className="int-content">
+      {/* Header */}
       <div className="int-service-header">
-        <div>
+        <div style={{ flex: 1 }}>
           <div className="int-service-name">Developer Subsystem Config</div>
           <div className="int-service-desc">
-            Map each developer to the subsystems they own. AI Fill uses this to auto-assign tickets to the right person.
-            {!isAdmin && <span className="dev-v2-readonly-note"> · Read-only — admin access required to edit.</span>}
+            Map each developer to their subsystems. AI Fill uses this for auto-assignment.
+            {!isAdmin && <span className="dev-v2-readonly-note"> · View-only — admin can edit.</span>}
           </div>
         </div>
         {isAdmin && (
-          <button className={`int-btn int-btn-primary${saving ? ' int-btn-loading' : ''}`} onClick={handleSave} disabled={saving}>
-            {savedOk ? <><CheckCircle size={13} /> Saved</> : saving ? 'Saving…' : <><Save size={13} /> Save Changes</>}
-          </button>
+          <motion.button
+            className={`int-btn int-btn-primary${saving ? ' int-btn-loading' : ''}`}
+            onClick={handleSave}
+            disabled={saving}
+            whileTap={{ scale: 0.95 }}
+            animate={savedOk ? { scale: [1, 1.06, 1] } : {}}
+            transition={{ duration: 0.25 }}
+          >
+            {savedOk
+              ? <><CheckCircle size={13} /> Saved</>
+              : saving ? 'Saving…'
+              : <><Save size={13} /> Save Changes</>
+            }
+          </motion.button>
         )}
       </div>
 
@@ -2307,77 +2329,131 @@ function DevelopersTab() {
           No subsystems found — connect YouTrack first.
         </div>
       ) : (
-        <div className="dev-v2-list">
-          {configs.map(cfg => {
-            const ytUser = users.find(u => u.login === cfg.developer_login)
-            const available = subsystems.filter(s => !cfg.subsystems.includes(s))
-            const dropKey = cfg.developer_login
-            return (
-              <div key={cfg.developer_login} className={`dev-v2-row${cfg.is_qa ? ' dev-v2-row--qa' : ''}`}>
-                {/* Avatar + name */}
-                <div className="dev-v2-identity">
-                  {ytUser?.avatarUrl
-                    ? <img src={ytUser.avatarUrl} alt="" className="dev-v2-avatar" />
-                    : <span className="dev-v2-init">{(cfg.developer_name || cfg.developer_login).charAt(0).toUpperCase()}</span>
-                  }
-                  <span className="dev-v2-name">{cfg.developer_name || cfg.developer_login}</span>
-                </div>
+        <>
+          {/* Search */}
+          <div className="dev-v2-search-wrap">
+            <input
+              className="dev-v2-search"
+              placeholder="Search developer…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              aria-label="Search developers"
+            />
+            {search && (
+              <button className="dev-v2-search-clear" onClick={() => setSearch('')} aria-label="Clear search">×</button>
+            )}
+            <span className="dev-v2-count">{visible.length} / {configs.length}</span>
+          </div>
 
-                {/* Subsystem pills */}
-                <div className="dev-v2-pills">
-                  {cfg.is_qa ? (
-                    <span className="dev-v2-qa-label">QA — no subsystem assignment</span>
-                  ) : cfg.subsystems.length === 0 ? (
-                    <span className="dev-v2-none">No subsystems</span>
-                  ) : (
-                    cfg.subsystems.map(s => (
-                      <span key={s} className="dev-v2-pill">
-                        <span className="dev-v2-pill-name">{s}</span>
-                        {isAdmin && (
-                          <button className="dev-v2-pill-rm" onClick={() => removeSubsystem(cfg.developer_login, s)} title={`Remove ${s}`}>×</button>
-                        )}
-                      </span>
-                    ))
-                  )}
+          {/* Developer list — CSS stagger (no motion.div per row — 20+ items) */}
+          <div className="dev-v2-list">
+            {visible.map((cfg, idx) => {
+              const ytUser   = users.find(u => u.login === cfg.developer_login)
+              const available = subsystems.filter(s => !cfg.subsystems.includes(s))
+              const dropKey  = cfg.developer_login
+              const initials = (cfg.developer_name || cfg.developer_login).charAt(0).toUpperCase()
 
-                  {/* Add subsystem dropdown — admin only */}
-                  {isAdmin && !cfg.is_qa && available.length > 0 && (
-                    <div className="pm-custom-dropdown dev-v2-add-wrap" ref={openDropdown === dropKey ? dropdownRef : undefined}>
-                      <button
-                        className="dev-v2-add"
-                        onClick={() => setOpenDropdown(openDropdown === dropKey ? null : dropKey)}
-                        title="Add subsystem"
-                      >
-                        <Plus size={11} /> Add
-                      </button>
-                      {openDropdown === dropKey && (
-                        <div className="pm-custom-dropdown-menu dev-v2-add-menu">
-                          {available.map(s => (
-                            <div key={s} className="pm-custom-dropdown-item" onClick={() => addSubsystem(cfg.developer_login, s)}>{s}</div>
-                          ))}
-                        </div>
+              return (
+                <div
+                  key={cfg.developer_login}
+                  className={`dev-v2-row${cfg.is_qa ? ' dev-v2-row--qa' : ''}`}
+                  style={{ animationDelay: `${Math.min(idx * 18, 200)}ms` }}
+                >
+                  {/* Identity */}
+                  <div className="dev-v2-identity">
+                    {ytUser?.avatarUrl
+                      ? <img src={ytUser.avatarUrl} alt={cfg.developer_name} className="dev-v2-avatar" />
+                      : <span className="dev-v2-init">{initials}</span>
+                    }
+                    <div className="dev-v2-name-wrap">
+                      <span className="dev-v2-name">{cfg.developer_name || cfg.developer_login}</span>
+                      {cfg.subsystems.length > 0 && !cfg.is_qa && (
+                        <span className="dev-v2-sub-count">{cfg.subsystems.length} subsystem{cfg.subsystems.length !== 1 ? 's' : ''}</span>
                       )}
                     </div>
-                  )}
-                </div>
+                  </div>
 
-                {/* QA toggle — admin only */}
-                {isAdmin && (
-                  <button
-                    className={`dev-v2-qa-btn${cfg.is_qa ? ' dev-v2-qa-btn--on' : ''}`}
-                    onClick={() => toggleQA(cfg.developer_login)}
-                    title={cfg.is_qa ? 'Remove QA flag' : 'Mark as QA (excluded from auto-assign)'}
-                  >
-                    QA
-                  </button>
-                )}
-                {!isAdmin && cfg.is_qa && (
-                  <span className="dev-v2-qa-badge-ro">QA</span>
-                )}
-              </div>
-            )
-          })}
-        </div>
+                  {/* Pills */}
+                  <div className="dev-v2-pills">
+                    <AnimatePresence mode="popLayout">
+                      {cfg.is_qa ? (
+                        <motion.span key="qa-label" className="dev-v2-qa-label" {...pillVariants}>
+                          QA — no subsystem assignment
+                        </motion.span>
+                      ) : cfg.subsystems.length === 0 ? (
+                        <motion.span key="none" className="dev-v2-none" {...pillVariants}>
+                          No subsystems assigned
+                        </motion.span>
+                      ) : (
+                        cfg.subsystems.map(s => (
+                          <motion.span key={s} className="dev-v2-pill" {...pillVariants} layout>
+                            <span className="dev-v2-pill-name">{s}</span>
+                            {isAdmin && (
+                              <button
+                                className="dev-v2-pill-rm"
+                                onClick={() => removeSubsystem(cfg.developer_login, s)}
+                                aria-label={`Remove ${s}`}
+                              >×</button>
+                            )}
+                          </motion.span>
+                        ))
+                      )}
+                    </AnimatePresence>
+
+                    {/* Add dropdown — admin only */}
+                    {isAdmin && !cfg.is_qa && available.length > 0 && (
+                      <div className="dev-v2-add-wrap" ref={openDropdown === dropKey ? dropdownRef : undefined}>
+                        <motion.button
+                          className="dev-v2-add"
+                          onClick={() => setOpenDropdown(openDropdown === dropKey ? null : dropKey)}
+                          whileHover={{ scale: 1.04 }}
+                          whileTap={{ scale: 0.96 }}
+                          aria-label="Add subsystem"
+                          aria-expanded={openDropdown === dropKey}
+                        >
+                          <Plus size={10} /> Add
+                        </motion.button>
+                        <AnimatePresence>
+                          {openDropdown === dropKey && (
+                            <motion.div
+                              className="pm-custom-dropdown-menu dev-v2-add-menu"
+                              variants={dropdownVariants}
+                              initial="initial"
+                              animate="animate"
+                              exit="exit"
+                            >
+                              {available.map(s => (
+                                <div key={s} className="pm-custom-dropdown-item" onClick={() => addSubsystem(cfg.developer_login, s)}>{s}</div>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* QA toggle */}
+                  {isAdmin ? (
+                    <motion.button
+                      className={`dev-v2-qa-btn${cfg.is_qa ? ' dev-v2-qa-btn--on' : ''}`}
+                      onClick={() => toggleQA(cfg.developer_login)}
+                      whileTap={{ scale: 0.88 }}
+                      title={cfg.is_qa ? 'Remove QA flag' : 'Mark as QA (excluded from auto-assign)'}
+                    >
+                      QA
+                    </motion.button>
+                  ) : cfg.is_qa ? (
+                    <span className="dev-v2-qa-badge-ro">QA</span>
+                  ) : null}
+                </div>
+              )
+            })}
+
+            {visible.length === 0 && search && (
+              <div className="dev-v2-no-results">No developers match "{search}"</div>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
