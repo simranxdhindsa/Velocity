@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-20
+
+### Enhancements
+- Redesign Developer Subsystem Config — pill-based UI, admin-only write, global scope
+
+
 ## 2026-07-18
 
 ### Enhancements
