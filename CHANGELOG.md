@@ -9,6 +9,9 @@
 ### Features
 - Added Edidting Ticekt
 
+### Bug Fixes
+- fix form-meta returning empty types/subsystems/priorities/states
+
 ## 2026-07-18
 
 ### Enhancements
