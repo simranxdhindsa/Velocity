@@ -459,7 +459,7 @@ func (c *Client) GetBoardColumns(ctx context.Context, boardID string) ([]Column,
 
 // GetStates returns workflow states for the project
 func (c *Client) GetStates(ctx context.Context) ([]State, error) {
-	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name))",
+	path := fmt.Sprintf("/api/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name))",
 		c.projectID)
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
@@ -521,7 +521,7 @@ type PriorityValue struct {
 
 // GetPriorities returns the Priority field values with colors from YouTrack
 func (c *Client) GetPriorities(ctx context.Context) ([]PriorityValue, error) {
-	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
+	path := fmt.Sprintf("/api/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
 		c.projectID)
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
@@ -612,7 +612,7 @@ func (c *Client) GetSwimlaneField(ctx context.Context) (fieldName string, values
 // GetCustomFieldValues returns enum values (with colors) for any named custom field.
 // Works identically to GetPriorities but parameterised by field name.
 func (c *Client) GetCustomFieldValues(ctx context.Context, fieldName string) ([]PriorityValue, error) {
-	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
+	path := fmt.Sprintf("/api/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
 		c.projectID)
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
@@ -1813,7 +1813,7 @@ func (c *Client) GetFixVersions(ctx context.Context) ([]string, error) {
 	if projectID == "" {
 		return nil, fmt.Errorf("project ID not configured")
 	}
-	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name),bundle(values(name,isResolved,releaseDate))&$top=100", url.PathEscape(projectID))
+	path := fmt.Sprintf("/api/projects/%s/customFields?fields=field(name),bundle(values(name,isResolved,releaseDate))&$top=100", url.PathEscape(projectID))
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
