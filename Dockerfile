@@ -44,9 +44,12 @@ RUN npm run build
 # ─────────────────────────────────────────────────────────────
 # Stage 3: Runtime image
 # ─────────────────────────────────────────────────────────────
-FROM alpine:3.19
+FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata curl
+RUN for i in 1 2 3; do \
+      apk add --no-cache ca-certificates tzdata curl && break; \
+      echo "apk retry $i..."; sleep 5; \
+    done
 
 WORKDIR /app
 
