@@ -16,12 +16,13 @@ import (
 
 // Client is the YouTrack API client
 type Client struct {
-	baseURL         string
-	token           string
-	projectID       string
-	boardID         string
-	resolvedBoardID string // auto-detected board, cached after first resolution
-	httpClient      *http.Client
+	baseURL            string
+	token              string
+	projectID          string
+	boardID            string
+	resolvedBoardID    string // auto-detected board, cached after first resolution
+	resolvedProjectID  string // internal DB id (e.g. "0-2"), resolved from shortName on first use
+	httpClient         *http.Client
 }
 
 // NewClient creates a new YouTrack API client
@@ -194,6 +195,31 @@ func (c *Client) UpdateGanttMember(ctx context.Context, ganttID, memberID string
 
 // GetProjectID returns the project ID/short-name used in YQL queries
 func (c *Client) GetProjectID() string {
+	return c.projectID
+}
+
+// internalProjectID returns the YouTrack internal project id (e.g. "0-2").
+// YouTrack REST URL paths require the internal id; the shortName (e.g. "ARD")
+// only works in YQL. Result is cached on the client after the first resolution.
+func (c *Client) internalProjectID(ctx context.Context) string {
+	if c.resolvedProjectID != "" {
+		return c.resolvedProjectID
+	}
+	// Already looks like an internal id — contains a dash.
+	if strings.Contains(c.projectID, "-") {
+		c.resolvedProjectID = c.projectID
+		return c.resolvedProjectID
+	}
+	// Resolve shortName → internal id via projects list.
+	if projects, err := c.GetProjects(ctx); err == nil {
+		for _, p := range projects {
+			if strings.EqualFold(p.ShortName, c.projectID) || strings.EqualFold(p.Name, c.projectID) {
+				c.resolvedProjectID = p.ID
+				return c.resolvedProjectID
+			}
+		}
+	}
+	// Fallback: use as-is (some YouTrack versions accept shortName in path).
 	return c.projectID
 }
 
@@ -459,8 +485,8 @@ func (c *Client) GetBoardColumns(ctx context.Context, boardID string) ([]Column,
 
 // GetStates returns workflow states for the project
 func (c *Client) GetStates(ctx context.Context) ([]State, error) {
-	path := fmt.Sprintf("/api/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name))",
-		c.projectID)
+	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name))",
+		c.internalProjectID(ctx))
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -521,8 +547,8 @@ type PriorityValue struct {
 
 // GetPriorities returns the Priority field values with colors from YouTrack
 func (c *Client) GetPriorities(ctx context.Context) ([]PriorityValue, error) {
-	path := fmt.Sprintf("/api/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
-		c.projectID)
+	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
+		c.internalProjectID(ctx))
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -612,8 +638,8 @@ func (c *Client) GetSwimlaneField(ctx context.Context) (fieldName string, values
 // GetCustomFieldValues returns enum values (with colors) for any named custom field.
 // Works identically to GetPriorities but parameterised by field name.
 func (c *Client) GetCustomFieldValues(ctx context.Context, fieldName string) ([]PriorityValue, error) {
-	path := fmt.Sprintf("/api/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
-		c.projectID)
+	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
+		c.internalProjectID(ctx))
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -821,18 +847,7 @@ func (c *Client) CreateIssue(ctx context.Context, req CreateIssueRequest) (*Issu
 	}
 
 	// YouTrack requires the internal DB id (e.g. "0-2"), not the short name ("ARD").
-	// If the stored projectID looks like a short name (no "-"), resolve it via the projects list.
-	if !strings.Contains(req.Project.ID, "-") {
-		shortName := req.Project.ID
-		if projects, err := c.GetProjects(ctx); err == nil {
-			for _, p := range projects {
-				if strings.EqualFold(p.ShortName, shortName) || strings.EqualFold(p.Name, shortName) {
-					req.Project.ID = p.ID
-					break
-				}
-			}
-		}
-	}
+	req.Project.ID = c.internalProjectID(ctx)
 
 	path := "/api/issues?fields=id,idReadable,summary,description,created,updated,customFields(name,value(name,presentation)),project(shortName)"
 	body, err := c.doRequest(ctx, http.MethodPost, path, req)
@@ -1813,7 +1828,7 @@ func (c *Client) GetFixVersions(ctx context.Context) ([]string, error) {
 	if projectID == "" {
 		return nil, fmt.Errorf("project ID not configured")
 	}
-	path := fmt.Sprintf("/api/projects/%s/customFields?fields=field(name),bundle(values(name,isResolved,releaseDate))&$top=100", url.PathEscape(projectID))
+	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name),bundle(values(name,isResolved,releaseDate))&$top=100", c.internalProjectID(ctx))
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
