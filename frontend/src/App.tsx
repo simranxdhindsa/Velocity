@@ -20,6 +20,7 @@ function AppContent() {
   if (location.pathname === '/theme-preview') return <ThemePreviewPage />
   if (location.pathname === '/502-preview') return <GatewayError502Page />
   if (location.pathname === '/oauth/authorize') return <OAuthAuthorizePage />
+  if (location.pathname === '/oauth-preview') return <OAuthAuthorizePage />
 
   if (isDown) return <GatewayError502Page />
 
