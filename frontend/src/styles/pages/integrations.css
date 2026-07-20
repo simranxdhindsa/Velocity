@@ -1732,3 +1732,185 @@
   .int-actions { flex-direction: column; gap: 0.5rem; }
   .int-actions .btn { width: 100%; justify-content: center; }
 }
+
+/* ─── Developer Subsystem v2 — pill-based layout ───────────────────────── */
+.dev-v2-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.dev-v2-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background 120ms;
+}
+.dev-v2-row:last-child { border-bottom: none; }
+.dev-v2-row:hover { background: rgba(255,255,255,0.03); }
+.dev-v2-row--qa { background: rgba(234,88,12,0.04); }
+.dev-v2-row--qa:hover { background: rgba(234,88,12,0.06); }
+
+.dev-v2-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+  flex-shrink: 0;
+}
+
+.dev-v2-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dev-v2-init {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(var(--color-primary-rgb), 0.18);
+  color: var(--color-primary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dev-v2-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dev-v2-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.dev-v2-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(var(--color-primary-rgb), 0.12);
+  border: 1px solid rgba(var(--color-primary-rgb), 0.25);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-primary);
+}
+
+.dev-v2-pill-name { line-height: 1.4; }
+
+.dev-v2-pill-rm {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0 1px;
+  display: flex;
+  align-items: center;
+  transition: color 120ms;
+}
+.dev-v2-pill-rm:hover { color: var(--color-danger); }
+
+.dev-v2-none, .dev-v2-qa-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.dev-v2-qa-label { color: rgba(234,88,12,0.7); font-style: normal; font-weight: 500; }
+
+.dev-v2-readonly-note { color: var(--text-muted); font-size: 0.8rem; }
+
+.dev-v2-add-wrap { position: relative; }
+
+.dev-v2-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px dashed var(--border-color);
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms;
+}
+.dev-v2-add:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.dev-v2-add-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  min-width: 160px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.dev-v2-qa-btn {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-color);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 120ms;
+}
+.dev-v2-qa-btn:hover { border-color: rgba(234,88,12,0.5); color: rgba(234,88,12,0.8); }
+.dev-v2-qa-btn--on {
+  background: rgba(234,88,12,0.1);
+  border-color: rgba(234,88,12,0.4);
+  color: #ea580c;
+}
+
+.dev-v2-qa-badge-ro {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgba(234,88,12,0.1);
+  border: 1px solid rgba(234,88,12,0.3);
+  color: #ea580c;
+}
+
+/* Light mode */
+[data-theme="light"] .dev-v2-row:hover { background: rgba(0,0,0,0.02); }
+[data-theme="light"] .dev-v2-row--qa { background: rgba(234,88,12,0.03); }
+[data-theme="light"] .dev-v2-pill { background: rgba(99,102,241,0.08); border-color: rgba(99,102,241,0.2); }
+[data-theme="light"] .dev-v2-init { background: rgba(99,102,241,0.12); }
+[data-theme="light"] .dev-v2-name { color: #1e293b; }
+
+@media (max-width: 768px) {
+  .dev-v2-row { flex-wrap: wrap; gap: 8px; }
+  .dev-v2-identity { min-width: unset; width: 100%; }
+  .dev-v2-pills { width: 100%; }
+}
