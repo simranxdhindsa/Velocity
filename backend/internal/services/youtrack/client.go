@@ -1141,6 +1141,20 @@ func (c *Client) UpdateIssueDates(ctx context.Context, issueID string, startMS, 
 	return err
 }
 
+// LinkIssues creates a link between two issues with the given link type and direction.
+// linkTypeName is YouTrack's internal link type name (e.g. "Relate", "Depend", "Duplicate", "Subtask").
+// direction is "OUTWARD" or "INWARD".
+func (c *Client) LinkIssues(ctx context.Context, sourceID, targetID, linkTypeName, direction string) error {
+	body := map[string]interface{}{
+		"issues":    []map[string]string{{"idReadable": targetID}},
+		"linkType":  map[string]string{"name": linkTypeName},
+		"direction": direction,
+	}
+	_, err := c.doRequest(ctx, http.MethodPost,
+		fmt.Sprintf("/api/issues/%s/links", url.PathEscape(sourceID)), body)
+	return err
+}
+
 // AddIssueDependency creates a "depends on" link from sourceID → targetID in YouTrack.
 // Returns the new link ID.
 func (c *Client) AddIssueDependency(ctx context.Context, sourceID, targetID string) (string, error) {

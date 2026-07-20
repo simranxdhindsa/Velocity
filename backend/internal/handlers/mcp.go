@@ -280,6 +280,28 @@ var mcpTools = []map[string]interface{}{
 		},
 	},
 	{
+		"name": "link_youtrack_tickets",
+		"description": "Links two YouTrack tickets together. Supported link types: 'relates to', 'depends on', 'is required for', 'duplicates', 'is duplicated by', 'subtask of', 'parent for'.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"source_id": map[string]string{
+					"type":        "string",
+					"description": "The ticket to add the link on, e.g. ARD-2213.",
+				},
+				"target_id": map[string]string{
+					"type":        "string",
+					"description": "The ticket to link to, e.g. ARD-2344.",
+				},
+				"link_type": map[string]string{
+					"type":        "string",
+					"description": "One of: 'relates to', 'depends on', 'is required for', 'duplicates', 'is duplicated by', 'subtask of', 'parent for'.",
+				},
+			},
+			"required": []string{"source_id", "target_id", "link_type"},
+		},
+	},
+	{
 		"name": "queue_slack_message",
 		"description": "Queue a Slack message to be reviewed and sent by the Velocity bot. " +
 			"Only `message` is required — channel and time are optional. " +
@@ -685,6 +707,39 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 			return toolError(id, "failed to upload attachment: "+err.Error())
 		}
 		return toolOK(id, fmt.Sprintf("Uploaded '%s' to %s (%d bytes)", filename, args.IssueID, len(content)))
+
+	case "link_youtrack_tickets":
+		var args struct {
+			SourceID string `json:"source_id"`
+			TargetID string `json:"target_id"`
+			LinkType string `json:"link_type"`
+		}
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.SourceID == "" || args.TargetID == "" || args.LinkType == "" {
+			return rpcErr(id, -32602, "invalid arguments: source_id, target_id, and link_type are required")
+		}
+		ytClient := mcpYTClient(ctx, userID)
+		if ytClient == nil {
+			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
+		}
+		// Map human-friendly link type names to YouTrack internal names + direction
+		type linkSpec struct{ name, direction string }
+		linkMap := map[string]linkSpec{
+			"relates to":        {"Relate", "OUTWARD"},
+			"depends on":        {"Depend", "OUTWARD"},
+			"is required for":   {"Depend", "INWARD"},
+			"duplicates":        {"Duplicate", "OUTWARD"},
+			"is duplicated by":  {"Duplicate", "INWARD"},
+			"subtask of":        {"Subtask", "OUTWARD"},
+			"parent for":        {"Subtask", "INWARD"},
+		}
+		spec, ok := linkMap[strings.ToLower(strings.TrimSpace(args.LinkType))]
+		if !ok {
+			return toolError(id, fmt.Sprintf("unknown link_type %q — use one of: relates to, depends on, is required for, duplicates, is duplicated by, subtask of, parent for", args.LinkType))
+		}
+		if err := ytClient.LinkIssues(ctx, args.SourceID, args.TargetID, spec.name, spec.direction); err != nil {
+			return toolError(id, fmt.Sprintf("failed to link %s → %s: %s", args.SourceID, args.TargetID, err.Error()))
+		}
+		return toolOK(id, fmt.Sprintf("Linked %s '%s' %s", args.SourceID, args.LinkType, args.TargetID))
 
 	case "queue_slack_message":
 		var args struct {
