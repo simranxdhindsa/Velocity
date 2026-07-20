@@ -1279,6 +1279,31 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 
 	wg.Wait()
 
+	// A failed fetch leaves its slice nil, which marshals to JSON `null` — the
+	// frontend calls .find()/.filter() on these unconditionally, so normalize
+	// every field to an empty slice rather than crash the Create Issue form.
+	if res.states == nil {
+		res.states = []youtrack.State{}
+	}
+	if res.priorities == nil {
+		res.priorities = []youtrack.PriorityValue{}
+	}
+	if res.types == nil {
+		res.types = []youtrack.PriorityValue{}
+	}
+	if res.subsystems == nil {
+		res.subsystems = []youtrack.PriorityValue{}
+	}
+	if res.users == nil {
+		res.users = []youtrack.User{}
+	}
+	if res.sprints == nil {
+		res.sprints = []youtrack.Sprint{}
+	}
+	if res.developerConfigs == nil {
+		res.developerConfigs = []*database.DeveloperSubsystemConfig{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,

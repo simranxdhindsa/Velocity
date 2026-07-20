@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -212,6 +213,70 @@ var mcpTools = []map[string]interface{}{
 				},
 			},
 			"required": []string{"issue_id"},
+		},
+	},
+	{
+		"name":        "edit_youtrack_ticket",
+		"description": "Updates one or more fields of an existing YouTrack ticket. Only pass the fields you want to change — omitted fields are left untouched.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"issue_id": map[string]string{
+					"type":        "string",
+					"description": "Readable ticket ID, e.g. ARD-123.",
+				},
+				"summary": map[string]string{
+					"type":        "string",
+					"description": "New title. Omit to leave unchanged.",
+				},
+				"description": map[string]string{
+					"type":        "string",
+					"description": "New description (markdown). Omit to leave unchanged.",
+				},
+				"type_name": map[string]string{
+					"type":        "string",
+					"description": "New type: Bug, Feature, Enhancement, Hotfix, or Regression. Omit to leave unchanged.",
+				},
+				"priority": map[string]string{
+					"type":        "string",
+					"description": "New priority: Show-stopper, P0, P1, P2, P3, A0, A1, A2, A3, or Normal. Omit to leave unchanged.",
+				},
+				"subsystem": map[string]string{
+					"type":        "string",
+					"description": "New subsystem name. Omit to leave unchanged.",
+				},
+				"assignee_login": map[string]string{
+					"type":        "string",
+					"description": "New assignee YouTrack login. Omit to leave the assignee unchanged.",
+				},
+				"state": map[string]string{
+					"type":        "string",
+					"description": "New state name, e.g. 'In Progress', 'To Do', 'Closed'. Omit to leave unchanged.",
+				},
+			},
+			"required": []string{"issue_id"},
+		},
+	},
+	{
+		"name":        "upload_youtrack_attachment",
+		"description": "Uploads a file attachment to a YouTrack ticket from a publicly accessible URL. Downloads the file and attaches it to the ticket.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"issue_id": map[string]string{
+					"type":        "string",
+					"description": "Readable ticket ID, e.g. ARD-123.",
+				},
+				"file_url": map[string]string{
+					"type":        "string",
+					"description": "Publicly accessible URL of the file to upload.",
+				},
+				"filename": map[string]string{
+					"type":        "string",
+					"description": "Filename to use in YouTrack, e.g. 'screenshot.png'. Infer from URL if not provided.",
+				},
+			},
+			"required": []string{"issue_id", "file_url"},
 		},
 	},
 	{
@@ -507,6 +572,119 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 			return toolError(id, "failed to delete "+args.IssueID+": "+err.Error())
 		}
 		return toolOK(id, "Deleted "+args.IssueID)
+
+	case "edit_youtrack_ticket":
+		var args struct {
+			IssueID       string `json:"issue_id"`
+			Summary       string `json:"summary"`
+			Description   string `json:"description"`
+			TypeName      string `json:"type_name"`
+			Priority      string `json:"priority"`
+			Subsystem     string `json:"subsystem"`
+			AssigneeLogin string `json:"assignee_login"`
+			State         string `json:"state"`
+		}
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.IssueID == "" {
+			return rpcErr(id, -32602, "invalid arguments: issue_id is required")
+		}
+		ytClient := mcpYTClient(ctx, userID)
+		if ytClient == nil {
+			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
+		}
+		// Only set top-level fields if the caller actually provided them;
+		// omitempty on the struct handles zero values but we guard here too.
+		req := youtrack.UpdateIssueRequest{}
+		if args.Summary != "" {
+			req.Summary = args.Summary
+		}
+		if args.Description != "" {
+			req.Description = args.Description
+		}
+		if args.TypeName != "" {
+			req.CustomFields = append(req.CustomFields, youtrack.CustomField{
+				Type:  "SingleEnumIssueCustomField",
+				Name:  "Type",
+				Value: map[string]string{"name": args.TypeName},
+			})
+		}
+		if args.Priority != "" {
+			req.CustomFields = append(req.CustomFields, youtrack.CustomField{
+				Type:  "SingleEnumIssueCustomField",
+				Name:  "Priority",
+				Value: map[string]string{"name": args.Priority},
+			})
+		}
+		if args.Subsystem != "" {
+			req.CustomFields = append(req.CustomFields, youtrack.CustomField{
+				Type:  "SingleOwnedIssueCustomField",
+				Name:  "Subsystem",
+				Value: map[string]string{"name": args.Subsystem},
+			})
+		}
+		if args.AssigneeLogin != "" {
+			req.CustomFields = append(req.CustomFields, youtrack.CustomField{
+				Type:  "SingleUserIssueCustomField",
+				Name:  "Assignee",
+				Value: map[string]string{"login": args.AssigneeLogin},
+			})
+		}
+		if args.State != "" {
+			req.CustomFields = append(req.CustomFields, youtrack.CustomField{
+				Type:  "StateIssueCustomField",
+				Name:  "State",
+				Value: map[string]string{"name": args.State},
+			})
+		}
+		issue, err := ytClient.UpdateIssue(ctx, args.IssueID, req)
+		if err != nil {
+			return toolError(id, "failed to update "+args.IssueID+": "+err.Error())
+		}
+		return toolOK(id, fmt.Sprintf("Updated %s — %s", args.IssueID, issue.Summary))
+
+	case "upload_youtrack_attachment":
+		var args struct {
+			IssueID  string `json:"issue_id"`
+			FileURL  string `json:"file_url"`
+			Filename string `json:"filename"`
+		}
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.IssueID == "" || args.FileURL == "" {
+			return rpcErr(id, -32602, "invalid arguments: issue_id and file_url are required")
+		}
+		ytClient := mcpYTClient(ctx, userID)
+		if ytClient == nil {
+			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
+		}
+		// Download the file from the provided URL
+		httpResp, err := http.Get(args.FileURL) //nolint:noctx
+		if err != nil {
+			return toolError(id, "failed to download file: "+err.Error())
+		}
+		defer httpResp.Body.Close()
+		if httpResp.StatusCode >= 400 {
+			return toolError(id, fmt.Sprintf("download failed with status %d", httpResp.StatusCode))
+		}
+		content, err := io.ReadAll(httpResp.Body)
+		if err != nil {
+			return toolError(id, "failed to read file content: "+err.Error())
+		}
+		filename := args.Filename
+		if filename == "" {
+			// Infer filename from URL path
+			parts := strings.Split(strings.Split(args.FileURL, "?")[0], "/")
+			filename = parts[len(parts)-1]
+			if filename == "" {
+				filename = "attachment"
+			}
+		}
+		mimeType := strings.Split(httpResp.Header.Get("Content-Type"), ";")[0]
+		mimeType = strings.TrimSpace(mimeType)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		if err := ytClient.UploadAttachment(ctx, args.IssueID, filename, mimeType, content); err != nil {
+			return toolError(id, "failed to upload attachment: "+err.Error())
+		}
+		return toolOK(id, fmt.Sprintf("Uploaded '%s' to %s (%d bytes)", filename, args.IssueID, len(content)))
 
 	case "queue_slack_message":
 		var args struct {

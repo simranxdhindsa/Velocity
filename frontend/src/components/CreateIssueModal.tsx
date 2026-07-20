@@ -102,18 +102,26 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
     api.getYouTrackFormMeta().then(res => {
       if (res.success && res.data) {
         const d = res.data
-        setMeta({ ...d, developerConfigs: d.developer_configs ?? [] })
+        // A partial YouTrack fetch failure can leave any of these fields null —
+        // never trust the response shape, always fall back to an empty array.
+        const states = d.states ?? []
+        const priorities = d.priorities ?? []
+        const types = d.types ?? []
+        const subsystems = d.subsystems ?? []
+        const users = d.users ?? []
+        const sprints = d.sprints ?? []
+        setMeta({ states, priorities, types, subsystems, users, sprints, developerConfigs: d.developer_configs ?? [] })
         // Default state: prefer "To Do", fall back to "Backlog", then first state
         const todoState =
-          d.states.find(s => s.name.toLowerCase() === 'to do') ??
-          d.states.find(s => s.name.toLowerCase() === 'backlog') ??
-          d.states[0]
+          states.find(s => s.name.toLowerCase() === 'to do') ??
+          states.find(s => s.name.toLowerCase() === 'backlog') ??
+          states[0]
         if (todoState) {
           setForm(f => ({ ...f, state: todoState.name }))
         }
         // Default sprint: last non-completed sprint (highest index = most recent)
-        const activesprints = d.sprints.filter(s => !s.isCompleted)
-        const defaultSprint = activesprints[activesprints.length - 1] ?? d.sprints[d.sprints.length - 1]
+        const activesprints = sprints.filter(s => !s.isCompleted)
+        const defaultSprint = activesprints[activesprints.length - 1] ?? sprints[sprints.length - 1]
         if (defaultSprint) {
           setForm(f => ({ ...f, sprint_id: defaultSprint.id, sprint_name: defaultSprint.name }))
         }
