@@ -6,6 +6,9 @@
 - Redesign Developer Subsystem Config — pill-based UI, admin-only write, global scope
 
 
+### Features
+- Added Edidting Ticekt
+
 ## 2026-07-18
 
 ### Enhancements
