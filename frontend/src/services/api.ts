@@ -389,8 +389,17 @@ class ApiService {
     return resp.text()
   }
 
+  // 30-second in-memory cache so multiple components mounting simultaneously
+  // (CreateIssueModal + DevelopersTab) share one network round-trip.
+  private _formMetaCache: { ts: number; promise: Promise<any> } | null = null
+
   async getYouTrackFormMeta() {
-    return this.request<{
+    const TTL = 30_000
+    const now = Date.now()
+    if (this._formMetaCache && now - this._formMetaCache.ts < TTL) {
+      return this._formMetaCache.promise
+    }
+    const p = this.request<{
       states: YouTrackState[]
       priorities: { name: string; background: string; foreground: string }[]
       types: { name: string; background: string; foreground: string }[]
@@ -400,6 +409,10 @@ class ApiService {
       developer_configs: DeveloperSubsystemConfig[]
       errors: string[]
     }>('/youtrack/form-meta')
+    this._formMetaCache = { ts: now, promise: p }
+    // Evict on failure so the next call retries fresh.
+    p.catch(() => { this._formMetaCache = null })
+    return p
   }
 
   async getDeveloperConfigs() {

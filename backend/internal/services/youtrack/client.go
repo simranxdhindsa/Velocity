@@ -22,7 +22,15 @@ type Client struct {
 	boardID            string
 	resolvedBoardID    string // auto-detected board, cached after first resolution
 	resolvedProjectID  string // internal DB id (e.g. "0-2"), resolved from shortName on first use
+	// issueFieldAnchor caches a single issue ID + field-name→field-ID map used
+	// by the possibleValues fallback (no admin rights needed).
+	issueFieldAnchor   *issueFieldAnchor
 	httpClient         *http.Client
+}
+
+type issueFieldAnchor struct {
+	issueID  string
+	fieldIDs map[string]string // lowercase field name → YouTrack field config ID
 }
 
 // NewClient creates a new YouTrack API client
@@ -196,6 +204,90 @@ func (c *Client) UpdateGanttMember(ctx context.Context, ganttID, memberID string
 // GetProjectID returns the project ID/short-name used in YQL queries
 func (c *Client) GetProjectID() string {
 	return c.projectID
+}
+
+// WarmProjectID pre-resolves the internal project ID so parallel callers share the cache.
+func (c *Client) WarmProjectID(ctx context.Context) {
+	c.internalProjectID(ctx)
+}
+
+// WarmIssueFieldAnchor fetches one project issue and records its ID + field IDs.
+// This is called once before parallel goroutines so getCustomFieldValuesFallback
+// can skip the anchor fetch and go straight to possibleValues.
+func (c *Client) WarmIssueFieldAnchor(ctx context.Context) {
+	if c.issueFieldAnchor != nil {
+		return
+	}
+	path := fmt.Sprintf("/api/issues?query=%s&fields=id,customFields(id,name)&$top=1",
+		url.QueryEscape("project: "+c.projectID))
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return
+	}
+	var issues []struct {
+		ID           string `json:"id"`
+		CustomFields []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"customFields"`
+	}
+	if json.Unmarshal(body, &issues) != nil || len(issues) == 0 {
+		return
+	}
+	anchor := &issueFieldAnchor{
+		issueID:  issues[0].ID,
+		fieldIDs: make(map[string]string, len(issues[0].CustomFields)),
+	}
+	for _, f := range issues[0].CustomFields {
+		anchor.fieldIDs[strings.ToLower(f.Name)] = f.ID
+	}
+	c.issueFieldAnchor = anchor
+}
+
+// getCustomFieldValuesFallback uses the possibleValues endpoint which is accessible
+// to all project members (no admin YouTrack rights required).
+func (c *Client) getCustomFieldValuesFallback(ctx context.Context, fieldName string) ([]PriorityValue, error) {
+	if c.issueFieldAnchor == nil {
+		c.WarmIssueFieldAnchor(ctx)
+	}
+	if c.issueFieldAnchor == nil {
+		return nil, fmt.Errorf("could not resolve issue anchor for possibleValues")
+	}
+	fieldID, ok := c.issueFieldAnchor.fieldIDs[strings.ToLower(fieldName)]
+	if !ok {
+		return nil, fmt.Errorf("field %q not found in issue custom fields", fieldName)
+	}
+	path := fmt.Sprintf("/api/issues/%s/customFields/%s/possibleValues?$skip=0&$top=500&fields=id,name,localizedName,color(background,foreground)",
+		c.issueFieldAnchor.issueID, fieldID)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		Name          string `json:"name"`
+		LocalizedName string `json:"localizedName"`
+		Color         *struct {
+			Background string `json:"background"`
+			Foreground string `json:"foreground"`
+		} `json:"color"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("possibleValues unmarshal: %w", err)
+	}
+	result := make([]PriorityValue, 0, len(raw))
+	for _, v := range raw {
+		name := v.Name
+		if v.LocalizedName != "" {
+			name = v.LocalizedName
+		}
+		pv := PriorityValue{Name: name}
+		if v.Color != nil {
+			pv.Background = v.Color.Background
+			pv.Foreground = v.Color.Foreground
+		}
+		result = append(result, pv)
+	}
+	return result, nil
 }
 
 // internalProjectID returns the YouTrack internal project id (e.g. "0-2").
@@ -483,8 +575,49 @@ func (c *Client) GetBoardColumns(ctx context.Context, boardID string) ([]Column,
 	return columns, nil
 }
 
-// GetStates returns workflow states for the project
+// GetStates returns workflow states for the project.
+// Tries the admin bundle endpoint first; if the token lacks admin rights falls back
+// to possibleValues which is accessible to all project members.
 func (c *Client) GetStates(ctx context.Context) ([]State, error) {
+	states, err := c.getStatesAdmin(ctx)
+	if err == nil && len(states) > 0 {
+		return states, nil
+	}
+	// Fallback: possibleValues endpoint — works for all project members.
+	pvs, pvErr := c.getCustomFieldValuesFallback(ctx, "State")
+	if pvErr == nil && len(pvs) > 0 {
+		result := make([]State, len(pvs))
+		for i, pv := range pvs {
+			result[i] = State{Name: pv.Name}
+		}
+		return result, nil
+	}
+	// Last resort: board columns.
+	if bid, berr := c.resolveBoard(ctx); berr == nil {
+		columns, cerr := c.GetBoardColumns(ctx, bid)
+		if cerr == nil {
+			seen := make(map[string]bool)
+			var result []State
+			for _, col := range columns {
+				for _, fv := range col.FieldValues {
+					if !seen[fv] {
+						seen[fv] = true
+						result = append(result, State{Name: fv})
+					}
+				}
+			}
+			if len(result) > 0 {
+				return result, nil
+			}
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return states, nil
+}
+
+func (c *Client) getStatesAdmin(ctx context.Context) ([]State, error) {
 	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name))",
 		c.internalProjectID(ctx))
 
@@ -517,24 +650,6 @@ func (c *Client) GetStates(ctx context.Context) ([]State, error) {
 		}
 	}
 
-	// If no states found from custom fields, try board columns
-	if len(states) == 0 {
-		if bid, berr := c.resolveBoard(ctx); berr == nil {
-			columns, err := c.GetBoardColumns(ctx, bid)
-			if err == nil {
-				seen := make(map[string]bool)
-				for _, col := range columns {
-					for _, fv := range col.FieldValues {
-						if !seen[fv] {
-							seen[fv] = true
-							states = append(states, State{Name: fv})
-						}
-					}
-				}
-			}
-		}
-	}
-
 	return states, nil
 }
 
@@ -545,8 +660,17 @@ type PriorityValue struct {
 	Foreground string `json:"foreground,omitempty"`
 }
 
-// GetPriorities returns the Priority field values with colors from YouTrack
+// GetPriorities returns the Priority field values with colors from YouTrack.
+// Falls back to possibleValues endpoint if the admin bundle endpoint is unavailable.
 func (c *Client) GetPriorities(ctx context.Context) ([]PriorityValue, error) {
+	result, err := c.getPrioritiesAdmin(ctx)
+	if err == nil {
+		return result, nil
+	}
+	return c.getCustomFieldValuesFallback(ctx, "Priority")
+}
+
+func (c *Client) getPrioritiesAdmin(ctx context.Context) ([]PriorityValue, error) {
 	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
 		c.internalProjectID(ctx))
 
@@ -637,7 +761,17 @@ func (c *Client) GetSwimlaneField(ctx context.Context) (fieldName string, values
 
 // GetCustomFieldValues returns enum values (with colors) for any named custom field.
 // Works identically to GetPriorities but parameterised by field name.
+// Tries the admin bundle endpoint first; falls back to the per-issue possibleValues
+// endpoint which works for all project members regardless of admin rights.
 func (c *Client) GetCustomFieldValues(ctx context.Context, fieldName string) ([]PriorityValue, error) {
+	result, err := c.getCustomFieldValuesAdmin(ctx, fieldName)
+	if err == nil {
+		return result, nil
+	}
+	return c.getCustomFieldValuesFallback(ctx, fieldName)
+}
+
+func (c *Client) getCustomFieldValuesAdmin(ctx context.Context, fieldName string) ([]PriorityValue, error) {
 	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
 		c.internalProjectID(ctx))
 

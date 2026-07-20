@@ -25,6 +25,12 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// formMetaCacheEntry holds a cached form-meta JSON payload with its expiry.
+type formMetaCacheEntry struct {
+	payload []byte
+	expiry  time.Time
+}
+
 // YouTrackHandler handles YouTrack integration API requests
 type YouTrackHandler struct {
 	taskRepo     *database.TaskRepository
@@ -36,18 +42,23 @@ type YouTrackHandler struct {
 	dayTrackRepo *database.DayTrackRepository
 	notifHandler *NotificationHandler
 	sseHub       *SSEHub
+
+	// Per-user form-meta cache (60s TTL). Keyed by userID.
+	formMetaMu    sync.Mutex
+	formMetaCache map[string]formMetaCacheEntry
 }
 
 // NewYouTrackHandler creates a new YouTrack handler
 func NewYouTrackHandler(sseHub ...*SSEHub) *YouTrackHandler {
 	h := &YouTrackHandler{
-		taskRepo:     database.NewTaskRepository(),
-		projectRepo:  database.NewProjectRepository(),
-		settingsRepo: database.NewSettingsRepository(),
-		sectionRepo:  database.NewSectionRepository(),
-		reportRepo:   database.NewReportRepository(),
-		configRepo:   database.NewWorkflowConfigRepository(),
-		dayTrackRepo: database.NewDayTrackRepository(),
+		taskRepo:      database.NewTaskRepository(),
+		projectRepo:   database.NewProjectRepository(),
+		settingsRepo:  database.NewSettingsRepository(),
+		sectionRepo:   database.NewSectionRepository(),
+		reportRepo:    database.NewReportRepository(),
+		configRepo:    database.NewWorkflowConfigRepository(),
+		dayTrackRepo:  database.NewDayTrackRepository(),
+		formMetaCache: make(map[string]formMetaCacheEntry),
 	}
 	if len(sseHub) > 0 {
 		h.sseHub = sseHub[0]
@@ -1186,6 +1197,27 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Cache key is project-scoped (baseURL:projectID), not user-scoped.
+	// Types/priorities/states/subsystems/users are project-wide — once any user
+	// with admin YouTrack rights fetches them, every user on the same project
+	// benefits from the cache, including members whose tokens lack admin access.
+	cacheKey := client.GetBaseURL() + ":" + client.GetProjectID()
+
+	h.formMetaMu.Lock()
+	if entry, ok := h.formMetaCache[cacheKey]; ok && time.Now().Before(entry.expiry) {
+		payload := entry.payload
+		h.formMetaMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(payload)
+		return
+	}
+	h.formMetaMu.Unlock()
+
+	// Pre-resolve the internal project ID and the issue-field anchor once so the
+	// parallel goroutines share cached values instead of each issuing extra calls.
+	client.WarmProjectID(r.Context())
+	client.WarmIssueFieldAnchor(r.Context())
+
 	type result struct {
 		states           []youtrack.State
 		priorities       []youtrack.PriorityValue
@@ -1304,8 +1336,7 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 		res.developerConfigs = []*database.DeveloperSubsystemConfig{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	payload, _ := json.Marshal(map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
 			"states":            res.states,
@@ -1318,6 +1349,17 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 			"errors":            errs,
 		},
 	})
+
+	// Cache only when all fields resolved (no errors) — project-scoped so all
+	// users on the same YouTrack project share the entry.
+	if len(errs) == 0 {
+		h.formMetaMu.Lock()
+		h.formMetaCache[cacheKey] = formMetaCacheEntry{payload: payload, expiry: time.Now().Add(60 * time.Second)}
+		h.formMetaMu.Unlock()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(payload)
 }
 
 // UploadIssueAttachment receives a multipart file from the frontend and proxies it to YouTrack.
