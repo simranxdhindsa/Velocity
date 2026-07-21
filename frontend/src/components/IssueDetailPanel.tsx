@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom'
 import {
   ExternalLink, X, Send, MessageSquare, Paperclip, Clock, User, FileText,
   Film, Music, FileCode, File, FileSpreadsheet, Tag, GitBranch, Activity,
-  ChevronDown, Check, Image, Upload,
+  ChevronDown, Check, Image, Upload, Link2, Plus,
 } from 'lucide-react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import api from '@/services/api'
-import type { YouTrackIssue, YouTrackComment, IssueStateLogEntry, YouTrackUser } from '@/services/api'
+import type { YouTrackIssue, YouTrackComment, IssueStateLogEntry, YouTrackUser, IssueLink } from '@/services/api'
 import { getActiveSource } from '@/services/pmDataService'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
 import { useYouTrackBaseUrl } from '@/hooks/useYouTrackBaseUrl'
@@ -233,6 +233,17 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
   const [transitions, setTransitions] = useState<IssueStateLogEntry[]>([])
   const [transitionsLoading, setTransitionsLoading] = useState(false)
 
+  // Links
+  const [links, setLinks] = useState<IssueLink[]>([])
+  const [linksLoading, setLinksLoading] = useState(false)
+  const [addLinkOpen, setAddLinkOpen] = useState(false)
+  const [newLinkType, setNewLinkType] = useState('relates to')
+  const [newLinkTarget, setNewLinkTarget] = useState('')
+  const [addingLink, setAddingLink] = useState(false)
+  const [removingLink, setRemovingLink] = useState<string | null>(null)
+  const linkTypeRef = useRef<HTMLDivElement>(null)
+  const [linkTypeOpen, setLinkTypeOpen] = useState(false)
+
   // Display ID — prefer readable (ARD-1767) over internal (3-3797)
   const displayId = issue.idReadable || issue.id
   const issueUrl  = isYouTrack
@@ -282,6 +293,28 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
       .finally(() => setTransitionsLoading(false))
   }, [issue.id])
 
+  // ── Load links ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isYouTrack) return
+    setLinksLoading(true)
+    api.getYouTrackIssueLinks(issue.id)
+      .then(res => {
+        const r = res as { success: boolean; data: IssueLink[] }
+        if (r.success && r.data) setLinks(r.data)
+      })
+      .catch(() => {})
+      .finally(() => setLinksLoading(false))
+  }, [issue.id, isYouTrack])
+
+  // ── Outside click closes link type dropdown ──────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!linkTypeRef.current?.contains(e.target as Node)) setLinkTypeOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   // ── Outside click closes user dropdown ───────────────────────────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -318,6 +351,40 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
     setLocalDueDate(dateStr)
     const ms = dateStr ? new Date(dateStr).getTime() : 0
     saveField('due_date', () => api.updateYouTrackIssue(issue.id, { due_date: ms } as any) as Promise<any>)
+  }
+
+  // ── Link handlers ────────────────────────────────────────────────────────
+  const handleAddLink = async () => {
+    const target = newLinkTarget.trim().toUpperCase()
+    if (!target || addingLink) return
+    setAddingLink(true)
+    try {
+      await api.addYouTrackIssueLink(issue.id, newLinkType, target)
+      // Refresh links
+      const res = await api.getYouTrackIssueLinks(issue.id)
+      const r = res as { success: boolean; data: IssueLink[] }
+      if (r.success && r.data) setLinks(r.data)
+      setNewLinkTarget('')
+      setAddLinkOpen(false)
+    } catch { /* ignore */ }
+    finally { setAddingLink(false) }
+  }
+
+  const handleRemoveLink = async (link: IssueLink) => {
+    const key = link.id_readable
+    if (removingLink === key) return
+    setRemovingLink(key)
+    // Optimistic remove
+    setLinks(prev => prev.filter(l => !(l.id_readable === link.id_readable && l.command_key === link.command_key)))
+    try {
+      await api.removeYouTrackIssueLink(issue.id, link.command_key, link.id_readable)
+    } catch {
+      // Revert
+      const res = await api.getYouTrackIssueLinks(issue.id)
+      const r = res as { success: boolean; data: IssueLink[] }
+      if (r.success && r.data) setLinks(r.data)
+    }
+    finally { setRemovingLink(null) }
   }
 
   // ── File handling ────────────────────────────────────────────────────────
@@ -415,6 +482,89 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                     __html: DOMPurify.sanitize(marked.parse(issue.description) as string)
                   }}
                 />
+              </div>
+            )}
+
+            {/* Links */}
+            {isYouTrack && (
+              <div className="idp-section">
+                <div className="idp-section-label idp-section-label--row">
+                  <span><Link2 size={12} /> Links{links.length > 0 ? ` · ${links.length}` : ''}</span>
+                  <button className="idp-link-add-btn" onClick={() => setAddLinkOpen(o => !o)}>
+                    <Plus size={11} /> Add link
+                  </button>
+                </div>
+
+                {/* Add link form */}
+                {addLinkOpen && (
+                  <div className="idp-add-link-form">
+                    <div ref={linkTypeRef} className="idp-link-type-select">
+                      <button className="idp-link-type-trigger" onClick={() => setLinkTypeOpen(o => !o)}>
+                        {newLinkType} <ChevronDown size={11} />
+                      </button>
+                      {linkTypeOpen && (
+                        <div className="idp-link-type-menu">
+                          {['relates to','depends on','is required for','duplicates','is duplicated by','subtask of','parent for'].map(t => (
+                            <button
+                              key={t}
+                              className={`idp-link-type-option${newLinkType === t ? ' active' : ''}`}
+                              onClick={() => { setNewLinkType(t); setLinkTypeOpen(false) }}
+                            >{t}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      className="idp-link-target-input"
+                      placeholder="ARD-123"
+                      value={newLinkTarget}
+                      onChange={e => setNewLinkTarget(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAddLink()}
+                      autoFocus
+                    />
+                    <button className="idp-link-confirm-btn" onClick={handleAddLink} disabled={!newLinkTarget.trim() || addingLink}>
+                      {addingLink ? '…' : 'Add'}
+                    </button>
+                    <button className="idp-link-cancel-btn" onClick={() => { setAddLinkOpen(false); setNewLinkTarget('') }}>
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+
+                {linksLoading ? (
+                  <div className="idp-links-list">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="idp-link-row idp-link-row--skeleton">
+                        <div className="skeleton" style={{ width: 60, height: 10, borderRadius: 4 }} />
+                        <div className="skeleton" style={{ width: '50%', height: 10, borderRadius: 4 }} />
+                      </div>
+                    ))}
+                  </div>
+                ) : links.length === 0 && !addLinkOpen ? (
+                  <p className="idp-no-comments">No linked tickets.</p>
+                ) : links.length > 0 ? (
+                  <div className="idp-links-list">
+                    {links.map((link, i) => (
+                      <div key={`${link.id_readable}-${i}`} className={`idp-link-row${link.resolved ? ' idp-link-row--resolved' : ''}`}>
+                        <span className="idp-link-label">{link.display_label || link.link_type}</span>
+                        <a
+                          className="idp-link-id"
+                          href={`${ytBaseUrl}/issue/${link.id_readable}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >{link.id_readable}</a>
+                        <span className="idp-link-summary">{link.summary}</span>
+                        {link.state && <span className="idp-link-state">{link.state}</span>}
+                        <button
+                          className="idp-link-remove-btn"
+                          onClick={() => handleRemoveLink(link)}
+                          disabled={removingLink === link.id_readable}
+                          title="Remove link"
+                        ><X size={11} /></button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             )}
 

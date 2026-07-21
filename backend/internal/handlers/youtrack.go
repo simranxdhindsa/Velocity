@@ -847,6 +847,91 @@ func (h *YouTrackHandler) AddIssueComment(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
+// GetIssueLinksList returns all links for a ticket grouped with display labels.
+func (h *YouTrackHandler) GetIssueLinksList(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := h.getYouTrackClient(r.Context())
+	if err != nil || client == nil {
+		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		return
+	}
+	issueID := mux.Vars(r)["issue_id"]
+	links, err := client.GetAllIssueLinks(r.Context(), issueID)
+	if err != nil {
+		http.Error(w, "Failed to get links: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if links == nil {
+		links = []youtrack.IssueLink{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": links})
+}
+
+// AddIssueLink adds a link between two issues via the YouTrack Commands API.
+func (h *YouTrackHandler) AddIssueLink(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := h.getYouTrackClientForWrite(r.Context())
+	if err != nil || client == nil {
+		http.Error(w, "YouTrack write access requires your personal integration", http.StatusForbidden)
+		return
+	}
+	issueID := mux.Vars(r)["issue_id"]
+	var req struct {
+		LinkType string `json:"link_type"` // e.g. "relates to"
+		TargetID string `json:"target_id"` // e.g. "ARD-2344"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LinkType == "" || req.TargetID == "" {
+		http.Error(w, "link_type and target_id are required", http.StatusBadRequest)
+		return
+	}
+	command := fmt.Sprintf("%s %s", strings.ToLower(req.LinkType), req.TargetID)
+	if err := client.LinkIssues(r.Context(), issueID, command); err != nil {
+		http.Error(w, "Failed to add link: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// RemoveIssueLink removes a link between two issues via the YouTrack Commands API.
+func (h *YouTrackHandler) RemoveIssueLink(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := h.getYouTrackClientForWrite(r.Context())
+	if err != nil || client == nil {
+		http.Error(w, "YouTrack write access requires your personal integration", http.StatusForbidden)
+		return
+	}
+	issueID := mux.Vars(r)["issue_id"]
+	var req struct {
+		LinkType string `json:"link_type"` // e.g. "relates to"
+		TargetID string `json:"target_id"` // e.g. "ARD-2344"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LinkType == "" || req.TargetID == "" {
+		http.Error(w, "link_type and target_id are required", http.StatusBadRequest)
+		return
+	}
+	command := fmt.Sprintf("remove %s %s", strings.ToLower(req.LinkType), req.TargetID)
+	if err := client.LinkIssues(r.Context(), issueID, command); err != nil {
+		http.Error(w, "Failed to remove link: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
 // ProxyAttachment fetches a YouTrack attachment using the stored token and streams it back.
 // This is needed because YouTrack attachment URLs require Bearer auth that the browser can't provide.
 func (h *YouTrackHandler) ProxyAttachment(w http.ResponseWriter, r *http.Request) {

@@ -1832,13 +1832,15 @@ func (f *flexBool) UnmarshalJSON(b []byte) error {
 
 // IssueLink represents a linked issue returned by GetIssueLinks / GetAllIssueLinks.
 type IssueLink struct {
-	IDReadable string `json:"id_readable"`
-	Summary    string `json:"summary"`
-	State      string `json:"state"`
-	Resolved   bool   `json:"resolved"`
-	LinkType   string `json:"link_type,omitempty"`
-	Direction  string `json:"direction,omitempty"` // "outward" | "inward"
-	LinkID     string `json:"link_id,omitempty"`  // YT link-group ID (for deletion)
+	IDReadable   string `json:"id_readable"`
+	Summary      string `json:"summary"`
+	State        string `json:"state"`
+	Resolved     bool   `json:"resolved"`
+	LinkType     string `json:"link_type,omitempty"`      // raw YT name e.g. "Relate"
+	Direction    string `json:"direction,omitempty"`       // "outward" | "inward"
+	DisplayLabel string `json:"display_label,omitempty"`  // e.g. "Relates to", "Depends on"
+	CommandKey   string `json:"command_key,omitempty"`    // command string for add/remove e.g. "relates to"
+	LinkID       string `json:"link_id,omitempty"`        // YT link-group ID
 }
 
 // GetIssueLinks fetches YouTrack native "Relates To" links for an issue.
@@ -1940,10 +1942,38 @@ func (c *Client) GetAllIssueLinks(ctx context.Context, issueID string) ([]IssueL
 		return nil, fmt.Errorf("failed to unmarshal issue links: %w", err)
 	}
 
+	// commandKeyMap maps (linkTypeName, direction) → command string used by Commands API
+	commandKeyMap := map[string]string{
+		"Relate|outward":    "relates to",
+		"Relate|inward":     "relates to",
+		"Depend|outward":    "depends on",
+		"Depend|inward":     "is required for",
+		"Duplicate|outward": "duplicates",
+		"Duplicate|inward":  "is duplicated by",
+		"Subtask|outward":   "subtask of",
+		"Subtask|inward":    "parent for",
+	}
+
 	var result []IssueLink
 	for _, group := range raw {
 		dir := strings.ToLower(group.Direction)
 		linkTypeName := group.LinkType.Name
+
+		// Display label: use YouTrack's own sourceToTarget / targetToSource strings
+		displayLabel := group.LinkType.SourceToTarget
+		if dir == "inward" {
+			displayLabel = group.LinkType.TargetToSource
+		}
+		if displayLabel == "" {
+			displayLabel = linkTypeName
+		}
+
+		// Command key for add/remove via Commands API
+		cmdKey := commandKeyMap[linkTypeName+"|"+dir]
+		if cmdKey == "" {
+			cmdKey = strings.ToLower(displayLabel)
+		}
+
 		for _, issue := range group.TrimmedIssues {
 			state := ""
 			for _, f := range issue.Fields {
@@ -1955,13 +1985,15 @@ func (c *Client) GetAllIssueLinks(ctx context.Context, issueID string) ([]IssueL
 				}
 			}
 			result = append(result, IssueLink{
-				IDReadable: issue.IDReadable,
-				Summary:    issue.Summary,
-				State:      state,
-				Resolved:   bool(issue.Resolved),
-				LinkType:   linkTypeName,
-				Direction:  dir,
-				LinkID:     group.ID,
+				IDReadable:   issue.IDReadable,
+				Summary:      issue.Summary,
+				State:        state,
+				Resolved:     bool(issue.Resolved),
+				LinkType:     linkTypeName,
+				Direction:    dir,
+				DisplayLabel: displayLabel,
+				CommandKey:   cmdKey,
+				LinkID:       group.ID,
 			})
 		}
 	}

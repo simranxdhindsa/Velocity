@@ -369,6 +369,24 @@ class ApiService {
     })
   }
 
+  async getYouTrackIssueLinks(issueId: string) {
+    return this.request<IssueLink[]>(`/youtrack/issues/${issueId}/links`)
+  }
+
+  async addYouTrackIssueLink(issueId: string, linkType: string, targetId: string) {
+    return this.request<{ success: boolean }>(`/youtrack/issues/${issueId}/links`, {
+      method: 'POST',
+      body: JSON.stringify({ link_type: linkType, target_id: targetId }),
+    })
+  }
+
+  async removeYouTrackIssueLink(issueId: string, linkType: string, targetId: string) {
+    return this.request<{ success: boolean }>(`/youtrack/issues/${issueId}/links`, {
+      method: 'DELETE',
+      body: JSON.stringify({ link_type: linkType, target_id: targetId }),
+    })
+  }
+
   buildProxyUrl(attachmentUrl: string): string {
     return `${API_URL}/youtrack/proxy?url=${btoa(attachmentUrl)}`
   }
@@ -2147,6 +2165,18 @@ export interface YouTrackComment {
     login: string
     avatarUrl: string
   }
+}
+
+export interface IssueLink {
+  id_readable: string
+  summary: string
+  state: string
+  resolved: boolean
+  link_type: string
+  direction: string
+  display_label: string
+  command_key: string
+  link_id: string
 }
 
 export interface YouTrackSettings {

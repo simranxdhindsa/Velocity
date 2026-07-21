@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   X, Bold, Italic, Strikethrough, Code, Link2, List, MoreHorizontal,
   ChevronDown, Check, Eye, FileCode2, Paperclip, Type, Hash,
-  Sparkles, AlertCircle, Pencil,
+  Sparkles, AlertCircle, Pencil, Plus,
 } from 'lucide-react'
 import { marked } from 'marked'
 import api from '../services/api'
@@ -77,6 +77,12 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
   const [metaLoading, setMetaLoading] = useState(true)
 
   const [stagedFiles, setStagedFiles] = useState<File[]>([])
+  const [plannedLinks, setPlannedLinks] = useState<{linkType: string; targetId: string}[]>([])
+  const [addLinkOpen, setAddLinkOpen] = useState(false)
+  const [newLinkType, setNewLinkType] = useState('relates to')
+  const [newLinkTarget, setNewLinkTarget] = useState('')
+  const [linkTypeOpen, setLinkTypeOpen] = useState(false)
+  const linkTypeRef = useRef<HTMLDivElement>(null)
   const [creating, setCreating] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -162,6 +168,14 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
     }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!linkTypeRef.current?.contains(e.target as Node)) setLinkTypeOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
   }, [])
 
   const set = (k: keyof CreateIssueFormData, v: string) =>
@@ -294,6 +308,12 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
         // Upload staged attachments after creation
         if (stagedFiles.length > 0 && id) {
           await Promise.allSettled(stagedFiles.map(f => api.uploadYouTrackAttachment(id, f)))
+        }
+        // Apply planned links after creation
+        if (plannedLinks.length > 0 && (readable || id)) {
+          await Promise.allSettled(
+            plannedLinks.map(l => api.addYouTrackIssueLink(readable || id, l.linkType, l.targetId))
+          )
         }
         setCreated(true)
         setCreatedIssueId(id)
@@ -866,6 +886,93 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
               onChange={e => !isViewMode && set('due_date', e.target.value)}
               onClick={e => { e.stopPropagation(); setOpenDropdown(null) }}
             />
+          </div>
+
+          {/* Links */}
+          <div className="ci-sidebar-field" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="ci-sidebar-label" style={{ marginBottom: 0 }}>Links</span>
+              {!isViewMode && (
+                <button
+                  className="idp-link-add-btn"
+                  onClick={() => setAddLinkOpen(o => !o)}
+                  style={{ fontSize: '0.7rem' }}
+                >
+                  <Plus size={11} /> Add
+                </button>
+              )}
+            </div>
+
+            {addLinkOpen && !isViewMode && (
+              <div className="idp-add-link-form">
+                <div ref={linkTypeRef} className="idp-link-type-select">
+                  <button className="idp-link-type-trigger" onClick={() => setLinkTypeOpen(o => !o)}>
+                    {newLinkType} <ChevronDown size={11} />
+                  </button>
+                  {linkTypeOpen && (
+                    <div className="idp-link-type-menu">
+                      {['relates to','depends on','is required for','duplicates','is duplicated by','subtask of','parent for'].map(t => (
+                        <button
+                          key={t}
+                          className={`idp-link-type-option${newLinkType === t ? ' active' : ''}`}
+                          onClick={() => { setNewLinkType(t); setLinkTypeOpen(false) }}
+                        >{t}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <input
+                  className="idp-link-target-input"
+                  placeholder="ARD-123"
+                  value={newLinkTarget}
+                  onChange={e => setNewLinkTarget(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && newLinkTarget.trim()) {
+                      setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
+                      setNewLinkTarget('')
+                      setAddLinkOpen(false)
+                    }
+                  }}
+                  autoFocus
+                />
+                <button
+                  className="idp-link-confirm-btn"
+                  disabled={!newLinkTarget.trim()}
+                  onClick={() => {
+                    if (!newLinkTarget.trim()) return
+                    setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
+                    setNewLinkTarget('')
+                    setAddLinkOpen(false)
+                  }}
+                >Add</button>
+                <button className="idp-link-cancel-btn" onClick={() => { setAddLinkOpen(false); setNewLinkTarget('') }}>
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+
+            {plannedLinks.length > 0 && (
+              <div className="idp-links-list">
+                {plannedLinks.map((l, i) => (
+                  <div key={i} className="idp-link-row">
+                    <span className="idp-link-label">{l.linkType}</span>
+                    <span className="idp-link-id">{l.targetId}</span>
+                    {!isViewMode && (
+                      <button
+                        className="idp-link-remove-btn"
+                        style={{ opacity: 1 }}
+                        onClick={() => setPlannedLinks(ls => ls.filter((_, j) => j !== i))}
+                        title="Remove"
+                      ><X size={11} /></button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {plannedLinks.length === 0 && !addLinkOpen && (
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>No links yet</span>
+            )}
           </div>
 
         </div>
