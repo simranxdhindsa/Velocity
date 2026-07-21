@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
+import { motion } from 'framer-motion'
 import { dayTrackApi, api, type DayTrackEntry, type DayTrackPlanned, type DayTrackSlackConfig, type DayTrackKWRule, DEFAULT_KEYWORD_RULES } from '../services/api'
 import { CalendarPicker } from '../components/CalendarPicker'
+import { useYouTrackEvents } from '../services/useYouTrackEvents'
 import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import youtrackIcon from '../assets/youtrack-icon.svg'
 import '../styles/pages/daytrack.css'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -626,6 +629,22 @@ export function DayTrackPage() {
   }, [date])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  // Auto-sync YouTrack once per page open, only when viewing today — silent (no toasts),
+  // deliberately runs once on mount only (not on every date change / not on an interval).
+  useEffect(() => {
+    if (date !== toDateStr(new Date())) return
+    dayTrackApi.scanYouTrackTickets(date).then(() => loadAll()).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Live-refresh: when a YouTrack ticket's state changes while this page is open on
+  // today, reload entries so webhook-driven Day Track entries show up without a reopen.
+  useYouTrackEvents(event => {
+    if (event.field !== 'State') return
+    if (date !== toDateStr(new Date())) return
+    loadAll()
+  })
 
   useEffect(() => {
     dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
@@ -1581,10 +1600,11 @@ ${aiSummaryBlock}
           <button className="dt-header-settings-btn" title="Sync YouTrack tickets created today"
             onClick={scanYouTrackTickets} disabled={ytScanning}
             style={{ marginRight: 4 }}>
-            {ytScanning
-              ? <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-              : <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-            }
+            <motion.img
+              src={youtrackIcon} width={18} height={18} alt="YouTrack"
+              animate={ytScanning ? { rotate: 360 } : { rotate: 0 }}
+              transition={ytScanning ? { rotate: { duration: 0.9, repeat: Infinity, ease: 'linear' } } : { duration: 0.2 }}
+            />
           </button>
           <button
             className="dt-post-slack-btn"
