@@ -1367,10 +1367,13 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
-/* textarea variant — anchor to top-right corner */
+/* textarea variant — anchor to top-right corner, min-height keeps mic visible */
 .dt-input-with-mic--textarea .dt-mic-btn {
   top: 10px;
   transform: none;
+}
+.dt-input-with-mic--textarea .form-input {
+  min-height: 62px;
 }
 @keyframes dt-mic-pulse {
   0%, 100% { text-shadow: 0 0 0 rgba(239,68,68,0.6); }

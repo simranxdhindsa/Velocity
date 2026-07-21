@@ -3745,13 +3745,14 @@ func (h *YouTrackHandler) processWebhookEvents(events []youtrack.WebhookEvent) {
 					log.Printf("[YouTrack Webhook] State log recorded: %s → %s for %s (moved by: %s)", oldValue, newValue, issueID, movedBy)
 				}
 
-				// --- DayTrack: log ticket tested when moved to a verified/QA column ---
+				// --- DayTrack: log ticket tested/developed when moved to a verified/QA or dev-done column ---
 				if h.dayTrackRepo != nil {
 					mover := movedBy
 					if mover == "" {
 						mover = assignee
 					}
-					h.logYouTrackTestedToDayTrack(ctx, issueID, summary, mover, newValue)
+					h.logYouTrackTestedToDayTrack(ctx, issueID, summary, mover, oldValue, newValue)
+					h.logYouTrackDevToDayTrack(ctx, issueID, summary, mover, oldValue, newValue)
 				}
 			}
 
@@ -3864,14 +3865,19 @@ func (h *YouTrackHandler) processWebhookEvents(events []youtrack.WebhookEvent) {
 
 // testedEnvFromState maps a YouTrack toState column name to the environment that was tested.
 // Returns ("", "", false) if the state is not a verified/QA column.
-func testedEnvFromState(toState string) (env, extSuffix string, ok bool) {
+// testedEnvFromState detects a QA/verification transition. fromState is only
+// needed to disambiguate "Verified" for the mobile track (Mobile Done → Verified) —
+// pass "" when the origin state isn't known (e.g. a current-state-only query);
+// that just means mobile verifications won't match through that path.
+func testedEnvFromState(fromState, toState string) (env, extSuffix string, ok bool) {
 	lower := strings.ToLower(toState)
+	fromLower := strings.ToLower(fromState)
 	switch {
 	case strings.Contains(lower, "ready for stage") || strings.Contains(lower, "ready for staging"):
 		return "DEV", "dev", true
 	case strings.Contains(lower, "ready for prod"):
 		return "STAGE", "stage", true
-	case strings.Contains(lower, "mobile done"):
+	case lower == "verified" && strings.Contains(fromLower, "mobile done"):
 		return "Mobile", "mobile", true
 	case lower == "verified":
 		return "PROD", "prod", true
@@ -3879,9 +3885,31 @@ func testedEnvFromState(toState string) (env, extSuffix string, ok bool) {
 	return "", "", false
 }
 
+// devEnvFromState detects a developer completing work: To Do/In Progress/Backlog →
+// Dev/Stage/PROD/Mobile Done. Requires the origin state so a backward move (e.g. a
+// revert from PROD back to Dev) is never mistaken for newly-finished work.
+func devEnvFromState(fromState, toState string) (env, extSuffix, label string, ok bool) {
+	fromLower := strings.ToLower(strings.TrimSpace(fromState))
+	fromOK := strings.Contains(fromLower, "to do") || strings.Contains(fromLower, "backlog") || fromLower == "in progress"
+	if !fromOK {
+		return "", "", "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(toState)) {
+	case "dev":
+		return "DEV", "dev", "Fixed on DEV", true
+	case "stage":
+		return "STAGE", "stage", "Fixed till STAGE", true
+	case "prod":
+		return "PROD", "prod", "Fixed on PROD", true
+	case "mobile done":
+		return "Mobile", "mobile", "Fixed on Mobile", true
+	}
+	return "", "", "", false
+}
+
 // logYouTrackTestedToDayTrack logs a "Verified on <env>" DayTrack entry for the person who moved the ticket.
-func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issueID, summary, moverName, toState string) {
-	env, extSuffix, ok := testedEnvFromState(toState)
+func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issueID, summary, moverName, fromState, toState string) {
+	env, extSuffix, ok := testedEnvFromState(fromState, toState)
 	if !ok || moverName == "" {
 		return
 	}
@@ -3910,6 +3938,42 @@ func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issue
 		log.Printf("[YouTrack Webhook] DayTrack tested log failed for %s on %s: %v", issueID, env, err)
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack tested entry: %s verified on %s by %s", issueID, env, moverName)
+	}
+}
+
+// logYouTrackDevToDayTrack logs a "Fixed/Implemented on <env>" DayTrack entry under the
+// "Development" category for the person who moved a ticket from To Do/In Progress
+// straight into Dev/Stage/PROD/Mobile Done.
+func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID, summary, moverName, fromState, toState string) {
+	env, extSuffix, label, ok := devEnvFromState(fromState, toState)
+	if !ok || moverName == "" {
+		return
+	}
+	pool := database.GetPool()
+	var userID string
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM users WHERE LOWER(name) = LOWER($1) LIMIT 1`, moverName,
+	).Scan(&userID); err != nil {
+		log.Printf("[YouTrack Webhook] DayTrack dev log: no user found for mover %q: %v", moverName, err)
+		return
+	}
+	now := time.Now()
+	entryName := issueID + ": " + label
+	if summary != "" {
+		full := issueID + ": " + summary + " – " + label
+		if len(full) <= 120 {
+			entryName = full
+		}
+	}
+	extRef := "yt-dev-" + issueID + "-" + extSuffix
+	_, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
+		entryName, "Development",
+		now.Format("3:04 PM"), now.Format("3:04 PM"), nil, "", "done", nil,
+		"youtrack", extRef)
+	if err != nil {
+		log.Printf("[YouTrack Webhook] DayTrack dev log failed for %s on %s: %v", issueID, env, err)
+	} else {
+		log.Printf("[YouTrack Webhook] DayTrack dev entry: %s (%s) by %s", issueID, label, moverName)
 	}
 }
 
@@ -4080,11 +4144,15 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 	// ON CONFLICT (user_id, external_ref) DO NOTHING in the DB deduplicates any overlaps.
 
 	testedAdded := 0
+	devAdded := 0
 	seenExtRefs := make(map[string]struct{})
 
 	// helper: create one tested DayTrack entry, track uniqueness in seenExtRefs.
-	createTestedEntry := func(issueID, summary, toState, timeStr, dateStr string) {
-		env, extSuffix, ok := testedEnvFromState(toState)
+	// fromState is "" when only the current state is known (e.g. the YQL primary
+	// pass below) — that just means mobile verifications won't match through it,
+	// since disambiguating "Verified" for mobile requires knowing the origin state.
+	createTestedEntry := func(issueID, summary, fromState, toState, timeStr, dateStr string) {
+		env, extSuffix, ok := testedEnvFromState(fromState, toState)
 		if !ok {
 			return
 		}
@@ -4116,6 +4184,40 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// helper: create one "Development" DayTrack entry (To Do/In Progress → Dev/Stage/PROD/Mobile Done).
+	// Requires a real fromState, so this can only run from the activities-stream path below —
+	// there's no way to know the origin state from a current-state-only YQL query.
+	createDevEntry := func(issueID, summary, fromState, toState, timeStr, dateStr string) {
+		env, extSuffix, label, ok := devEnvFromState(fromState, toState)
+		if !ok {
+			return
+		}
+		extRef := "yt-dev-" + issueID + "-" + extSuffix
+		if _, dup := seenExtRefs[extRef]; dup {
+			return
+		}
+		seenExtRefs[extRef] = struct{}{}
+
+		entryName := issueID + ": " + label
+		if summary != "" {
+			if full := issueID + ": " + summary + " – " + label; len(full) <= 120 {
+				entryName = full
+			}
+		}
+		entry, createErr := h.dayTrackRepo.CreateEntrySourced(ctx, userID, dateStr,
+			entryName, "Development",
+			timeStr, timeStr, nil, "", "done", nil,
+			"youtrack", extRef)
+		if createErr != nil {
+			log.Printf("[ScanYTTickets] dev entry failed for %s: %v", issueID, createErr)
+			return
+		}
+		if entry != nil {
+			log.Printf("[ScanYTTickets] dev entry saved: issue=%s env=%s", issueID, env)
+			devAdded++
+		}
+	}
+
 	// PRIMARY: issues updated by this user today whose current state is a tested column.
 	yqlIssues, yqlErr := ytClient.GetIssuesUpdatedByUserToday(ctx, scanDate, ytMe.Login)
 	if yqlErr != nil {
@@ -4130,12 +4232,14 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 			if stateName == "" {
 				continue
 			}
-			if _, _, ok := testedEnvFromState(stateName); !ok {
+			// No origin state available from a current-state-only query — mobile
+			// verifications won't match here, only through the activities pass below.
+			if _, _, ok := testedEnvFromState("", stateName); !ok {
 				continue
 			}
 			updatedAt := time.UnixMilli(issue.Updated)
 			log.Printf("[ScanYTTickets] tested yql: issue=%s state=%q updated=%s", issueID, stateName, updatedAt.Format(time.RFC3339))
-			createTestedEntry(issueID, issue.Summary, stateName, updatedAt.Format("3:04 PM"), updatedAt.Format("2006-01-02"))
+			createTestedEntry(issueID, issue.Summary, "", stateName, updatedAt.Format("3:04 PM"), updatedAt.Format("2006-01-02"))
 		}
 	}
 
@@ -4167,20 +4271,27 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 				continue
 			}
 			toState := act.Added[0].Name
-			if _, _, ok := testedEnvFromState(toState); !ok {
-				continue
+			fromState := ""
+			if len(act.Removed) > 0 {
+				fromState = act.Removed[0].Name
 			}
 			issueID := act.Target.IDReadable
 			if issueID == "" {
 				issueID = act.Target.ID
 			}
-			log.Printf("[ScanYTTickets] tested activity (secondary): issue=%s toState=%q author=%s", issueID, toState, act.Author.Login)
-			createTestedEntry(issueID, act.Target.Summary, toState, actTime.Format("3:04 PM"), actTime.Format("2006-01-02"))
+			if _, _, ok := testedEnvFromState(fromState, toState); ok {
+				log.Printf("[ScanYTTickets] tested activity (secondary): issue=%s from=%q to=%q author=%s", issueID, fromState, toState, act.Author.Login)
+				createTestedEntry(issueID, act.Target.Summary, fromState, toState, actTime.Format("3:04 PM"), actTime.Format("2006-01-02"))
+			}
+			if _, _, _, ok := devEnvFromState(fromState, toState); ok {
+				log.Printf("[ScanYTTickets] dev activity (secondary): issue=%s from=%q to=%q author=%s", issueID, fromState, toState, act.Author.Login)
+				createDevEntry(issueID, act.Target.Summary, fromState, toState, actTime.Format("3:04 PM"), actTime.Format("2006-01-02"))
+			}
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "added": added, "skipped": skipped, "tested": testedAdded})
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "added": added, "skipped": skipped, "tested": testedAdded, "developed": devAdded})
 }
 
 // notifyBlocked fires a notification when a ticket moves to Blocked state.
