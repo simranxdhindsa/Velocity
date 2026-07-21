@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import api from '@/services/api'
 
@@ -13,6 +13,16 @@ interface Props {
   disabled?: boolean
 }
 
+// Build the right YQL query from raw user input
+function buildQuery(raw: string): string {
+  const t = raw.trim()
+  const upper = t.toUpperCase()
+  // Full issue ID e.g. "ard-2355" or "ARD-2355"
+  if (/^[A-Za-z]+-\d+$/.test(t)) return `#${upper}`
+  // Free-text — sort newest first so recently created tickets surface
+  return `${t} sort by: created desc`
+}
+
 export function LinkTypeahead({ value, onChange, onSelect, onConfirm, placeholder = 'Search ticket…', disabled }: Props) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [open, setOpen] = useState(false)
@@ -21,32 +31,40 @@ export function LinkTypeahead({ value, onChange, onSelect, onConfirm, placeholde
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Debounced search
+  const updatePos = () => {
+    if (inputRef.current) {
+      const r = inputRef.current.getBoundingClientRect()
+      setDropPos({ top: r.bottom + 4, left: r.left, width: r.width })
+    }
+  }
+
+  const search = useCallback(async (q: string) => {
+    try {
+      const res = await api.searchYouTrackIssues(q) as { success: boolean; data: Suggestion[] }
+      const data = res.data ?? (res as unknown as Suggestion[])
+      if (Array.isArray(data) && data.length > 0) {
+        updatePos()
+        setSuggestions(data)
+        setOpen(true)
+        setActive(-1)
+      } else {
+        setSuggestions([])
+        setOpen(false)
+      }
+    } catch {
+      setSuggestions([])
+      setOpen(false)
+    }
+  }, [])
+
+  // Debounced search on input change
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
     const q = value.trim()
     if (!q || q.length < 2) { setSuggestions([]); setOpen(false); return }
-    timerRef.current = setTimeout(async () => {
-      try {
-        const res = await api.searchYouTrackIssues(q) as { success: boolean; data: Suggestion[] }
-        const data = res.data ?? (res as unknown as Suggestion[])
-        if (Array.isArray(data) && data.length > 0) {
-          // Position the portal dropdown relative to the input
-          if (inputRef.current) {
-            const r = inputRef.current.getBoundingClientRect()
-            setDropPos({ top: r.bottom + 4, left: r.left, width: r.width })
-          }
-          setSuggestions(data)
-          setOpen(true)
-          setActive(-1)
-        } else {
-          setSuggestions([])
-          setOpen(false)
-        }
-      } catch { setSuggestions([]); setOpen(false) }
-    }, 280)
+    timerRef.current = setTimeout(() => search(buildQuery(q)), 280)
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
-  }, [value])
+  }, [value, search])
 
   // Outside click closes dropdown
   useEffect(() => {
@@ -56,6 +74,12 @@ export function LinkTypeahead({ value, onChange, onSelect, onConfirm, placeholde
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
+
+  // Show recent tickets on focus when input is empty
+  const handleFocus = async () => {
+    if (value.trim().length >= 2) return
+    await search('sort by: created desc')
+  }
 
   const pick = (s: Suggestion) => {
     onSelect(s.id)
@@ -83,6 +107,7 @@ export function LinkTypeahead({ value, onChange, onSelect, onConfirm, placeholde
         value={value}
         onChange={e => onChange(e.target.value)}
         onKeyDown={handleKey}
+        onFocus={handleFocus}
         disabled={disabled}
         autoFocus
         autoComplete="off"
@@ -90,7 +115,7 @@ export function LinkTypeahead({ value, onChange, onSelect, onConfirm, placeholde
       {open && suggestions.length > 0 && createPortal(
         <div
           className="lta-dropdown"
-          style={{ top: dropPos.top, left: dropPos.left, width: Math.max(dropPos.width, 240) }}
+          style={{ top: dropPos.top, left: dropPos.left, width: Math.max(dropPos.width, 280) }}
         >
           {suggestions.map((s, i) => (
             <button

@@ -890,70 +890,73 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
           </div>
 
           {/* Links */}
-          <div className="ci-sidebar-field" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="ci-sidebar-label" style={{ marginBottom: 0 }}>Links</span>
+          <div className="idp-links-section">
+            <div className="idp-links-header">
+              <span className="idp-links-title">
+                <Link2 size={13} />
+                Links{plannedLinks.length > 0 ? ` · ${plannedLinks.length}` : ''}
+              </span>
               {!isViewMode && (
-                <button
-                  className="idp-link-add-btn"
-                  onClick={() => setAddLinkOpen(o => !o)}
-                  style={{ fontSize: '0.7rem' }}
-                >
-                  <Plus size={11} /> Add
+                <button className="idp-links-add-btn" onClick={() => { setAddLinkOpen(o => !o); setNewLinkTarget('') }}>
+                  <Plus size={12} /> Add link
                 </button>
               )}
             </div>
 
             {addLinkOpen && !isViewMode && (
-              <div className="idp-add-link-form">
-                <div ref={linkTypeRef} className="idp-link-type-select">
-                  <button className="idp-link-type-trigger" onClick={() => setLinkTypeOpen(o => !o)}>
-                    {newLinkType} <ChevronDown size={11} />
-                  </button>
-                  {linkTypeOpen && (
-                    <div className="idp-link-type-menu">
-                      {['relates to','depends on','is required for','duplicates','is duplicated by','subtask of','parent for'].map(t => (
-                        <button
-                          key={t}
-                          className={`idp-link-type-option${newLinkType === t ? ' active' : ''}`}
-                          onClick={() => { setNewLinkType(t); setLinkTypeOpen(false) }}
-                        >{t}</button>
-                      ))}
-                    </div>
-                  )}
+              <div className="idp-links-form">
+                <div className="idp-links-form-row">
+                  <div ref={linkTypeRef} className="idp-link-type-select">
+                    <button className="idp-link-type-trigger" onClick={() => setLinkTypeOpen(o => !o)}>
+                      {newLinkType} <ChevronDown size={11} />
+                    </button>
+                    {linkTypeOpen && (
+                      <div className="idp-link-type-menu">
+                        {['relates to','depends on','is required for','duplicates','is duplicated by','subtask of','parent for'].map(t => (
+                          <button
+                            key={t}
+                            className={`idp-link-type-option${newLinkType === t ? ' active' : ''}`}
+                            onClick={() => { setNewLinkType(t); setLinkTypeOpen(false) }}
+                          >{t}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <LinkTypeahead
+                    value={newLinkTarget}
+                    onChange={setNewLinkTarget}
+                    onSelect={id => {
+                      setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: id }])
+                      setNewLinkTarget('')
+                      setAddLinkOpen(false)
+                    }}
+                    onConfirm={() => {
+                      if (!newLinkTarget.trim()) return
+                      setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
+                      setNewLinkTarget('')
+                      setAddLinkOpen(false)
+                    }}
+                  />
                 </div>
-                <LinkTypeahead
-                  value={newLinkTarget}
-                  onChange={setNewLinkTarget}
-                  onSelect={id => {
-                    setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: id }])
-                    setNewLinkTarget('')
-                    setAddLinkOpen(false)
-                  }}
-                  onConfirm={() => {
-                    if (!newLinkTarget.trim()) return
-                    setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
-                    setNewLinkTarget('')
-                    setAddLinkOpen(false)
-                  }}
-                />
-                <button
-                  className="idp-link-confirm-btn"
-                  disabled={!newLinkTarget.trim()}
-                  onClick={() => {
-                    if (!newLinkTarget.trim()) return
-                    setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
-                    setNewLinkTarget('')
-                    setAddLinkOpen(false)
-                  }}
-                >Add</button>
-                <button className="idp-link-cancel-btn" onClick={() => { setAddLinkOpen(false); setNewLinkTarget('') }}>
-                  <X size={12} />
-                </button>
+                <div className="idp-links-form-actions">
+                  <button
+                    className="idp-link-confirm-btn"
+                    disabled={!newLinkTarget.trim()}
+                    onClick={() => {
+                      if (!newLinkTarget.trim()) return
+                      setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
+                      setNewLinkTarget('')
+                      setAddLinkOpen(false)
+                    }}
+                  >Add</button>
+                  <button className="idp-link-cancel-btn" onClick={() => { setAddLinkOpen(false); setNewLinkTarget('') }}>
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 
-            {plannedLinks.length > 0 && (
+            {plannedLinks.length > 0 ? (
               <div className="idp-links-list">
                 {plannedLinks.map((l, i) => (
                   <div key={i} className="idp-link-row">
@@ -961,20 +964,17 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
                     <span className="idp-link-id">{l.targetId}</span>
                     {!isViewMode && (
                       <button
-                        className="idp-link-remove-btn"
-                        style={{ opacity: 1 }}
+                        className="idp-link-remove-btn idp-link-remove-btn--visible"
                         onClick={() => setPlannedLinks(ls => ls.filter((_, j) => j !== i))}
                         title="Remove"
-                      ><X size={11} /></button>
+                      ><X size={12} /></button>
                     )}
                   </div>
                 ))}
               </div>
-            )}
-
-            {plannedLinks.length === 0 && !addLinkOpen && (
+            ) : !addLinkOpen ? (
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>No links yet</span>
-            )}
+            ) : null}
           </div>
 
         </div>
