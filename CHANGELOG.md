@@ -3,8 +3,17 @@
 ## 2026-07-21
 
 ### Bug Fixes
+- fix LinkIssues Commands API using wrong field for internal IDs (id vs idReadable)
 - fix link_youtrack_tickets 405 — switch from links endpoint to Commands API
 
+
+### Features
+- add ticket links UI in IssueDetailPanel and CreateIssueModal + YouTrack links API
+
+### Enhancements
+- fix link typeahead query (YQL #ID format), show recent tickets on focus, unified UI in both modals
+- move links under description, portal typeahead dropdown, always-visible remove btn
+- add issue search typeahead to link input + move links to IssueDetailPanel sidebar
 
 ## 2026-07-20
 
