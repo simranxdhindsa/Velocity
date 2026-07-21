@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-21
+
+### Bug Fixes
+- fix link_youtrack_tickets 405 — switch from links endpoint to Commands API
+
+
 ## 2026-07-20
 
 ### Enhancements
