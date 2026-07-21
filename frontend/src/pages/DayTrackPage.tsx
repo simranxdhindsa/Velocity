@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { motion } from 'framer-motion'
 import { dayTrackApi, api, type DayTrackEntry, type DayTrackPlanned, type DayTrackSlackConfig, type DayTrackKWRule, DEFAULT_KEYWORD_RULES } from '../services/api'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { useYouTrackEvents } from '../services/useYouTrackEvents'
+import { YouTrackSyncIcon } from '../components/YouTrackSyncIcon'
 import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
-import youtrackIcon from '../assets/youtrack-icon.svg'
 import '../styles/pages/daytrack.css'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -1600,11 +1599,7 @@ ${aiSummaryBlock}
           <button className="dt-header-settings-btn" title="Sync YouTrack tickets created today"
             onClick={scanYouTrackTickets} disabled={ytScanning}
             style={{ marginRight: 4 }}>
-            <motion.img
-              src={youtrackIcon} width={18} height={18} alt="YouTrack"
-              animate={ytScanning ? { rotate: 360 } : { rotate: 0 }}
-              transition={ytScanning ? { rotate: { duration: 0.9, repeat: Infinity, ease: 'linear' } } : { duration: 0.2 }}
-            />
+            <YouTrackSyncIcon size={18} scanning={ytScanning} />
           </button>
           <button
             className="dt-post-slack-btn"

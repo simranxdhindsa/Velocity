@@ -1092,6 +1092,7 @@
 
 /* ── Header settings gear button ── */
 .dt-header-settings-btn {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1105,6 +1106,7 @@
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
+
 .dt-header-settings-btn:hover {
   background: rgba(99,102,241,0.12);
   border-color: rgba(99,102,241,0.3);
