@@ -369,6 +369,10 @@ class ApiService {
     })
   }
 
+  async searchYouTrackIssues(q: string) {
+    return this.request<{ id: string; summary: string }[]>(`/youtrack/search?q=${encodeURIComponent(q)}`)
+  }
+
   async getYouTrackIssueLinks(issueId: string) {
     return this.request<IssueLink[]>(`/youtrack/issues/${issueId}/links`)
   }

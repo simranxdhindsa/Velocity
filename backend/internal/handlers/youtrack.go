@@ -847,6 +847,40 @@ func (h *YouTrackHandler) AddIssueComment(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
+// SearchIssues runs a YQL query and returns matching issues for typeahead suggestions.
+func (h *YouTrackHandler) SearchIssues(w http.ResponseWriter, r *http.Request) {
+	client, err := h.getYouTrackClient(r.Context())
+	if err != nil || client == nil {
+		http.Error(w, "YouTrack not configured", http.StatusBadRequest)
+		return
+	}
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": []interface{}{}})
+		return
+	}
+	issues, err := client.SearchIssues(r.Context(), q, 10)
+	if err != nil {
+		http.Error(w, "Search failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	type result struct {
+		ID      string `json:"id"`
+		Summary string `json:"summary"`
+	}
+	out := make([]result, 0, len(issues))
+	for _, iss := range issues {
+		id := iss.IDReadable
+		if id == "" {
+			id = iss.ID
+		}
+		out = append(out, result{ID: id, Summary: iss.Summary})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": out})
+}
+
 // GetIssueLinksList returns all links for a ticket grouped with display labels.
 func (h *YouTrackHandler) GetIssueLinksList(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

@@ -1451,6 +1451,28 @@
   font-style: italic;
 }
 
+/* ── Issue Links (sidebar) ───────────────────────────────────────────────── */
+.idp-links-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  margin: 0.25rem 0;
+}
+
+.idp-links-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.idp-add-link-form--sidebar {
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
 /* ── Issue Links ─────────────────────────────────────────────────────────── */
 .idp-section-label--row {
   display: flex;
@@ -1541,6 +1563,53 @@
 }
 .idp-link-target-input:focus { border-color: var(--color-primary); }
 .idp-link-target-input::placeholder { color: var(--text-muted); }
+
+/* ── LinkTypeahead ─────────────────────────────────────────────────────────── */
+.lta-wrap { position: relative; flex: 1; min-width: 0; }
+.lta-input { width: 100%; box-sizing: border-box; }
+.lta-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  overflow: hidden;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.lta-option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.lta-option:last-child { border-bottom: none; }
+.lta-option:hover, .lta-option--active { background: rgba(var(--color-primary-rgb), 0.08); }
+.lta-option-id {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+.lta-option-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
 
 .idp-link-confirm-btn {
   font-size: 0.75rem;

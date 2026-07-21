@@ -11,6 +11,7 @@ import api from '@/services/api'
 import type { YouTrackIssue, YouTrackComment, IssueStateLogEntry, YouTrackUser, IssueLink } from '@/services/api'
 import { getActiveSource } from '@/services/pmDataService'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
+import { LinkTypeahead } from '@/components/LinkTypeahead'
 import { useYouTrackBaseUrl } from '@/hooks/useYouTrackBaseUrl'
 
 interface IssueDetailPanelProps {
@@ -485,88 +486,6 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
               </div>
             )}
 
-            {/* Links */}
-            {isYouTrack && (
-              <div className="idp-section">
-                <div className="idp-section-label idp-section-label--row">
-                  <span><Link2 size={12} /> Links{links.length > 0 ? ` · ${links.length}` : ''}</span>
-                  <button className="idp-link-add-btn" onClick={() => setAddLinkOpen(o => !o)}>
-                    <Plus size={11} /> Add link
-                  </button>
-                </div>
-
-                {/* Add link form */}
-                {addLinkOpen && (
-                  <div className="idp-add-link-form">
-                    <div ref={linkTypeRef} className="idp-link-type-select">
-                      <button className="idp-link-type-trigger" onClick={() => setLinkTypeOpen(o => !o)}>
-                        {newLinkType} <ChevronDown size={11} />
-                      </button>
-                      {linkTypeOpen && (
-                        <div className="idp-link-type-menu">
-                          {['relates to','depends on','is required for','duplicates','is duplicated by','subtask of','parent for'].map(t => (
-                            <button
-                              key={t}
-                              className={`idp-link-type-option${newLinkType === t ? ' active' : ''}`}
-                              onClick={() => { setNewLinkType(t); setLinkTypeOpen(false) }}
-                            >{t}</button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <input
-                      className="idp-link-target-input"
-                      placeholder="ARD-123"
-                      value={newLinkTarget}
-                      onChange={e => setNewLinkTarget(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleAddLink()}
-                      autoFocus
-                    />
-                    <button className="idp-link-confirm-btn" onClick={handleAddLink} disabled={!newLinkTarget.trim() || addingLink}>
-                      {addingLink ? '…' : 'Add'}
-                    </button>
-                    <button className="idp-link-cancel-btn" onClick={() => { setAddLinkOpen(false); setNewLinkTarget('') }}>
-                      <X size={12} />
-                    </button>
-                  </div>
-                )}
-
-                {linksLoading ? (
-                  <div className="idp-links-list">
-                    {[1,2,3].map(i => (
-                      <div key={i} className="idp-link-row idp-link-row--skeleton">
-                        <div className="skeleton" style={{ width: 60, height: 10, borderRadius: 4 }} />
-                        <div className="skeleton" style={{ width: '50%', height: 10, borderRadius: 4 }} />
-                      </div>
-                    ))}
-                  </div>
-                ) : links.length === 0 && !addLinkOpen ? (
-                  <p className="idp-no-comments">No linked tickets.</p>
-                ) : links.length > 0 ? (
-                  <div className="idp-links-list">
-                    {links.map((link, i) => (
-                      <div key={`${link.id_readable}-${i}`} className={`idp-link-row${link.resolved ? ' idp-link-row--resolved' : ''}`}>
-                        <span className="idp-link-label">{link.display_label || link.link_type}</span>
-                        <a
-                          className="idp-link-id"
-                          href={`${ytBaseUrl}/issue/${link.id_readable}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >{link.id_readable}</a>
-                        <span className="idp-link-summary">{link.summary}</span>
-                        {link.state && <span className="idp-link-state">{link.state}</span>}
-                        <button
-                          className="idp-link-remove-btn"
-                          onClick={() => handleRemoveLink(link)}
-                          disabled={removingLink === link.id_readable}
-                          title="Remove link"
-                        ><X size={11} /></button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            )}
 
             {/* Activity Log */}
             <div className="idp-section">
@@ -897,6 +816,86 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                   </span>
                 )}
               </div>
+
+              {/* Links */}
+              {isYouTrack && (
+                <div className="idp-links-sidebar">
+                  <div className="idp-links-sidebar-header">
+                    <span className="idp-meta-label"><Link2 size={11} style={{ opacity: 0.6 }} /> Links{links.length > 0 ? ` · ${links.length}` : ''}</span>
+                    <button className="idp-link-add-btn" onClick={() => setAddLinkOpen(o => !o)}>
+                      <Plus size={11} /> Add
+                    </button>
+                  </div>
+
+                  {addLinkOpen && (
+                    <div className="idp-add-link-form idp-add-link-form--sidebar">
+                      <div ref={linkTypeRef} className="idp-link-type-select">
+                        <button className="idp-link-type-trigger" onClick={() => setLinkTypeOpen(o => !o)}>
+                          {newLinkType} <ChevronDown size={11} />
+                        </button>
+                        {linkTypeOpen && (
+                          <div className="idp-link-type-menu">
+                            {['relates to','depends on','is required for','duplicates','is duplicated by','subtask of','parent for'].map(t => (
+                              <button
+                                key={t}
+                                className={`idp-link-type-option${newLinkType === t ? ' active' : ''}`}
+                                onClick={() => { setNewLinkType(t); setLinkTypeOpen(false) }}
+                              >{t}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <LinkTypeahead
+                        value={newLinkTarget}
+                        onChange={setNewLinkTarget}
+                        onSelect={id => setNewLinkTarget(id)}
+                        onConfirm={handleAddLink}
+                      />
+                      <button className="idp-link-confirm-btn" onClick={handleAddLink} disabled={!newLinkTarget.trim() || addingLink}>
+                        {addingLink ? '…' : 'Add'}
+                      </button>
+                      <button className="idp-link-cancel-btn" onClick={() => { setAddLinkOpen(false); setNewLinkTarget('') }}>
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+
+                  {linksLoading ? (
+                    <div className="idp-links-list">
+                      {[1,2].map(i => (
+                        <div key={i} className="idp-link-row idp-link-row--skeleton">
+                          <div className="skeleton" style={{ width: 55, height: 9, borderRadius: 4 }} />
+                          <div className="skeleton" style={{ width: '45%', height: 9, borderRadius: 4 }} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : links.length > 0 ? (
+                    <div className="idp-links-list">
+                      {links.map((link, i) => (
+                        <div key={`${link.id_readable}-${i}`} className={`idp-link-row${link.resolved ? ' idp-link-row--resolved' : ''}`}>
+                          <span className="idp-link-label">{link.display_label || link.link_type}</span>
+                          <a
+                            className="idp-link-id"
+                            href={`${ytBaseUrl}/issue/${link.id_readable}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >{link.id_readable}</a>
+                          <span className="idp-link-summary">{link.summary}</span>
+                          {link.state && <span className="idp-link-state">{link.state}</span>}
+                          <button
+                            className="idp-link-remove-btn"
+                            onClick={() => handleRemoveLink(link)}
+                            disabled={removingLink === link.id_readable}
+                            title="Remove link"
+                          ><X size={11} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !addLinkOpen ? (
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No links</span>
+                  ) : null}
+                </div>
+              )}
 
               <div className="idp-meta-divider" />
 

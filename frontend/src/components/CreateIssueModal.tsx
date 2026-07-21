@@ -7,6 +7,7 @@ import {
 import { marked } from 'marked'
 import api from '../services/api'
 import type { YouTrackUser, YouTrackState, DeveloperSubsystemConfig, YouTrackIssue } from '../services/api'
+import { LinkTypeahead } from './LinkTypeahead'
 import MicButton from './MicButton'
 import { IssueDetailPanel } from './IssueDetailPanel'
 import { useYouTrackBaseUrl } from '../hooks/useYouTrackBaseUrl'
@@ -921,19 +922,20 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
                     </div>
                   )}
                 </div>
-                <input
-                  className="idp-link-target-input"
-                  placeholder="ARD-123"
+                <LinkTypeahead
                   value={newLinkTarget}
-                  onChange={e => setNewLinkTarget(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && newLinkTarget.trim()) {
-                      setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
-                      setNewLinkTarget('')
-                      setAddLinkOpen(false)
-                    }
+                  onChange={setNewLinkTarget}
+                  onSelect={id => {
+                    setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: id }])
+                    setNewLinkTarget('')
+                    setAddLinkOpen(false)
                   }}
-                  autoFocus
+                  onConfirm={() => {
+                    if (!newLinkTarget.trim()) return
+                    setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
+                    setNewLinkTarget('')
+                    setAddLinkOpen(false)
+                  }}
                 />
                 <button
                   className="idp-link-confirm-btn"
