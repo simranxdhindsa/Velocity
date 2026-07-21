@@ -721,25 +721,21 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		if ytClient == nil {
 			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 		}
-		// Map human-friendly link type names to YouTrack internal names + direction
-		type linkSpec struct{ name, direction string }
-		linkMap := map[string]linkSpec{
-			"relates to":        {"Relate", "OUTWARD"},
-			"depends on":        {"Depend", "OUTWARD"},
-			"is required for":   {"Depend", "INWARD"},
-			"duplicates":        {"Duplicate", "OUTWARD"},
-			"is duplicated by":  {"Duplicate", "INWARD"},
-			"subtask of":        {"Subtask", "OUTWARD"},
-			"parent for":        {"Subtask", "INWARD"},
+		// Use YouTrack Commands API: "relates to ARD-2344" applied to ARD-2213.
+		// Validate link type is one of the known values to give a clear error early.
+		known := map[string]bool{
+			"relates to": true, "depends on": true, "is required for": true,
+			"duplicates": true, "is duplicated by": true, "subtask of": true, "parent for": true,
 		}
-		spec, ok := linkMap[strings.ToLower(strings.TrimSpace(args.LinkType))]
-		if !ok {
+		lt := strings.ToLower(strings.TrimSpace(args.LinkType))
+		if !known[lt] {
 			return toolError(id, fmt.Sprintf("unknown link_type %q — use one of: relates to, depends on, is required for, duplicates, is duplicated by, subtask of, parent for", args.LinkType))
 		}
-		if err := ytClient.LinkIssues(ctx, args.SourceID, args.TargetID, spec.name, spec.direction); err != nil {
+		command := fmt.Sprintf("%s %s", lt, args.TargetID)
+		if err := ytClient.LinkIssues(ctx, args.SourceID, command); err != nil {
 			return toolError(id, fmt.Sprintf("failed to link %s → %s: %s", args.SourceID, args.TargetID, err.Error()))
 		}
-		return toolOK(id, fmt.Sprintf("Linked %s '%s' %s", args.SourceID, args.LinkType, args.TargetID))
+		return toolOK(id, fmt.Sprintf("Linked %s '%s' %s", args.SourceID, lt, args.TargetID))
 
 	case "queue_slack_message":
 		var args struct {
