@@ -8,9 +8,11 @@
 
 
 ### Features
+- ENHANCEMENT: add Day Track "Development" category auto-logging for To Do/In Progress → Dev/Stage/PROD/Mobile Done transitions, and fix the existing Mobile-verified rule to key off Mobile Done → Verified instead of arrival at Mobile Done
 - add ticket links UI in IssueDetailPanel and CreateIssueModal + YouTrack links API
 
 ### Enhancements
+- auto-sync YouTrack on Day Track open (today only) plus live SSE refresh when a ticket's state changes while the page is open; animate the sync icon in place instead of swapping to a generic spinner
 - fix link typeahead query (YQL #ID format), show recent tickets on focus, unified UI in both modals
 - move links under description, portal typeahead dropdown, always-visible remove btn
 - add issue search typeahead to link input + move links to IssueDetailPanel sidebar
