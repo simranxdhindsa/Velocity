@@ -3,6 +3,7 @@
 ## 2026-07-20
 
 ### Enhancements
+- add edit, delete, link, upload-attachment MCP tools + fix mcpYTClient to read credentials from DB
 - Redesign Developer Subsystem Config — pill-based UI, admin-only write, global scope
 
 
