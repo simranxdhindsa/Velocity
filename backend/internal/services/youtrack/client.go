@@ -1145,9 +1145,17 @@ func (c *Client) UpdateIssueDates(ctx context.Context, issueID string, startMS, 
 // commandQuery is a YouTrack command string, e.g. "relates to ARD-2344".
 // sourceID is the readable ID of the issue to apply the command on, e.g. "ARD-2213".
 func (c *Client) LinkIssues(ctx context.Context, sourceID, commandQuery string) error {
+	// Internal IDs start with a digit (e.g. "3-671"); readable IDs start with a letter (e.g. "ARD-628").
+	// The Commands API requires the correct field name — using the wrong one silently does nothing.
+	var issueEntry map[string]string
+	if len(sourceID) > 0 && sourceID[0] >= '0' && sourceID[0] <= '9' {
+		issueEntry = map[string]string{"id": sourceID}
+	} else {
+		issueEntry = map[string]string{"idReadable": sourceID}
+	}
 	body := map[string]interface{}{
 		"query":  commandQuery,
-		"issues": []map[string]string{{"idReadable": sourceID}},
+		"issues": []map[string]string{issueEntry},
 	}
 	_, err := c.doRequest(ctx, http.MethodPost, "/api/commands", body)
 	return err
