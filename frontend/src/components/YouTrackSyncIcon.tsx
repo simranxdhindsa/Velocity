@@ -31,15 +31,15 @@ export function YouTrackSyncIcon({ size = 18, scanning }: YouTrackSyncIconProps)
         d={RIBBON_PATH}
         fill="url(#yt-sync-grad)"
         stroke="url(#yt-sync-grad)"
-        strokeWidth={2.5}
         strokeLinecap="round"
         strokeLinejoin="round"
         initial={false}
-        // Each cycle: trace the outline first (0 → 60%), then the solid ribbon
-        // sweeps in behind it (60% → 100%), then loops back to a blank trace.
+        // Each cycle: the line traces in while thickening from a thin sketch
+        // stroke into a solid painted stroke (0 → 60%), then the stroke melts
+        // away as the clean fill takes over (60% → 100%), then loops.
         animate={looping
-          ? { pathLength: [0, 1, 1], fillOpacity: [0, 0, 1], strokeOpacity: [1, 1, 0] }
-          : { pathLength: 1, fillOpacity: 1, strokeOpacity: 0 }}
+          ? { pathLength: [0, 1, 1], strokeWidth: [2, 11, 0], fillOpacity: [0, 0, 1], strokeOpacity: [1, 1, 0] }
+          : { pathLength: 1, strokeWidth: 0, fillOpacity: 1, strokeOpacity: 0 }}
         transition={looping
           ? { duration: 1.6, repeat: Infinity, times: [0, 0.6, 1], ease: 'easeInOut' }
           : { duration: 0.25 }}
