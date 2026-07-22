@@ -399,7 +399,7 @@ function QuickSendCard({ channels, autoOpen = false }: { channels: ChannelRef[];
         : { message: slackMsg, channel_id: channelId }
       const res = await api.quickSend(payload)
       const label = mode === 'dm' ? (selectedUser?.profile.display_name || selectedUser?.real_name || dmUserId) : (selectedChannel?.name || channelId)
-      setHistory(h => [{ channel: label, channelId: res?.channel_id || channelId, msg: getDisplayText(), ts: upperAmPm(new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })), slackTs: res?.slack_ts || '' }, ...h.slice(0, 19)])
+      setHistory(h => [{ channel: label, channelId: res?.channel_id || channelId, msg: getDisplayText(), ts: upperAmPm(new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })), slackTs: res?.slack_ts || '' }, ...h.slice(0, 19)])
       if (editRef.current) editRef.current.innerHTML = ''
       setHasContent(false)
       setSent(true)
@@ -1271,7 +1271,7 @@ function HistoryModal({ ruleId, ruleName, onClose }: { ruleId: string; ruleName:
           ) : runs.length === 0 ? <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No runs yet.</div>
           : runs.map(run => (
             <div key={run.id} className="ur-history-row">
-              <div className="ur-history-date">{upperAmPm(new Date(run.ran_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short', hour12: true }))}</div>
+              <div className="ur-history-date">{upperAmPm(new Date(run.ran_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short', hour12: true, timeZone: 'Asia/Kolkata' }))}</div>
               <span className="ur-history-by">{run.triggered_by}</span>
               <div className="ur-history-counts">
                 <span className="ur-history-count-item" style={{ color: 'var(--color-success)' }}><CheckCircle size={11} />{run.posted_names.length} posted</span>
@@ -1359,7 +1359,7 @@ const RuleCard = React.memo(function RuleCard({ rule, channels, onRefresh }: {
           <span className="ur-card-meta-item"><Clock size={11} />{schedLabel}</span>
           <span className="ur-card-meta-item"><Users size={11} />{srcLabel}</span>
           {rule.last_snapshot_at && (
-            <span className="ur-card-meta-item"><Calendar size={11} />Last: {new Date(rule.last_snapshot_at).toLocaleDateString('en-IN')}</span>
+            <span className="ur-card-meta-item"><Calendar size={11} />Last: {new Date(rule.last_snapshot_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
           )}
         </div>
         <div className="ur-card-actions">

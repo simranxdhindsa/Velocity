@@ -109,8 +109,8 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
   }
 
   const lastUsedLabel = meta?.last_used_at
-    ? `last used ${upperAmPm(new Date(meta.last_used_at).toLocaleString(undefined, {
-        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+    ? `last used ${upperAmPm(new Date(meta.last_used_at).toLocaleString('en-IN', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata',
       }))}`
     : null
 
@@ -404,8 +404,8 @@ function QueuedMessageCard({
   }
 
   const scheduledLabel = msg.scheduled_at
-    ? upperAmPm(new Date(msg.scheduled_at).toLocaleString(undefined, {
-        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+    ? upperAmPm(new Date(msg.scheduled_at).toLocaleString('en-IN', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata',
       }))
     : `Default (${displayTime(defaultTime)})`
 
