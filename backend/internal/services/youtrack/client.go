@@ -1027,10 +1027,45 @@ func (c *Client) DeleteIssue(ctx context.Context, issueID string) error {
 	return err
 }
 
-// CountOpenIssuesByAssignee returns the number of unresolved tickets assigned to a given login.
-func (c *Client) CountOpenIssuesByAssignee(ctx context.Context, login string) (int, error) {
-	query := url.QueryEscape(fmt.Sprintf("project: %s assignee: %s #Unresolved", c.projectID, login))
-	path := fmt.Sprintf("/api/issues?fields=id&query=%s&$top=500", query)
+// GetLatestSprintName returns the name of the current active sprint, or the most
+// recently started sprint if none is explicitly active. Used for developer load queries.
+func (c *Client) GetLatestSprintName(ctx context.Context) (string, error) {
+	sprints, err := c.GetSprints(ctx)
+	if err != nil || len(sprints) == 0 {
+		return "", err
+	}
+	// Prefer an in-progress sprint (started but not completed)
+	now := time.Now().UnixMilli()
+	var best *Sprint
+	for i := range sprints {
+		s := &sprints[i]
+		if s.IsCompleted {
+			continue
+		}
+		if s.Start > 0 && s.Start <= now {
+			if best == nil || s.Start > best.Start {
+				best = s
+			}
+		}
+	}
+	if best != nil {
+		return best.Name, nil
+	}
+	// Fallback: pick the sprint with the highest Start value overall
+	best = &sprints[0]
+	for i := range sprints[1:] {
+		if sprints[i+1].Start > best.Start {
+			best = &sprints[i+1]
+		}
+	}
+	return best.Name, nil
+}
+
+// CountActiveIssuesByAssigneeInSprint returns the number of To Do + In Progress tickets
+// assigned to a given login in the latest sprint — the true developer load.
+func (c *Client) CountActiveIssuesByAssigneeInSprint(ctx context.Context, login, sprintName string) (int, error) {
+	yql := fmt.Sprintf("#{%s} Assignee: %s #{To Do} #{In Progress}", sprintName, login)
+	path := fmt.Sprintf("/api/issues?fields=id&query=%s&$top=500", url.QueryEscape(yql))
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return 0, err

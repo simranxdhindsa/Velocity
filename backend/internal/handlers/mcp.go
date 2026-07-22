@@ -485,16 +485,23 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		if ytClient == nil {
 			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 		}
+		sprintName, err := ytClient.GetLatestSprintName(ctx)
+		if err != nil || sprintName == "" {
+			return toolError(id, "could not determine current sprint: "+err.Error())
+		}
 		load := map[string]int{}
 		for _, login := range args.Logins {
-			count, err := ytClient.CountOpenIssuesByAssignee(ctx, login)
+			count, err := ytClient.CountActiveIssuesByAssigneeInSprint(ctx, login, sprintName)
 			if err != nil {
 				load[login] = -1
 			} else {
 				load[login] = count
 			}
 		}
-		data, _ := json.Marshal(load)
+		data, _ := json.Marshal(map[string]interface{}{
+			"sprint": sprintName,
+			"load":   load,
+		})
 		return toolOK(id, string(data))
 
 	case "create_youtrack_ticket":
