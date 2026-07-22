@@ -2645,11 +2645,6 @@ func (h *ReportHandler) GetSprintRadar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	alerts, err := h.reportRepo.GetSprintAlerts(r.Context(), user.ID)
-	if err != nil {
-		alerts = []map[string]interface{}{}
-	}
-
 	// Build tier buckets and health stats
 	type health struct {
 		CriticalTotal int      `json:"critical_total"`
@@ -2724,45 +2719,9 @@ func (h *ReportHandler) GetSprintRadar(w http.ResponseWriter, r *http.Request) {
 			"tier4":       tier4,
 			"regressions": regressions,
 			"health":      stats,
-			"alerts":      alerts,
+			"alerts":      []map[string]interface{}{},
 		},
 	})
-}
-
-// DismissSprintAlert dismisses a single sprint alert.
-// POST /api/reports/sprint-alerts/{id}/dismiss
-func (h *ReportHandler) DismissSprintAlert(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserFromContext(r)
-	if user == nil {
-		sendJSON(w, http.StatusUnauthorized, Response{Success: false, Message: "Unauthorized"})
-		return
-	}
-	vars := mux.Vars(r)
-	id, err := strconv.Atoi(vars["id"])
-	if err != nil {
-		sendJSON(w, http.StatusBadRequest, Response{Success: false, Message: "invalid alert id"})
-		return
-	}
-	if err := h.reportRepo.DismissSprintAlert(r.Context(), user.ID, id); err != nil {
-		sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: err.Error()})
-		return
-	}
-	sendJSON(w, http.StatusOK, Response{Success: true})
-}
-
-// DismissAllSprintAlerts dismisses all active alerts for the current user.
-// POST /api/reports/sprint-alerts/dismiss-all
-func (h *ReportHandler) DismissAllSprintAlerts(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserFromContext(r)
-	if user == nil {
-		sendJSON(w, http.StatusUnauthorized, Response{Success: false, Message: "Unauthorized"})
-		return
-	}
-	if err := h.reportRepo.DismissAllSprintAlerts(r.Context(), user.ID); err != nil {
-		sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: err.Error()})
-		return
-	}
-	sendJSON(w, http.StatusOK, Response{Success: true})
 }
 
 // ResetStateLog deletes all rows from issue_state_log so tracking starts fresh.

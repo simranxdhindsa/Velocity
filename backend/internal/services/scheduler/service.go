@@ -38,8 +38,6 @@ type Service struct {
 	lastStateLogSync time.Time
 	// Last time we auto-scanned Slack for all users
 	lastSlackScan time.Time
-	// Last time SLA breach check ran (runs every 5 minutes)
-	lastSLACheck    time.Time
 	integrationRepo *database.IntegrationRepository
 }
 
@@ -128,12 +126,6 @@ func (s *Service) tick() {
 
 	// 1b. Check for overdue In Progress tickets (runs every tick, deduped per ticket per day)
 	s.checkOverdueInProgress(ctx)
-
-	// 1c. SLA breach check for Sprint Pulse — runs every 5 minutes
-	if time.Since(s.lastSLACheck) >= 5*time.Minute {
-		s.lastSLACheck = time.Now()
-		s.checkSLABreaches(ctx)
-	}
 
 	// 2. Mid-day update check (default 2 PM)
 	middayTime := s.getSetting("scheduler_midday_check_time", "14:00")
