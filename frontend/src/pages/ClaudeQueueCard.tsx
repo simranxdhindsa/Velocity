@@ -548,6 +548,17 @@ function QueuedMessageCard({
           {isFailed && msg.error_message && (
             <div className="cq-msg-error"><AlertCircle size={11} />{msg.error_message}</div>
           )}
+          {isFailed && (
+            <div className="cq-msg-actions">
+              <button
+                className="cq-msg-icon-btn cq-msg-icon-btn--danger"
+                title="Dismiss"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
           {isPending && (
             <div className="cq-msg-actions">
               <button

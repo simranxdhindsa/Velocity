@@ -83,27 +83,27 @@ func (r *PendingMessagesRepository) ListByUser(ctx context.Context, userID strin
 	return msgs, nil
 }
 
-// GetDueMessages returns all pending messages whose scheduled_at is in the past,
-// plus messages with no scheduled_at where the user's default send time has passed today.
-// Used by the scheduler goroutine.
+// GetDueMessages atomically claims due pending messages by flipping their status to
+// 'processing', preventing race conditions when the scheduler and a delete overlap.
+// A message is due when:
+//   - It has a scheduled_at in the past AND has a destination (channel or DM user)
+//   - OR it has no scheduled_at, has a destination, and the user's default send time has passed today
 func (r *PendingMessagesRepository) GetDueMessages(ctx context.Context) ([]PendingSlackMessage, error) {
 	pool := GetPool()
 	if pool == nil {
 		return nil, nil
 	}
 	rows, err := pool.Query(ctx, `
-		SELECT psm.id::text, psm.user_id, psm.message, psm.channel_id, psm.channel_label, psm.dm_user_id,
-		       psm.scheduled_at, psm.status, psm.slack_ts, COALESCE(psm.error_message,''), psm.created_at, psm.sent_at
-		FROM pending_slack_messages psm
+		UPDATE pending_slack_messages psm
+		SET status = 'processing'
 		WHERE psm.status = 'pending'
+		AND (psm.channel_id != '' OR psm.dm_user_id != '')
 		AND (
 			-- Explicitly scheduled: send when past due
 			(psm.scheduled_at IS NOT NULL AND psm.scheduled_at <= NOW())
 			OR
-			-- No schedule set: send at user's default send time when that time has passed today
-			-- Only sends messages that have a channel/DM target ready
+			-- No schedule: send at user's default send time once it has passed today
 			(psm.scheduled_at IS NULL
-			 AND (psm.channel_id != '' OR psm.dm_user_id != '')
 			 AND EXISTS (
 			     SELECT 1 FROM user_mcp_tokens mt
 			     WHERE mt.user_id = psm.user_id
@@ -112,8 +112,8 @@ func (r *PendingMessagesRepository) GetDueMessages(ctx context.Context) ([]Pendi
 			       AND NOW()::time >= mt.default_send_time::time
 			 ))
 		)
-		ORDER BY COALESCE(psm.scheduled_at, NOW()) ASC
-		LIMIT 100
+		RETURNING psm.id::text, psm.user_id, psm.message, psm.channel_id, psm.channel_label, psm.dm_user_id,
+		          psm.scheduled_at, psm.status, psm.slack_ts, COALESCE(psm.error_message,''), psm.created_at, psm.sent_at
 	`)
 	if err != nil {
 		return nil, err
