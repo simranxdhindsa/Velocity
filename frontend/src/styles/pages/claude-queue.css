@@ -602,7 +602,9 @@
 }
 
 .cq-ch-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   padding: 7px 12px;
   font-size: 12px;
@@ -614,6 +616,27 @@
   transition: background 0.1s;
 }
 .cq-ch-item:hover { background: rgba(var(--color-primary-rgb), 0.08); }
+
+/* DM variant of the channel trigger (uses primary accent, not red) */
+.cq-ch-trigger--dm {
+  background: rgba(var(--color-primary-rgb), 0.08);
+  color: var(--color-primary);
+  border-color: rgba(var(--color-primary-rgb), 0.25);
+}
+.cq-ch-trigger--dm:hover { background: rgba(var(--color-primary-rgb), 0.15); }
+
+/* DM destination badge — purple-ish tint to distinguish from channel */
+.cq-msg-channel--dm {
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.12);
+}
+
+/* Destination pickers row (channel + DM side by side) */
+.cq-dest-pickers {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 
 /* ── Recent ──────────────────────────────────────────────────────────────────── */
 

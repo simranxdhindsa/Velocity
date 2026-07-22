@@ -265,14 +265,75 @@ function InlineChannelPicker({ channels, onPick }: {
   )
 }
 
+// ── Inline DM user picker ────────────────────────────────────────────────────
+
+function InlineDMPicker({ users, onPick }: {
+  users: SlackWorkspaceUser[]
+  onPick: (u: SlackWorkspaceUser) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({})
+
+  useEffect(() => {
+    if (!open || !triggerRef.current) return
+    const r = triggerRef.current.getBoundingClientRect()
+    setMenuStyle({ position: 'fixed', top: r.bottom + 4, left: r.left, zIndex: 9999, width: 220 })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (
+        triggerRef.current && !triggerRef.current.contains(e.target as Node) &&
+        menuRef.current && !menuRef.current.contains(e.target as Node)
+      ) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const filtered = users
+    .filter(u => !u.is_bot && !u.deleted)
+    .filter(u => !search || (u.profile.display_name || u.real_name || u.name).toLowerCase().includes(search.toLowerCase()))
+
+  return (
+    <>
+      <button ref={triggerRef} className="cq-ch-trigger cq-ch-trigger--dm" onClick={() => setOpen(o => !o)}>
+        <Search size={11} /> Pick person
+      </button>
+      {open && createPortal(
+        <div ref={menuRef} className="cq-ch-menu" style={menuStyle}>
+          <input className="cq-ch-search" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+          <div className="cq-ch-list">
+            {filtered.slice(0, 20).map(u => {
+              const name = u.profile.display_name || u.real_name || u.name
+              return (
+                <button key={u.id} className="cq-ch-item" onClick={() => { onPick(u); setOpen(false); setSearch('') }}>
+                  {u.profile.image_48 && <img src={u.profile.image_48} className="cq-mention-avatar" alt="" />}
+                  @{name}
+                </button>
+              )
+            })}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
 // ── Individual queued message card ─────────────────────────────────────────────
 
 function QueuedMessageCard({
-  msg, defaultTime, channels, userNames, onUpdated, onDeleted, onSent,
+  msg, defaultTime, channels, users, userNames, onUpdated, onDeleted, onSent,
 }: {
   msg: PendingSlackMessage
   defaultTime: string
   channels: ChannelRef[]
+  users: SlackWorkspaceUser[]
   userNames: Map<string, string>
   onUpdated: (m: PendingSlackMessage) => void
   onDeleted: (id: string) => void
@@ -283,6 +344,7 @@ function QueuedMessageCard({
   const [editChannel, setEditChannel] = useState<ChannelRef | null>(
     msg.channel_id ? { id: msg.channel_id, name: msg.channel_label.replace(/^#/, '') } : null
   )
+  const [editDMUser, setEditDMUser] = useState<SlackWorkspaceUser | null>(null)
   const [editDate, setEditDate] = useState(
     msg.scheduled_at ? toYMD(new Date(msg.scheduled_at)) : toYMD(new Date())
   )
@@ -314,6 +376,16 @@ function QueuedMessageCard({
     const updated = raw?.id ? raw : raw?.data
     if (updated) onUpdated(updated as PendingSlackMessage)
   }
+
+  // Save DM user immediately when picked
+  const handlePickDMUser = async (u: SlackWorkspaceUser) => {
+    const r = await api.updateQueuedMessage(msg.id, msg.message, msg.scheduled_at ?? undefined, '', '', u.id)
+    const raw = r as any
+    const updated = raw?.id ? raw : raw?.data
+    if (updated) onUpdated(updated as PendingSlackMessage)
+  }
+
+  const dmUserName = msg.dm_user_id ? (userNames.get(msg.dm_user_id) ?? msg.dm_user_id) : null
 
   // Save date+time immediately when changed inline
   const handlePickQuick = async (ymd: string, hhmm: string) => {
@@ -351,8 +423,9 @@ function QueuedMessageCard({
     try {
       const r = await api.updateQueuedMessage(
         msg.id, editText, scheduledAt,
-        editChannel?.id ?? msg.channel_id,
-        editChannel ? `#${editChannel.name}` : msg.channel_label,
+        editDMUser ? '' : (editChannel?.id ?? msg.channel_id),
+        editDMUser ? '' : (editChannel ? `#${editChannel.name}` : msg.channel_label),
+        editDMUser?.id ?? (msg.dm_user_id || undefined),
       )
       const raw = r as any
       const updated = raw?.id ? raw : raw?.data
@@ -396,8 +469,15 @@ function QueuedMessageCard({
       <div className="cq-msg-meta">
         {msg.channel_id
           ? <span className="cq-msg-channel">{msg.channel_label || msg.channel_id}</span>
+          : msg.dm_user_id
+          ? <span className="cq-msg-channel cq-msg-channel--dm">@{dmUserName}</span>
           : isPending
-            ? <InlineChannelPicker channels={channels} onPick={handlePickChannel} />
+            ? (
+              <div className="cq-dest-pickers">
+                <InlineChannelPicker channels={channels} onPick={handlePickChannel} />
+                <InlineDMPicker users={users} onPick={handlePickDMUser} />
+              </div>
+            )
             : null
         }
         {isPending ? (
@@ -439,12 +519,14 @@ function QueuedMessageCard({
           />
           <div className="cq-msg-edit-footer">
             <div className="cq-msg-edit-time">
-              <span className="cq-label">Channel</span>
-              <InlineChannelPicker
-                channels={channels}
-                onPick={ch => setEditChannel(ch)}
-              />
-              {editChannel && <span className="cq-msg-channel">#{editChannel.name}</span>}
+              <span className="cq-label">Send to</span>
+              <InlineChannelPicker channels={channels} onPick={ch => setEditChannel(ch)} />
+              <InlineDMPicker users={users} onPick={u => {
+                setEditChannel({ id: '', name: '' })
+                setEditDMUser(u)
+              }} />
+              {editChannel?.id && <span className="cq-msg-channel">#{editChannel.name}</span>}
+              {editDMUser && <span className="cq-msg-channel cq-msg-channel--dm">@{editDMUser.profile.display_name || editDMUser.real_name}</span>}
             </div>
             <div className="cq-msg-edit-time">
               <span className="cq-label">Send on</span>
@@ -539,6 +621,7 @@ function ComposeForm({
 }) {
   const [text, setText] = useState('')
   const [channel, setChannel] = useState<ChannelRef | null>(null)
+  const [dmUser, setDmUser] = useState<SlackWorkspaceUser | null>(null)
   const [date, setDate] = useState(toYMD(new Date()))
   const [time, setTime] = useState(defaultTime)
   const [saving, setSaving] = useState(false)
@@ -605,8 +688,9 @@ function ComposeForm({
       const r = await api.createQueuedMessage(
         text.trim(),
         base.toISOString(),
-        channel?.id ?? '',
-        channel ? `#${channel.name}` : '',
+        dmUser ? '' : (channel?.id ?? ''),
+        dmUser ? '' : (channel ? `#${channel.name}` : ''),
+        dmUser?.id ?? '',
       )
       const raw = r as any
       const created = raw?.id ? raw : raw?.data
@@ -675,9 +759,11 @@ function ComposeForm({
       )}
       <div className="cq-msg-edit-footer">
         <div className="cq-msg-edit-time">
-          <span className="cq-label">Channel</span>
-          <InlineChannelPicker channels={channels} onPick={setChannel} />
+          <span className="cq-label">Send to</span>
+          <InlineChannelPicker channels={channels} onPick={ch => { setChannel(ch); setDmUser(null) }} />
+          <InlineDMPicker users={users} onPick={u => { setDmUser(u); setChannel(null) }} />
           {channel && <span className="cq-msg-channel">#{channel.name}</span>}
+          {dmUser && <span className="cq-msg-channel cq-msg-channel--dm">@{dmUser.profile.display_name || dmUser.real_name}</span>}
         </div>
         <div className="cq-msg-edit-time">
           <span className="cq-label">Send on</span>
@@ -817,7 +903,7 @@ export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?
                 <div className="cq-msg-list">
                   {pendingMsgs.map(m => (
                     <QueuedMessageCard
-                      key={m.id} msg={m} defaultTime={defaultTime} channels={channels} userNames={userNames}
+                      key={m.id} msg={m} defaultTime={defaultTime} channels={channels} users={users} userNames={userNames}
                       onUpdated={u => setMessages(ms => ms.map(x => x.id === u.id ? u : x))}
                       onDeleted={id => setMessages(ms => ms.filter(x => x.id !== id))}
                       onSent={(id, ts) => setMessages(ms => ms.map(x =>

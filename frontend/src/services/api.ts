@@ -893,10 +893,10 @@ class ApiService {
     })
   }
 
-  async updateQueuedMessage(id: string, message: string, scheduledAt?: string, channelId?: string, channelLabel?: string) {
+  async updateQueuedMessage(id: string, message: string, scheduledAt?: string, channelId?: string, channelLabel?: string, dmUserId?: string) {
     return this.request<PendingSlackMessage>(`/slack/queued/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ message, scheduled_at: scheduledAt, channel_id: channelId, channel_label: channelLabel }),
+      body: JSON.stringify({ message, scheduled_at: scheduledAt, channel_id: channelId, channel_label: channelLabel, dm_user_id: dmUserId ?? '' }),
     })
   }
 

@@ -304,8 +304,9 @@ var mcpTools = []map[string]interface{}{
 	{
 		"name": "queue_slack_message",
 		"description": "Queue a Slack message to be reviewed and sent by the Velocity bot. " +
-			"Only `message` is required — channel and time are optional. " +
-			"If no channel is given, the user will pick one in Velocity before sending. " +
+			"Only `message` is required — channel/dm_user and time are optional. " +
+			"Use `channel` for a channel post, or `dm_user` to send a direct message to a specific person. " +
+			"If neither is given, the user will pick a destination in Velocity before sending. " +
 			"Include @mentions by display name (e.g. @Suryansh) and they will resolve to Slack mentions automatically. " +
 			"Do NOT call list_slack_channels first — just pass the channel name the user mentioned, or omit it.",
 		"inputSchema": map[string]interface{}{
@@ -317,7 +318,11 @@ var mcpTools = []map[string]interface{}{
 				},
 				"channel": map[string]string{
 					"type":        "string",
-					"description": "Optional. Channel name as the user mentioned it, e.g. 'ardoise-pm', 'simran-demo', '#general'. Omit if not specified.",
+					"description": "Optional. Channel name as the user mentioned it, e.g. 'ardoise-pm', '#general'. Omit if sending a DM or if not specified.",
+				},
+				"dm_user": map[string]string{
+					"type":        "string",
+					"description": "Optional. Display name or real name of the person to DM (e.g. 'Suryansh', 'Simran Dhindsa'). Use instead of channel for direct messages.",
 				},
 				"send_time": map[string]string{
 					"type": "string",
@@ -740,7 +745,8 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 	case "queue_slack_message":
 		var args struct {
 			Message  string `json:"message"`
-			Channel  string `json:"channel"`   // optional human-readable name
+			Channel  string `json:"channel"`   // optional channel name
+			DmUser   string `json:"dm_user"`   // optional: DM recipient display name
 			SendTime string `json:"send_time"` // optional: "3pm", "15:30", ISO 8601
 		}
 		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.Message == "" {
@@ -749,6 +755,9 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 
 		// Resolve channel name → ID (best-effort; user can fix in Velocity if wrong)
 		channelID, channelLabel := h.resolveChannel(ctx, userID, args.Channel)
+
+		// Resolve dm_user display name → Slack user ID
+		dmUserID := h.resolveSlackUser(ctx, userID, args.DmUser)
 
 		// Resolve @DisplayName → <@UXXX> mentions in message text
 		message := resolveSlackMentions(ctx, h.slackSvc, userID, args.Message)
@@ -779,7 +788,7 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 			scheduledAt = &candidate
 		}
 
-		msg, err := h.msgRepo.Create(ctx, userID, message, channelID, channelLabel, "", scheduledAt)
+		msg, err := h.msgRepo.Create(ctx, userID, message, channelID, channelLabel, dmUserID, scheduledAt)
 		if err != nil {
 			return toolError(id, "Failed to queue message: "+err.Error())
 		}
@@ -787,8 +796,10 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		result := "Queued (id: " + msg.ID + ")."
 		if channelLabel != "" {
 			result += " Channel: " + channelLabel + "."
+		} else if dmUserID != "" {
+			result += " DM to user ID: " + dmUserID + "."
 		} else {
-			result += " No channel set — user will pick one in Velocity."
+			result += " No destination set — user will pick one in Velocity."
 		}
 		if scheduledAt != nil {
 			result += " Scheduled for " + scheduledAt.Format("02 Jan 15:04 MST") + "."
@@ -818,6 +829,26 @@ func (h *MCPHandler) resolveChannel(ctx context.Context, userID, name string) (s
 	}
 	// Not found — store empty ID so frontend shows channel picker
 	return "", "#" + name
+}
+
+// resolveSlackUser looks up a user by display name or real name and returns their Slack user ID.
+// Returns "" if name is blank, service fails, or user is not found.
+func (h *MCPHandler) resolveSlackUser(ctx context.Context, userID, name string) string {
+	if name == "" {
+		return ""
+	}
+	users, err := h.slackSvc.GetWorkspaceUsers(ctx, userID)
+	if err != nil {
+		return ""
+	}
+	nameLower := strings.ToLower(strings.TrimSpace(name))
+	for _, u := range users {
+		if strings.ToLower(u.Profile.DisplayName) == nameLower ||
+			strings.ToLower(u.RealName) == nameLower {
+			return u.ID
+		}
+	}
+	return ""
 }
 
 // resolveSlackMentions replaces @DisplayName tokens with Slack <@UXXX> format.

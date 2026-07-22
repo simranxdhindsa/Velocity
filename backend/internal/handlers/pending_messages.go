@@ -59,6 +59,7 @@ func (h *PendingMessagesHandler) Update(w http.ResponseWriter, r *http.Request) 
 		ScheduledAt  string `json:"scheduled_at"`
 		ChannelID    string `json:"channel_id"`
 		ChannelLabel string `json:"channel_label"`
+		DmUserID     string `json:"dm_user_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
@@ -76,7 +77,7 @@ func (h *PendingMessagesHandler) Update(w http.ResponseWriter, r *http.Request) 
 	}
 
 	message := resolveSlackMentions(r.Context(), h.slackSvc, u.ID, req.Message)
-	msg, err := h.repo.Update(r.Context(), id, u.ID, message, scheduledAt, req.ChannelID, req.ChannelLabel)
+	msg, err := h.repo.Update(r.Context(), id, u.ID, message, scheduledAt, req.ChannelID, req.ChannelLabel, req.DmUserID)
 	if err != nil || msg == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "message not found or already sent"})
 		return
