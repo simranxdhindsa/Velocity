@@ -3,8 +3,12 @@
 ## 2026-07-22
 
 ### Enhancements
+- show IST (Asia/Kolkata) timestamps throughout Update Reminders and Claude Queue tabs instead of browser-local time
 - add DM user support to Claude Queue — MCP queue_slack_message accepts dm_user param, UI shows channel and person pickers side-by-side when no destination set
 
+
+### Bug Fixes
+- fix scheduler sending deleted/no-destination messages — atomic UPDATE claim prevents race condition, require destination before sending, add dismiss button for failed messages
 
 ## 2026-07-21
 
