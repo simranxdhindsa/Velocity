@@ -8,6 +8,7 @@
 
 
 ### Bug Fixes
+- fix get_developer_load to count To Do + In Progress tickets in current sprint only, not all unresolved tickets across entire project
 - fix scheduler sending deleted/no-destination messages — atomic UPDATE claim prevents race condition, require destination before sending, add dismiss button for failed messages
 
 ## 2026-07-21
