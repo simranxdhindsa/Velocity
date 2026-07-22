@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-22
+
+### Enhancements
+- add DM user support to Claude Queue — MCP queue_slack_message accepts dm_user param, UI shows channel and person pickers side-by-side when no destination set
+
+
 ## 2026-07-21
 
 ### Bug Fixes
