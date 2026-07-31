@@ -6,6 +6,9 @@
 - split Sprint Pulse P2/A2 and P3/A3 into dedicated swimlanes
 
 
+### Features
+- add base64 file upload support to upload_youtrack_attachment MCP tool
+
 ## 2026-07-22
 
 ### Enhancements
