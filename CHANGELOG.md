@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-31
+
+### Enhancements
+- split Sprint Pulse P2/A2 and P3/A3 into dedicated swimlanes
+
+
 ## 2026-07-22
 
 ### Enhancements
