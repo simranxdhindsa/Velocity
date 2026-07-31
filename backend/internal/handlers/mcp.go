@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -259,7 +260,7 @@ var mcpTools = []map[string]interface{}{
 	},
 	{
 		"name":        "upload_youtrack_attachment",
-		"description": "Uploads a file attachment to a YouTrack ticket from a publicly accessible URL. Downloads the file and attaches it to the ticket.",
+		"description": "Uploads a file attachment to a YouTrack ticket. Provide either file_url (a publicly accessible URL to download from) or file_base64 (raw file bytes, base64-encoded — use this for local/pasted files that have no public URL, e.g. a screenshot shared in chat).",
 		"inputSchema": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -269,14 +270,22 @@ var mcpTools = []map[string]interface{}{
 				},
 				"file_url": map[string]string{
 					"type":        "string",
-					"description": "Publicly accessible URL of the file to upload.",
+					"description": "Publicly accessible URL of the file to upload. Omit if using file_base64.",
+				},
+				"file_base64": map[string]string{
+					"type":        "string",
+					"description": "Base64-encoded file content. Use for local/pasted files with no public URL. Omit if using file_url.",
+				},
+				"mime_type": map[string]string{
+					"type":        "string",
+					"description": "MIME type of the file, e.g. 'image/png'. Used with file_base64; inferred from the URL response when using file_url.",
 				},
 				"filename": map[string]string{
 					"type":        "string",
-					"description": "Filename to use in YouTrack, e.g. 'screenshot.png'. Infer from URL if not provided.",
+					"description": "Filename to use in YouTrack, e.g. 'screenshot.png'. Infer from URL if not provided when using file_url; recommended when using file_base64.",
 				},
 			},
-			"required": []string{"issue_id", "file_url"},
+			"required": []string{"issue_id"},
 		},
 	},
 	{
@@ -677,44 +686,67 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 
 	case "upload_youtrack_attachment":
 		var args struct {
-			IssueID  string `json:"issue_id"`
-			FileURL  string `json:"file_url"`
-			Filename string `json:"filename"`
+			IssueID    string `json:"issue_id"`
+			FileURL    string `json:"file_url"`
+			FileBase64 string `json:"file_base64"`
+			MimeType   string `json:"mime_type"`
+			Filename   string `json:"filename"`
 		}
-		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.IssueID == "" || args.FileURL == "" {
-			return rpcErr(id, -32602, "invalid arguments: issue_id and file_url are required")
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.IssueID == "" || (args.FileURL == "" && args.FileBase64 == "") {
+			return rpcErr(id, -32602, "invalid arguments: issue_id and one of file_url/file_base64 are required")
 		}
 		ytClient := mcpYTClient(ctx, userID)
 		if ytClient == nil {
 			return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 		}
-		// Download the file from the provided URL
-		httpResp, err := http.Get(args.FileURL) //nolint:noctx
-		if err != nil {
-			return toolError(id, "failed to download file: "+err.Error())
-		}
-		defer httpResp.Body.Close()
-		if httpResp.StatusCode >= 400 {
-			return toolError(id, fmt.Sprintf("download failed with status %d", httpResp.StatusCode))
-		}
-		content, err := io.ReadAll(httpResp.Body)
-		if err != nil {
-			return toolError(id, "failed to read file content: "+err.Error())
-		}
+
+		var content []byte
 		filename := args.Filename
-		if filename == "" {
-			// Infer filename from URL path
-			parts := strings.Split(strings.Split(args.FileURL, "?")[0], "/")
-			filename = parts[len(parts)-1]
+		mimeType := args.MimeType
+
+		if args.FileBase64 != "" {
+			decoded, err := base64.StdEncoding.DecodeString(args.FileBase64)
+			if err != nil {
+				return toolError(id, "invalid file_base64: "+err.Error())
+			}
+			content = decoded
 			if filename == "" {
 				filename = "attachment"
 			}
+			if mimeType == "" {
+				mimeType = "application/octet-stream"
+			}
+		} else {
+			// Download the file from the provided URL
+			httpResp, err := http.Get(args.FileURL) //nolint:noctx
+			if err != nil {
+				return toolError(id, "failed to download file: "+err.Error())
+			}
+			defer httpResp.Body.Close()
+			if httpResp.StatusCode >= 400 {
+				return toolError(id, fmt.Sprintf("download failed with status %d", httpResp.StatusCode))
+			}
+			content, err = io.ReadAll(httpResp.Body)
+			if err != nil {
+				return toolError(id, "failed to read file content: "+err.Error())
+			}
+			if filename == "" {
+				// Infer filename from URL path
+				parts := strings.Split(strings.Split(args.FileURL, "?")[0], "/")
+				filename = parts[len(parts)-1]
+				if filename == "" {
+					filename = "attachment"
+				}
+			}
+			if mimeType == "" {
+				mimeType = strings.Split(httpResp.Header.Get("Content-Type"), ";")[0]
+				mimeType = strings.TrimSpace(mimeType)
+			}
+			if mimeType == "" {
+				mimeType = "application/octet-stream"
+			}
 		}
-		mimeType := strings.Split(httpResp.Header.Get("Content-Type"), ";")[0]
-		mimeType = strings.TrimSpace(mimeType)
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
-		}
+
 		if err := ytClient.UploadAttachment(ctx, args.IssueID, filename, mimeType, content); err != nil {
 			return toolError(id, "failed to upload attachment: "+err.Error())
 		}
