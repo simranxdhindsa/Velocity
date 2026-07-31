@@ -22,6 +22,7 @@ export interface TierGroups {
   t2:  PulseIssue[]
   t3:  PulseIssue[]
   t4:  PulseIssue[]
+  t5:  PulseIssue[]
   reg: PulseIssue[]
 }
 
@@ -50,8 +51,8 @@ export function classifyTier(iss: SprintBoardIssue): number {
   if (p.includes('critical') || p === 'p0' || p === 'a0') return 1
   if (p.includes('major')    || p === 'p1' || p === 'a1') return 2
   if (p.includes('minor')    || p === 'p2' || p === 'a2') return 3
-  if (p === 'normal') return 3
-  return 4
+  if (p === 'p3' || p === 'a3') return 4
+  return 5
 }
 
 export function mapStage(colRole: string): PulseIssue['stageGroup'] {
@@ -93,7 +94,8 @@ export function tierLabel(tier: number): string {
   if (tier === 0) return 'Regressions'
   if (tier === 1) return 'Critical / Hotfix'
   if (tier === 2) return 'Urgent'
-  if (tier === 3) return 'Scheduled'
+  if (tier === 3) return 'On Deck A2/P2s'
+  if (tier === 4) return 'To Be Pushed With Current Sprint'
   return 'Normal'
 }
 
@@ -101,6 +103,7 @@ export function tierCssClass(tier: number): string {
   if (tier === 1) return 'spl-t1'
   if (tier === 2) return 'spl-t2'
   if (tier === 3) return 'spl-t3'
+  if (tier === 4) return 'spl-t4'
   if (tier === 0) return 'spl-treg'
-  return 'spl-t4'
+  return 'spl-t5'
 }

@@ -129,7 +129,8 @@
 .spl-swim-tier-row.spl-t1   .spl-swim-tier-hd { border-left-color: var(--color-danger); }
 .spl-swim-tier-row.spl-t2   .spl-swim-tier-hd { border-left-color: var(--color-warning); }
 .spl-swim-tier-row.spl-t3   .spl-swim-tier-hd { border-left-color: var(--color-primary); }
-.spl-swim-tier-row.spl-t4   .spl-swim-tier-hd { border-left-color: rgba(100,116,139,0.35); }
+.spl-swim-tier-row.spl-t4   .spl-swim-tier-hd { border-left-color: var(--color-info); }
+.spl-swim-tier-row.spl-t5   .spl-swim-tier-hd { border-left-color: rgba(100,116,139,0.35); }
 .spl-swim-tier-row.spl-treg .spl-swim-tier-hd { border-left-color: var(--color-warning); }
 
 .spl-swim-tier-name {
@@ -142,7 +143,8 @@
 .spl-swim-tier-row.spl-t1   .spl-swim-tier-name { color: var(--color-danger); }
 .spl-swim-tier-row.spl-t2   .spl-swim-tier-name { color: var(--color-warning); }
 .spl-swim-tier-row.spl-t3   .spl-swim-tier-name { color: var(--color-primary); }
-.spl-swim-tier-row.spl-t4   .spl-swim-tier-name { color: var(--text-muted); }
+.spl-swim-tier-row.spl-t4   .spl-swim-tier-name { color: var(--color-info); }
+.spl-swim-tier-row.spl-t5   .spl-swim-tier-name { color: var(--text-muted); }
 .spl-swim-tier-row.spl-treg .spl-swim-tier-name { color: var(--color-warning); }
 
 .spl-swim-tier-cnt {
@@ -487,7 +489,8 @@
 .spl-t1   { border-top-color: var(--color-danger); }
 .spl-t2   { border-top-color: var(--color-warning); }
 .spl-t3   { border-top-color: var(--color-primary); }
-.spl-t4   { border-top-color: rgba(100,116,139,0.35); }
+.spl-t4   { border-top-color: var(--color-info); }
+.spl-t5   { border-top-color: rgba(100,116,139,0.35); }
 .spl-treg { border-top-color: var(--color-warning); opacity: 0.9; }
 
 .spl-tier-col-hd {
@@ -510,7 +513,8 @@
 .spl-t1   .spl-tier-col-name { color: var(--color-danger); }
 .spl-t2   .spl-tier-col-name { color: var(--color-warning); }
 .spl-t3   .spl-tier-col-name { color: var(--color-primary); }
-.spl-t4   .spl-tier-col-name { color: var(--text-muted); }
+.spl-t4   .spl-tier-col-name { color: var(--color-info); }
+.spl-t5   .spl-tier-col-name { color: var(--text-muted); }
 .spl-treg .spl-tier-col-name { color: var(--color-warning); }
 
 .spl-tier-col-cnt {
@@ -685,7 +689,8 @@
 .spl-signal-section.spl-t1   { border-left-color: var(--color-danger); }
 .spl-signal-section.spl-t2   { border-left-color: var(--color-warning); }
 .spl-signal-section.spl-t3   { border-left-color: var(--color-primary); }
-.spl-signal-section.spl-t4   { border-left-color: rgba(100,116,139,0.35); }
+.spl-signal-section.spl-t4   { border-left-color: var(--color-info); }
+.spl-signal-section.spl-t5   { border-left-color: rgba(100,116,139,0.35); }
 .spl-signal-section.spl-treg { border-left-color: var(--color-warning); }
 
 .spl-signal-section-hd {
@@ -708,7 +713,8 @@
 .spl-t1   .spl-signal-tier-name { color: var(--color-danger); }
 .spl-t2   .spl-signal-tier-name { color: var(--color-warning); }
 .spl-t3   .spl-signal-tier-name { color: var(--color-primary); }
-.spl-t4   .spl-signal-tier-name { color: var(--text-muted); }
+.spl-t4   .spl-signal-tier-name { color: var(--color-info); }
+.spl-t5   .spl-signal-tier-name { color: var(--text-muted); }
 .spl-treg .spl-signal-tier-name { color: var(--color-warning); }
 
 .spl-signal-tier-cnt {
@@ -823,7 +829,8 @@
 .spl-sw-grid.spl-t1   .spl-sw-row-hd { border-left-color: var(--color-danger); }
 .spl-sw-grid.spl-t2   .spl-sw-row-hd { border-left-color: var(--color-warning); }
 .spl-sw-grid.spl-t3   .spl-sw-row-hd { border-left-color: var(--color-primary); }
-.spl-sw-grid.spl-t4   .spl-sw-row-hd { border-left-color: rgba(100,116,139,0.35); }
+.spl-sw-grid.spl-t4   .spl-sw-row-hd { border-left-color: var(--color-info); }
+.spl-sw-grid.spl-t5   .spl-sw-row-hd { border-left-color: rgba(100,116,139,0.35); }
 .spl-sw-grid.spl-treg .spl-sw-row-hd { border-left-color: var(--color-warning); }
 
 .spl-sw-row-hd-name {
@@ -835,7 +842,8 @@
 .spl-sw-grid.spl-t1   .spl-sw-row-hd-name { color: var(--color-danger); }
 .spl-sw-grid.spl-t2   .spl-sw-row-hd-name { color: var(--color-warning); }
 .spl-sw-grid.spl-t3   .spl-sw-row-hd-name { color: var(--color-primary); }
-.spl-sw-grid.spl-t4   .spl-sw-row-hd-name { color: var(--text-muted); }
+.spl-sw-grid.spl-t4   .spl-sw-row-hd-name { color: var(--color-info); }
+.spl-sw-grid.spl-t5   .spl-sw-row-hd-name { color: var(--text-muted); }
 .spl-sw-grid.spl-treg .spl-sw-row-hd-name { color: var(--color-warning); }
 
 .spl-sw-row-hd-cnt {

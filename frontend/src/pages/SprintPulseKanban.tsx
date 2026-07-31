@@ -20,8 +20,9 @@ const TIER_DEFS: { tier: number; label: string }[] = [
   { tier: 0, label: 'Regression' },
   { tier: 1, label: 'Critical / Hotfix' },
   { tier: 2, label: 'Urgent' },
-  { tier: 3, label: 'Scheduled' },
-  { tier: 4, label: 'Normal' },
+  { tier: 3, label: 'On Deck A2/P2s' },
+  { tier: 4, label: 'To Be Pushed With Current Sprint' },
+  { tier: 5, label: 'Normal' },
 ]
 
 function SwimDraggableCard({

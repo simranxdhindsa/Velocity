@@ -153,6 +153,7 @@ export function SprintPulsePage() {
     t2:  allIssues.filter(i => i.tier === 2),
     t3:  allIssues.filter(i => i.tier === 3),
     t4:  allIssues.filter(i => i.tier === 4),
+    t5:  allIssues.filter(i => i.tier === 5),
     reg: allIssues.filter(i => i.tier === 0),
   }), [allIssues])
 

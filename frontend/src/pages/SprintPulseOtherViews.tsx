@@ -12,7 +12,7 @@ import type { WorkflowConfig } from '@/services/api'
 
 export function ViewC({ tierGroups, stageCounts, wfConfig, onTitleClick, onIdClick }: ViewProps) {
   const allIssues = useMemo(() => {
-    const tiers = [tierGroups.t1, tierGroups.t2, tierGroups.t3, tierGroups.t4, tierGroups.reg]
+    const tiers = [tierGroups.t1, tierGroups.t2, tierGroups.t3, tierGroups.t4, tierGroups.t5, tierGroups.reg]
     return tiers.flat().filter(i => !i.isDone).sort((a, b) => {
       const da = dangerLevel(a), db = dangerLevel(b)
       if (da !== db) return db - da
@@ -25,6 +25,7 @@ export function ViewC({ tierGroups, stageCounts, wfConfig, onTitleClick, onIdCli
     { tier: 2, items: tierGroups.t2 },
     { tier: 3, items: tierGroups.t3 },
     { tier: 4, items: tierGroups.t4 },
+    { tier: 5, items: tierGroups.t5 },
     { tier: 0, items: tierGroups.reg },
   ]
 
@@ -193,6 +194,7 @@ export function View1({ tierGroups, wfConfig, onTitleClick, onIdClick }: ViewPro
     { tier: 2, issues: tierGroups.t2 },
     { tier: 3, issues: tierGroups.t3 },
     { tier: 4, issues: tierGroups.t4 },
+    { tier: 5, issues: tierGroups.t5 },
     { tier: 0, issues: tierGroups.reg },
   ]
 
@@ -309,6 +311,7 @@ export function View4({ tierGroups, wfConfig, onTitleClick, onIdClick }: ViewPro
     { tier: 2, issues: tierGroups.t2 },
     { tier: 3, issues: tierGroups.t3 },
     { tier: 4, issues: tierGroups.t4 },
+    { tier: 5, issues: tierGroups.t5 },
     { tier: 0, issues: tierGroups.reg },
   ]
 
