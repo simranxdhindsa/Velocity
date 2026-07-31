@@ -1999,6 +1999,42 @@ ${aiSummaryBlock}
                               </div>
                             </td>
                           </tr>
+                          {subtaskParent?.id === e.id && (
+                            <tr className="dt-subtask-row dt-subtask-inline-row">
+                              <td className="dt-td-name" colSpan={2}>
+                                <div className="dt-subtask-indent dt-subtask-inline-input">
+                                  ↳
+                                  <div className="dt-input-with-mic dt-input-with-mic--sm">
+                                    <input className="form-input" autoFocus value={stName}
+                                      onChange={e => setStName(e.target.value)}
+                                      placeholder="What's the subtask?" autoComplete="off"
+                                      onKeyDown={e => { if (e.key === 'Enter') saveSubtask(); if (e.key === 'Escape') setSubtaskParent(null) }} />
+                                    <MicButton
+                                      onResult={text => { setStName(text); const c = detectCategory(text, categories); if (c) setStCat(c) }}
+                                      onError={msg => toast(msg, 'warn')} />
+                                  </div>
+                                </div>
+                              </td>
+                              <td colSpan={2}>
+                                <div className="dt-time-wrap dt-time-wrap--inline">
+                                  <input className="form-input" type="time" value={to24h(stStart)}
+                                    onChange={e => setStStart(to12h(e.target.value))} />
+                                  <button className="dt-now-btn" onClick={() => setStStart(nowHHMM())}>Now</button>
+                                </div>
+                              </td>
+                              <td colSpan={2}></td>
+                              <td>
+                                <div className="dt-td-actions">
+                                  <button className="dt-icon-btn dt-icon-btn-edit" onClick={saveSubtask} title="Save subtask">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                  </button>
+                                  <button className="dt-icon-btn dt-icon-btn-del" onClick={() => setSubtaskParent(null)} title="Cancel">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                           {isExpanded && subs.map(s => (
                             <tr key={s.id} className="dt-subtask-row">
                               <td className="dt-td-name">
@@ -2416,61 +2452,6 @@ ${aiSummaryBlock}
         </div>
       )}
 
-      {/* Add Subtask Modal */}
-      {subtaskParent && (
-        <div className="dt-modal-overlay open" onClick={e => { if (e.target === e.currentTarget) setSubtaskParent(null) }}>
-          <div className="dt-modal">
-            <h3>Add Subtask</h3>
-            <div className="dt-subtask-parent-label">
-              Parent: <strong>{subtaskParent.name}</strong>
-              {subtaskParent.start_time && <span className="dt-subtask-parent-time"> · starts {subtaskParent.start_time}</span>}
-            </div>
-            <div className="form-group">
-              <label className="form-label">Subtask Name *</label>
-              <div className="dt-input-with-mic">
-                <input className="form-input" value={stName} onChange={e => setStName(e.target.value)}
-                  placeholder="What's the subtask?" autoComplete="off"
-                  onKeyDown={e => e.key === 'Enter' && saveSubtask()} />
-                <MicButton onResult={text => { setStName(text); const c = detectCategory(text, categories); if (c) setStCat(c) }} onError={msg => toast(msg, 'warn')} />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Category</label>
-              <CategoryChips value={stCat} onChange={setStCat} categories={categories} />
-            </div>
-            <div className="dt-row2">
-              <div className="form-group">
-                <label className="form-label">
-                  Start Time
-                  {subtaskParent.start_time && <span className="dt-subtask-time-hint"> (min: {subtaskParent.start_time})</span>}
-                </label>
-                <div className="dt-time-wrap">
-                  <input className="form-input" type="time" value={to24h(stStart)} onChange={e => setStStart(to12h(e.target.value))} />
-                  <button className="dt-now-btn" onClick={() => setStStart(nowHHMM())}>Now</button>
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">End Time</label>
-                <div className="dt-time-wrap">
-                  <input className="form-input" type="time" value={to24h(stEnd)} onChange={e => setStEnd(to12h(e.target.value))} />
-                  <button className="dt-now-btn" onClick={() => setStEnd(nowHHMM())}>Now</button>
-                </div>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <div className="dt-input-with-mic dt-input-with-mic--textarea">
-                <textarea className="form-input" value={stNotes} onChange={e => setStNotes(e.target.value)} rows={2} />
-                <MicButton onResult={text => setStNotes(prev => prev ? prev + ' ' + text : text)} onError={msg => toast(msg, 'warn')} />
-              </div>
-            </div>
-            <div className="dt-modal-footer">
-              <button className="dt-btn dt-btn-ghost" onClick={() => setSubtaskParent(null)}>Cancel</button>
-              <button className="dt-btn dt-btn-primary" onClick={saveSubtask}>Add Subtask</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Export Modal */}
       {exportOpen && (

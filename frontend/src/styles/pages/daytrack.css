@@ -962,6 +962,25 @@
   border-radius: 1px;
 }
 
+.dt-subtask-inline-row td { vertical-align: middle; }
+.dt-subtask-inline-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dt-subtask-inline-input .dt-input-with-mic { flex: 1; min-width: 0; }
+.dt-input-with-mic--sm .form-input {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  font-size: 12.5px;
+}
+.dt-time-wrap--inline { max-width: 150px; }
+.dt-time-wrap--inline .form-input {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  font-size: 12.5px;
+}
+
 .dt-subtask-parent-label {
   font-size: 12px;
   color: var(--text-muted);

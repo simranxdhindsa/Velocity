@@ -2,11 +2,11 @@
   "name": "velocity-root",
   "private": true,
   "scripts": {
-    "dev": "cls && npx kill-port 8080 && concurrently --names \"go,vite\" --prefix-colors \"cyan,magenta\" \"cd backend && air\" \"cd frontend && npm run dev\"",
-    "fe": "cls &&  npx kill-port 5173 && cd frontend && npm run dev",
-    "be": "cls && npx kill-port 8080 && cd backend && air",
-    "kill": "cls && npx kill-port 8080",
-    "restart": "cls && npx kill-port 8080 && cd backend && air"
+    "dev": "npx kill-port 8080 && concurrently --names \"go,vite\" --prefix-colors \"cyan,magenta\" \"cd backend && air\" \"cd frontend && npm run dev\"",
+    "fe": "npx kill-port 5173 && cd frontend && npm run dev",
+    "be": "npx kill-port 8080 && cd backend && air",
+    "kill": "npx kill-port 8080",
+    "restart": "npx kill-port 8080 && cd backend && air"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
