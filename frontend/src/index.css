@@ -60,6 +60,11 @@
 @import "./styles/pages/theme-settings.css";
 @import "./styles/pages/sprint-radar.css";
 @import "./styles/pages/sprint-pulse.css";
+@import "./styles/pages/onboarding-base.css";
+@import "./styles/pages/onboarding-welcome.css";
+@import "./styles/pages/onboarding-intro.css";
+@import "./styles/pages/onboarding-connect.css";
+@import "./styles/pages/onboarding-ready.css";
 
 /* ── Shared component overlays ── */
 @import "./styles/components/custom-dropdown.css";

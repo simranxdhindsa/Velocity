@@ -1,0 +1,226 @@
+/* ── Onboarding flow shell (ob-*) ─────────────────────────────────────────── */
+
+.ob-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Background blobs (shared drift language w/ 502 page) ───────────────── */
+
+.ob-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+}
+.ob-blob-1 {
+  width: 560px; height: 560px;
+  top: -160px; left: -160px;
+  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.16) 0%, transparent 65%);
+  animation: obBlobDrift 10s ease-in-out infinite alternate;
+}
+.ob-blob-2 {
+  width: 480px; height: 480px;
+  bottom: -140px; right: -140px;
+  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.11) 0%, transparent 65%);
+  animation: obBlobDrift 14s ease-in-out infinite alternate-reverse;
+}
+.ob-blob-3 {
+  width: 320px; height: 320px;
+  top: 60%; left: 50%;
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.08) 0%, transparent 65%);
+  animation: obBlobDrift 18s ease-in-out infinite alternate;
+}
+@keyframes obBlobDrift {
+  from { transform: translate(0, 0) scale(1); }
+  to   { transform: translate(36px, 26px) scale(1.07); }
+}
+
+/* ── Top bar ──────────────────────────────────────────────────────────────── */
+
+.ob-topbar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.75rem;
+}
+.ob-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.ob-skip-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+}
+.ob-skip-link:hover { color: var(--text-primary); background: var(--bg-elevated); }
+
+/* ── Stage (step content area) ───────────────────────────────────────────── */
+
+.ob-stage {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 1.5rem;
+}
+
+.ob-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.6rem;
+  max-width: 560px;
+  width: 100%;
+}
+
+.ob-heading {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0.25rem 0 0;
+}
+.ob-heading-lg { font-size: 1.9rem; }
+
+.ob-sub {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 420px;
+  margin: 0 0 0.5rem;
+}
+
+/* ── Footer (back + progress dots) ───────────────────────────────────────── */
+
+.ob-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.75rem 1.75rem;
+}
+.ob-dots {
+  display: flex;
+  gap: 8px;
+}
+.ob-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: rgba(var(--color-primary-rgb), 0.2);
+  transition: background 0.2s, width 0.2s;
+}
+.ob-dot--active {
+  width: 20px;
+  border-radius: 4px;
+  background: var(--color-primary);
+}
+.ob-dot--done { background: rgba(var(--color-primary-rgb), 0.55); }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+.ob-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 0.85rem;
+  border-radius: var(--radius-md);
+  padding: 0.6rem 1.1rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+.ob-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.ob-btn-primary {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
+  color: #fff;
+  box-shadow: var(--shadow-glow-sm);
+}
+.ob-btn-primary:hover:not(:disabled) { box-shadow: var(--shadow-glow); }
+
+.ob-btn-ghost {
+  background: transparent;
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+.ob-btn-ghost:hover { color: var(--text-primary); background: var(--bg-elevated); }
+
+.ob-btn-lg { padding: 0.75rem 1.6rem; font-size: 0.92rem; }
+.ob-btn-sm { padding: 0.4rem 0.75rem; font-size: 0.78rem; }
+
+.ob-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 0.5rem;
+}
+
+/* ── Forms (shared by YouTrack/Slack connect steps) ──────────────────────── */
+
+.ob-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 360px;
+  margin-top: 0.25rem;
+}
+.ob-input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.85rem;
+  font-family: var(--font-sans);
+  width: 100%;
+  box-sizing: border-box;
+}
+.ob-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.15);
+}
+.ob-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.ob-error {
+  font-size: 0.78rem;
+  color: var(--color-danger);
+  background: var(--color-danger-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.6rem;
+}
+
+/* ── Light mode ───────────────────────────────────────────────────────────── */
+
+[data-theme="light"] .ob-blob-1 { background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.09) 0%, transparent 65%); }
+[data-theme="light"] .ob-blob-2 { background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.06) 0%, transparent 65%); }
+[data-theme="light"] .ob-blob-3 { background: radial-gradient(circle, rgba(6, 182, 212, 0.05) 0%, transparent 65%); }
+[data-theme="light"] .ob-dot { background: rgba(var(--color-primary-rgb), 0.18); }

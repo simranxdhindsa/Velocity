@@ -1,0 +1,69 @@
+/* ── Connect steps (YouTrack / Slack) — shared "linking" visual ─────────── */
+
+.ob-connect-visual {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0.5rem;
+}
+
+.ob-connect-node {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.ob-connect-node--brand {
+  background: rgba(var(--color-primary-rgb), 0.14);
+  color: var(--color-primary);
+  border: 1px solid rgba(var(--color-primary-rgb), 0.3);
+}
+.ob-connect-node--target {
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+}
+
+.ob-connect-line {
+  width: 90px;
+  height: 4px;
+  overflow: visible;
+}
+.ob-connect-line-path {
+  stroke: rgba(var(--color-primary-rgb), 0.25);
+  transition: stroke 0.3s;
+}
+.ob-connect-line-path--active {
+  stroke: var(--color-primary);
+}
+
+/* YouTrack accent — teal/info */
+.ob-step-connect--yt .ob-connect-node--target {
+  color: var(--color-info);
+  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.1);
+}
+.ob-step-connect--yt .ob-connect-line-path--active { stroke: var(--color-info); }
+
+/* Real YouTrack ribbon mark — let its own black/magenta artwork read cleanly,
+   just clip it into the circular node with a hairline border. */
+.ob-connect-node.ob-connect-node--yt-logo {
+  background: #000;
+  border-color: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+/* Slack accent — brand aubergine */
+.ob-step-connect--slack .ob-connect-node--target {
+  color: #ecb22e;
+  border-color: rgba(74, 21, 75, 0.5);
+  background: rgba(74, 21, 75, 0.18);
+}
+.ob-step-connect--slack .ob-connect-line-path--active { stroke: #ecb22e; }
+
+[data-theme="light"] .ob-connect-node--target { background: var(--bg-elevated); }
+[data-theme="light"] .ob-step-connect--slack .ob-connect-node--target { background: rgba(74, 21, 75, 0.08); }

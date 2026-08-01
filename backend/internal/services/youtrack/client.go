@@ -35,6 +35,12 @@ type issueFieldAnchor struct {
 
 // NewClient creates a new YouTrack API client
 func NewClient(baseURL, token, projectID string) *Client {
+	baseURL = strings.TrimSpace(baseURL)
+	// Users commonly paste the host without a scheme (e.g. "team.youtrack.cloud") —
+	// default to https so the outbound request doesn't fail with an unsupported-scheme error.
+	if baseURL != "" && !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
 	// Ensure baseURL doesn't have trailing slash
 	baseURL = strings.TrimSuffix(baseURL, "/")
 

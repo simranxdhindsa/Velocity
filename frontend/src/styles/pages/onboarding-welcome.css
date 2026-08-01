@@ -1,0 +1,50 @@
+/* ── Welcome step — orbit rings + breathing logo ─────────────────────────── */
+
+.ob-welcome-orbit {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+}
+
+.ob-orbit {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--color-primary-rgb), 0.16);
+}
+.ob-orbit-outer { width: 180px; height: 180px; }
+.ob-orbit-inner { width: 118px; height: 118px; border-color: rgba(6, 182, 212, 0.16); }
+
+.ob-orbit-dot {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 9px; height: 9px;
+  border-radius: 50%;
+}
+.ob-orbit-dot--primary {
+  background: rgba(var(--color-primary-rgb), 0.9);
+  box-shadow: 0 0 14px 3px rgba(var(--color-primary-rgb), 0.7);
+}
+.ob-orbit-dot--accent {
+  width: 7px; height: 7px;
+  background: #22d3ee;
+  box-shadow: 0 0 12px 2px rgba(6, 182, 212, 0.75);
+}
+
+.ob-logo-wrap {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 22px rgba(var(--color-primary-rgb), 0.4));
+}
+
+[data-theme="light"] .ob-orbit { border-color: rgba(var(--color-primary-rgb), 0.2); }
+[data-theme="light"] .ob-orbit-inner { border-color: rgba(6, 182, 212, 0.18); }
+[data-theme="light"] .ob-logo-wrap { filter: drop-shadow(0 0 14px rgba(var(--color-primary-rgb), 0.3)); }
