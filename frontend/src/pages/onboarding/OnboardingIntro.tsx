@@ -12,7 +12,7 @@ interface Feature {
 const FEATURES: Feature[] = [
   { key: 'sprint', icon: Zap,           title: 'Sprint Pulse',    blurb: 'Live priority swimlanes, kanban, and focus views that track every ticket in real time.' },
   { key: 'ops',    icon: Activity,      title: 'Daily Ops',       blurb: 'See developer load, stuck tickets, and hotfixes across the whole team at a glance.' },
-  { key: 'sync',   icon: RefreshCw,     title: 'YouTrack Sync',   blurb: 'Two-way sync — create, edit, and track tickets without leaving Velocity.' },
+  { key: 'sync',   icon: RefreshCw,     title: 'YouTrack Sync',   blurb: 'Two-way sync lets you create, edit, and track tickets without leaving Velocity.' },
   { key: 'slack',  icon: MessageSquare, title: 'Slack Updates',   blurb: 'Automated standups and reminders posted straight to your team channel.' },
 ]
 
@@ -60,7 +60,7 @@ export default function OnboardingIntro({ onNext }: { onNext: () => void }) {
       transition={{ duration: 0.5, ease: 'easeOut' }}
     >
       <h2 className="ob-heading">What is Velocity?</h2>
-      <p className="ob-sub">One workspace for sprint tracking, daily standups, and YouTrack + Slack — built for how your team actually ships.</p>
+      <p className="ob-sub">One workspace for sprint tracking, daily standups, and YouTrack + Slack, built for how your team actually ships.</p>
 
       <div className="ob-fcard-grid">
         {FEATURES.map((f, i) => <FeatureCard key={f.key} feature={f} index={i} />)}

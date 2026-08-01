@@ -65,6 +65,7 @@
 @import "./styles/pages/onboarding-intro.css";
 @import "./styles/pages/onboarding-connect.css";
 @import "./styles/pages/onboarding-ready.css";
+@import "./styles/pages/onboarding-complete.css";
 
 /* ── Shared component overlays ── */
 @import "./styles/components/custom-dropdown.css";

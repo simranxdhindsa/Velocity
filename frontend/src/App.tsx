@@ -1,4 +1,4 @@
-import { BrowserRouter, useLocation } from 'react-router-dom'
+import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom'
 import { Suspense } from 'react'
 import { SvgVDrawLoader } from '@/components/brand/VelocityLoaders'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
@@ -19,12 +19,18 @@ function AppContent() {
   const { isDown } = useGatewayError()
   const { loading: onboardingLoading, needsOnboarding, dismiss: dismissOnboarding } = useOnboardingGate(isAuthenticated)
   const location = useLocation()
+  const navigate = useNavigate()
 
   if (location.pathname === '/theme-preview') return <ThemePreviewPage />
   if (location.pathname === '/502-preview') return <GatewayError502Page />
   if (location.pathname === '/oauth/authorize') return <OAuthAuthorizePage />
   if (location.pathname === '/oauth-preview') return <OAuthAuthorizePage />
-  if (location.pathname === '/onboarding-preview') return <OnboardingFlow onFinish={() => {}} />
+  if (location.pathname === '/onboarding-preview') {
+    // Hand off to the real app on finish instead of dead-ending on the completion
+    // screen — if you're actually logged in with both integrations configured,
+    // this lands on the real Dashboard, same as the genuine flow would.
+    return <OnboardingFlow onFinish={() => navigate('/')} />
+  }
 
   if (isDown) return <GatewayError502Page />
 

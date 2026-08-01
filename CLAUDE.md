@@ -380,6 +380,10 @@ If the same UI pattern is needed in 2+ places, extract it into a shared componen
 - Full prop reference for all three: [`docs/features/shared-components.md`](docs/features/shared-components.md)
 - If you find yourself copying a block of JSX from one page to another, stop — extract a shared component instead.
 
+### 10 — UI Copy
+
+**Never use em dashes (`—`) or double dashes (`--`) in user-facing text** — headings, subtitles, button labels, tips, toasts, error messages, placeholders, anything rendered on screen. Rewrite as two sentences, or join with a comma/"and"/"so" instead. This does not apply to code (JSX class names like `ob-chipcard--active`, code comments, commit messages).
+
 ---
 
 ---

@@ -20,6 +20,17 @@ type SettingsHandler struct {
 	settingsRepo *database.SettingsRepository
 }
 
+// normalizeYouTrackBaseURL defaults to https:// when the user enters a bare
+// host (e.g. "team.youtrack.cloud") — mirrors youtrack.NewClient's normalization
+// so the SSRF check below validates the same URL that will actually be used.
+func normalizeYouTrackBaseURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw != "" && !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+		raw = "https://" + raw
+	}
+	return strings.TrimSuffix(raw, "/")
+}
+
 // validateYouTrackURL rejects SSRF targets: only http/https allowed, no private/loopback/link-local IPs.
 func validateYouTrackURL(raw string) error {
 	u, err := url.Parse(raw)
@@ -308,6 +319,7 @@ func (h *SettingsHandler) SaveYouTrackIntegration(w http.ResponseWriter, r *http
 		http.Error(w, "base_url and project_id are required", http.StatusBadRequest)
 		return
 	}
+	req.BaseURL = normalizeYouTrackBaseURL(req.BaseURL)
 
 	// Token is optional on update — reuse the existing saved token if not provided
 	if req.Token == "" {

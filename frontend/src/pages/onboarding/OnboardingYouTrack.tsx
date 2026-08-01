@@ -1,15 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Link2, CheckCircle2 } from 'lucide-react'
 import api from '@/services/api'
-import { CustomDropdown } from '@/components/CustomDropdown'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { YouTrackSyncIcon } from '@/components/YouTrackSyncIcon'
+import OnboardingChipSelect from './OnboardingChipSelect'
 
 export default function OnboardingYouTrack({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
   const [baseUrl,       setBaseUrl]       = useState('')
   const [token,         setToken]         = useState('')
-  const [projects,      setProjects]      = useState<Array<{ id: string; name: string }>>([])
+  const [projects,      setProjects]      = useState<Array<{ id: string; name: string; code: string }>>([])
   const [projectId,     setProjectId]     = useState('')
   const [boards,        setBoards]        = useState<Array<{ id: string; name: string }>>([])
   const [boardId,       setBoardId]       = useState('')
@@ -32,14 +32,14 @@ export default function OnboardingYouTrack({ onNext, onSkip }: { onNext: () => v
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const r = res as any
         if (r?.success === false) {
-          setError(r?.message ?? 'Cannot connect — check URL and token')
+          setError(r?.message ?? 'Cannot connect. Check URL and token.')
           return
         }
         const raw: Array<{ id: string; name: string; shortName: string }> = r?.data ?? []
-        setProjects(raw.filter(p => p.shortName).map(p => ({ id: p.shortName, name: `${p.name} (${p.shortName})` })))
+        setProjects(raw.filter(p => p.shortName).map(p => ({ id: p.shortName, name: p.name, code: p.shortName })))
         setProbed(true)
       } catch {
-        setError('Cannot connect — check URL and token')
+        setError('Cannot connect. Check URL and token.')
       } finally {
         setProbing(false)
       }
@@ -128,22 +128,30 @@ export default function OnboardingYouTrack({ onNext, onSkip }: { onNext: () => v
         />
         {probing && <div className="ob-hint">Checking connection…</div>}
         {error && <div className="ob-error">{error}</div>}
-        {projects.length > 0 && (
-          <CustomDropdown
-            options={projects.map(p => ({ value: p.id, label: p.name }))}
-            value={projectId}
-            onChange={handleProjectSelect}
-            placeholder="Select a project"
-          />
-        )}
-        {projectId && (boardsLoading || boards.length > 0) && (
-          <CustomDropdown
-            options={boards.map(b => ({ value: b.id, label: b.name }))}
-            value={boardId}
-            onChange={setBoardId}
-            placeholder={boardsLoading ? 'Loading boards…' : boards.length === 0 ? 'No boards for this project' : 'Select a board (optional)'}
-          />
-        )}
+        <AnimatePresence>
+          {projects.length > 0 && (
+            <OnboardingChipSelect
+              key="projects"
+              groupId="ob-yt-project"
+              label="Project"
+              options={projects.map(p => ({ value: p.id, label: p.name, sublabel: p.code }))}
+              value={projectId}
+              onChange={handleProjectSelect}
+            />
+          )}
+          {projectId && (boardsLoading || boards.length > 0) && (
+            <OnboardingChipSelect
+              key="boards"
+              groupId="ob-yt-board"
+              label="Board (optional)"
+              options={boards.map(b => ({ value: b.id, label: b.name }))}
+              value={boardId}
+              onChange={setBoardId}
+              loading={boardsLoading}
+              emptyText="No boards for this project"
+            />
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="ob-actions">

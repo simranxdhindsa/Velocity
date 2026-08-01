@@ -18,7 +18,7 @@ export default function OnboardingSlack({ onNext, onSkip }: { onNext: () => void
       setConnected(true)
       setTimeout(onNext, 900)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect — check your bot token')
+      setError(err instanceof Error ? err.message : 'Failed to connect. Check your bot token.')
     } finally {
       setConnecting(false)
     }

@@ -8,10 +8,10 @@ interface Tip {
 }
 
 const TIPS: Tip[] = [
-  { icon: Mic,       text: 'Use the mic icon anywhere you see it — speak tasks and notes instead of typing.' },
+  { icon: Mic,       text: 'Use the mic icon anywhere you see it to speak tasks and notes instead of typing.' },
   { icon: PinOff,    text: 'Park any blocked ticket to hide it across every view, without closing it in YouTrack.' },
   { icon: RefreshCw, text: 'Switch your active PM data source anytime from Integrations at the top of the page.' },
-  { icon: Sparkles,  text: 'Ask the Assistant tab anything about your sprint — it speaks fluent YQL.' },
+  { icon: Sparkles,  text: 'Ask the Assistant tab anything about your sprint. It speaks fluent YQL.' },
 ]
 
 function Particle({ x, delay, duration }: { x: number; delay: number; duration: number }) {

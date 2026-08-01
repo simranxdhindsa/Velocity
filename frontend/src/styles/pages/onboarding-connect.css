@@ -67,3 +67,116 @@
 
 [data-theme="light"] .ob-connect-node--target { background: var(--bg-elevated); }
 [data-theme="light"] .ob-step-connect--slack .ob-connect-node--target { background: rgba(74, 21, 75, 0.08); }
+
+/* Wider form area for connect steps — chip rows need more breathing room than a dropdown */
+.ob-step-connect .ob-form { max-width: 420px; }
+
+/* ── Chip select (project / board picker) ────────────────────────────────── */
+
+.ob-chipselect {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.ob-chipselect-label {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.ob-chipselect-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.ob-chipselect-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ob-chipcard {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0.5rem 0.9rem 0.5rem 0.5rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.ob-chipcard:hover { border-color: rgba(var(--color-primary-rgb), 0.4); }
+.ob-chipcard--active { border-color: transparent; }
+
+/* The shared-layout highlight — Framer Motion morphs this smoothly between
+   whichever card currently owns the layoutId, instead of a hard color swap. */
+.ob-chipcard-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
+  box-shadow: var(--shadow-glow-sm);
+}
+
+.ob-chipcard-avatar {
+  position: relative;
+  z-index: 1;
+  width: 26px; height: 26px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: rgba(var(--color-primary-rgb), 0.16);
+  color: var(--color-primary);
+}
+.ob-chipcard--active .ob-chipcard-avatar {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.ob-chipcard-text {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.25;
+}
+.ob-chipcard-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.ob-chipcard--active .ob-chipcard-title { color: #fff; }
+.ob-chipcard-sub {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.ob-chipcard--active .ob-chipcard-sub { color: rgba(255, 255, 255, 0.75); }
+
+.ob-chipcard-check {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .ob-chipcard { background: var(--bg-elevated); }
+[data-theme="light"] .ob-chipcard-avatar { background: rgba(var(--color-primary-rgb), 0.12); }

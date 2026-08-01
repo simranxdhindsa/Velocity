@@ -1,0 +1,125 @@
+/* ── Onboarding completion sequence (obc-*) — full-screen takeover ──────── */
+
+.obc-root {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-base);
+  overflow: hidden;
+}
+
+.obc-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+}
+.obc-blob-1 {
+  width: 620px; height: 620px;
+  top: -180px; left: -180px;
+  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.2) 0%, transparent 65%);
+  animation: obcBlobDrift 8s ease-in-out infinite alternate;
+}
+.obc-blob-2 {
+  width: 520px; height: 520px;
+  bottom: -160px; right: -160px;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.14) 0%, transparent 65%);
+  animation: obcBlobDrift 11s ease-in-out infinite alternate-reverse;
+}
+@keyframes obcBlobDrift {
+  from { transform: translate(0, 0) scale(1); }
+  to   { transform: translate(30px, 24px) scale(1.06); }
+}
+
+.obc-center {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4rem;
+}
+
+.obc-ring-wrap {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.obc-ring-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.obc-ring-track {
+  fill: none;
+  stroke: rgba(var(--color-primary-rgb), 0.14);
+  stroke-width: 5;
+}
+.obc-ring-progress {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 5;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 8px rgba(var(--color-primary-rgb), 0.7));
+}
+
+.obc-ring-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 20px rgba(var(--color-primary-rgb), 0.4));
+}
+
+.obc-check-badge {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-success), var(--color-success-light));
+  box-shadow: var(--shadow-glow-success);
+}
+
+.obc-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.obc-burst-particle {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 6px; height: 6px;
+  margin: -3px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.8);
+}
+
+.obc-text-wrap {
+  min-height: 1.6em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.obc-text {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+[data-theme="light"] .obc-blob-1 { background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.12) 0%, transparent 65%); }
+[data-theme="light"] .obc-blob-2 { background: radial-gradient(circle, rgba(16, 185, 129, 0.09) 0%, transparent 65%); }
+[data-theme="light"] .obc-ring-track { stroke: rgba(var(--color-primary-rgb), 0.16); }

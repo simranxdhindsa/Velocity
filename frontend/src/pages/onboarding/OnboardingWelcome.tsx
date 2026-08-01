@@ -50,7 +50,7 @@ export default function OnboardingWelcome({ userName, onNext }: { userName?: str
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
       >
-        Let's get your workspace set up — it only takes a minute.
+        Let's get your workspace set up. It only takes a minute.
       </motion.p>
 
       <motion.button
