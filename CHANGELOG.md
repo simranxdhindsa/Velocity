@@ -6,6 +6,9 @@
 - add 5-screen onboarding flow for new users
 
 
+### Enhancements
+- onboarding polish - chip-card picker, completion animation, copy cleanup, YouTrack URL-scheme fix
+
 ## 2026-07-31
 
 ### Enhancements
