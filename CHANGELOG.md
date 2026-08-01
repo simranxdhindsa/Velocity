@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-01
+
+### Features
+- add 5-screen onboarding flow for new users
+
+
 ## 2026-07-31
 
 ### Enhancements
