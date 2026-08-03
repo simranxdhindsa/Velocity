@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/middleware"
+	"github.com/dhindsa/project-management/internal/services/s3storage"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 	updatesvc "github.com/dhindsa/project-management/internal/services/update_reminder"
 	youtrack "github.com/dhindsa/project-management/internal/services/youtrack"
@@ -70,6 +72,20 @@ func mcpYTClient(ctx context.Context, userID string) *youtrack.Client {
 		client.SetBoardID(boardID)
 	}
 	return client
+}
+
+// mcpS3Client builds the S3 client used for MCP ticket-attachment uploads.
+// Config comes from env vars only — this is an infra credential, not a
+// per-user setting like YouTrack/Slack.
+func mcpS3Client(ctx context.Context) (*s3storage.Client, error) {
+	region := os.Getenv("AWS_REGION")
+	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
+	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	bucket := os.Getenv("S3_ATTACHMENTS_BUCKET")
+	if region == "" || accessKeyID == "" || secretAccessKey == "" || bucket == "" {
+		return nil, errors.New("attachment uploads are not configured — set AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_ATTACHMENTS_BUCKET")
+	}
+	return s3storage.NewClient(ctx, region, accessKeyID, secretAccessKey, bucket)
 }
 
 // MCPHandler serves the MCP protocol endpoint used by Claude's custom connector.
@@ -259,8 +275,26 @@ var mcpTools = []map[string]interface{}{
 		},
 	},
 	{
+		"name":        "create_attachment_upload_url",
+		"description": "Generates a presigned S3 URL for uploading a large or local file (screenshot, image, video) that will then be attached to a YouTrack ticket via upload_youtrack_attachment's s3_object_key parameter. Use this instead of file_base64 for anything too large to send as base64 (e.g. videos, or when file_base64 has failed/been unreliable). Steps: (1) call this tool, (2) PUT the raw file bytes to upload_url with a Content-Type header exactly matching the content_type you passed here, (3) call upload_youtrack_attachment with s3_object_key set to the returned object_key. The URL expires in expires_in_seconds — upload promptly.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"filename": map[string]string{
+					"type":        "string",
+					"description": "Original filename, e.g. 'screenshot.png'.",
+				},
+				"content_type": map[string]string{
+					"type":        "string",
+					"description": "MIME type of the file, e.g. 'image/png', 'video/mp4'. Must match the Content-Type header sent on the PUT.",
+				},
+			},
+			"required": []string{"filename", "content_type"},
+		},
+	},
+	{
 		"name":        "upload_youtrack_attachment",
-		"description": "Uploads a file attachment to a YouTrack ticket. Provide either file_url (a publicly accessible URL to download from) or file_base64 (raw file bytes, base64-encoded — use this for local/pasted files that have no public URL, e.g. a screenshot shared in chat).",
+		"description": "Uploads a file attachment to a YouTrack ticket. Provide exactly one of: file_url (a publicly accessible URL to download from), file_base64 (raw file bytes, base64-encoded — use for small local/pasted files), or s3_object_key (from create_attachment_upload_url — use for large files or videos).",
 		"inputSchema": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -270,19 +304,23 @@ var mcpTools = []map[string]interface{}{
 				},
 				"file_url": map[string]string{
 					"type":        "string",
-					"description": "Publicly accessible URL of the file to upload. Omit if using file_base64.",
+					"description": "Publicly accessible URL of the file to upload. Omit if using file_base64 or s3_object_key.",
 				},
 				"file_base64": map[string]string{
 					"type":        "string",
-					"description": "Base64-encoded file content. Use for local/pasted files with no public URL. Omit if using file_url.",
+					"description": "Base64-encoded file content. Use for small local/pasted files with no public URL. Omit if using file_url or s3_object_key.",
+				},
+				"s3_object_key": map[string]string{
+					"type":        "string",
+					"description": "object_key returned by create_attachment_upload_url, after the file has been PUT to its upload_url. Omit if using file_url or file_base64.",
 				},
 				"mime_type": map[string]string{
 					"type":        "string",
-					"description": "MIME type of the file, e.g. 'image/png'. Used with file_base64; inferred from the URL response when using file_url.",
+					"description": "MIME type of the file, e.g. 'image/png'. Used with file_base64/s3_object_key; inferred from the response when using file_url.",
 				},
 				"filename": map[string]string{
 					"type":        "string",
-					"description": "Filename to use in YouTrack, e.g. 'screenshot.png'. Infer from URL if not provided when using file_url; recommended when using file_base64.",
+					"description": "Filename to use in YouTrack, e.g. 'screenshot.png'. Infer from URL if not provided when using file_url; recommended otherwise.",
 				},
 			},
 			"required": []string{"issue_id"},
@@ -684,16 +722,39 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		}
 		return toolOK(id, fmt.Sprintf("Updated %s — %s", args.IssueID, issue.Summary))
 
+	case "create_attachment_upload_url":
+		var args struct {
+			Filename    string `json:"filename"`
+			ContentType string `json:"content_type"`
+		}
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.Filename == "" || args.ContentType == "" {
+			return rpcErr(id, -32602, "invalid arguments: filename and content_type are required")
+		}
+		s3Client, err := mcpS3Client(ctx)
+		if err != nil {
+			return toolError(id, err.Error())
+		}
+		upload, err := s3Client.PresignPut(ctx, args.Filename, args.ContentType)
+		if err != nil {
+			return toolError(id, "failed to create upload URL: "+err.Error())
+		}
+		return toolOK(id, fmt.Sprintf(
+			"upload_url: %s\nobject_key: %s\nexpires_in_seconds: %d\n\nPUT the raw file bytes to upload_url with header Content-Type: %s, then call upload_youtrack_attachment with s3_object_key=%q.",
+			upload.UploadURL, upload.ObjectKey, upload.ExpiresIn, args.ContentType, upload.ObjectKey,
+		))
+
 	case "upload_youtrack_attachment":
 		var args struct {
-			IssueID    string `json:"issue_id"`
-			FileURL    string `json:"file_url"`
-			FileBase64 string `json:"file_base64"`
-			MimeType   string `json:"mime_type"`
-			Filename   string `json:"filename"`
+			IssueID     string `json:"issue_id"`
+			FileURL     string `json:"file_url"`
+			FileBase64  string `json:"file_base64"`
+			S3ObjectKey string `json:"s3_object_key"`
+			MimeType    string `json:"mime_type"`
+			Filename    string `json:"filename"`
 		}
-		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.IssueID == "" || (args.FileURL == "" && args.FileBase64 == "") {
-			return rpcErr(id, -32602, "invalid arguments: issue_id and one of file_url/file_base64 are required")
+		if err := json.Unmarshal(p.Arguments, &args); err != nil || args.IssueID == "" ||
+			(args.FileURL == "" && args.FileBase64 == "" && args.S3ObjectKey == "") {
+			return rpcErr(id, -32602, "invalid arguments: issue_id and one of file_url/file_base64/s3_object_key are required")
 		}
 		ytClient := mcpYTClient(ctx, userID)
 		if ytClient == nil {
@@ -701,13 +762,39 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		}
 
 		var content []byte
+		var err error
 		filename := args.Filename
 		mimeType := args.MimeType
+		var s3Client *s3storage.Client
 
-		if args.FileBase64 != "" {
-			decoded, err := base64.StdEncoding.DecodeString(args.FileBase64)
+		switch {
+		case args.S3ObjectKey != "":
+			s3Client, err = mcpS3Client(ctx)
 			if err != nil {
-				return toolError(id, "invalid file_base64: "+err.Error())
+				return toolError(id, err.Error())
+			}
+			var fetchedMime string
+			content, fetchedMime, err = s3Client.GetObject(ctx, args.S3ObjectKey)
+			if err != nil {
+				if errors.Is(err, s3storage.ErrObjectTooLarge) {
+					return toolError(id, "attachment is too large — delete it and re-upload a smaller file")
+				}
+				return toolError(id, "failed to fetch uploaded file from S3: "+err.Error())
+			}
+			if filename == "" {
+				filename = "attachment"
+			}
+			if mimeType == "" {
+				mimeType = fetchedMime
+			}
+			if mimeType == "" {
+				mimeType = "application/octet-stream"
+			}
+
+		case args.FileBase64 != "":
+			decoded, decErr := base64.StdEncoding.DecodeString(args.FileBase64)
+			if decErr != nil {
+				return toolError(id, "invalid file_base64: "+decErr.Error())
 			}
 			content = decoded
 			if filename == "" {
@@ -716,11 +803,12 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 			if mimeType == "" {
 				mimeType = "application/octet-stream"
 			}
-		} else {
+
+		default:
 			// Download the file from the provided URL
-			httpResp, err := http.Get(args.FileURL) //nolint:noctx
-			if err != nil {
-				return toolError(id, "failed to download file: "+err.Error())
+			httpResp, getErr := http.Get(args.FileURL) //nolint:noctx
+			if getErr != nil {
+				return toolError(id, "failed to download file: "+getErr.Error())
 			}
 			defer httpResp.Body.Close()
 			if httpResp.StatusCode >= 400 {
@@ -748,7 +836,16 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		}
 
 		if err := ytClient.UploadAttachment(ctx, args.IssueID, filename, mimeType, content); err != nil {
+			// Leave the S3 object in place on failure so the file isn't lost — the
+			// caller can retry upload_youtrack_attachment with the same s3_object_key.
 			return toolError(id, "failed to upload attachment: "+err.Error())
+		}
+		if s3Client != nil {
+			if delErr := s3Client.DeleteObject(ctx, args.S3ObjectKey); delErr != nil {
+				// The YouTrack push already succeeded — a cleanup failure shouldn't
+				// surface as a tool error. The 3-day lifecycle rule catches it.
+				fmt.Printf("[mcp] warning: failed to delete S3 object %s after successful upload: %v\n", args.S3ObjectKey, delErr)
+			}
 		}
 		return toolOK(id, fmt.Sprintf("Uploaded '%s' to %s (%d bytes)", filename, args.IssueID, len(content)))
 
