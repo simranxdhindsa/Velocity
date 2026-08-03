@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-03
+
+### Features
+- add S3-backed file upload to MCP connector for ticket attachments
+
+
 ## 2026-08-01
 
 ### Features
