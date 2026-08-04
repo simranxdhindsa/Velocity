@@ -6,6 +6,12 @@
 - embed uploaded attachments inline in ticket description
 
 
+### Bug Fixes
+- fix Dashboard remount loop from stale loading state in useOnboardingGate
+
+### Features
+- add Slack Messages Hub - live 1:1 channel replica in Slack Intelligence
+
 ## 2026-08-03
 
 ### Features
