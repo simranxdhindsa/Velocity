@@ -39,6 +39,10 @@ export const PERSIST = {
   QUEUE_DEFAULT_TIME: 'queue_default_send_time',
   /** MCP plain token — stored so connector URL is always visible without re-generating */
   MCP_PLAIN_TOKEN: 'mcp_plain_token',
+  /** Slack Messages hub — last selected channel id */
+  SLACK_HUB_CHANNEL: 'slack_hub_channel',
+  /** Slack Messages hub — per-channel last-viewed timestamp (JSON), drives unread bolding */
+  SLACK_HUB_LAST_VIEWED: 'slack_hub_last_viewed',
 } as const
 
 export type PersistKey = typeof PERSIST[keyof typeof PERSIST]

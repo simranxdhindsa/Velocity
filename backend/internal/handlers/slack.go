@@ -598,7 +598,7 @@ func (h *SlackHandler) PostMorningReport(w http.ResponseWriter, r *http.Request)
 	var posted []string
 	var errs []string
 	for _, channelID := range req.ChannelIDs {
-		if err := h.service.PostMessage(r.Context(), userID, channelID, req.ReportText); err != nil {
+		if err := h.service.PostMessage(r.Context(), userID, channelID, "report", req.ReportText); err != nil {
 			errs = append(errs, channelID+": "+err.Error())
 		} else {
 			posted = append(posted, channelID)

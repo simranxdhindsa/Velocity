@@ -387,7 +387,7 @@ func (h *UpdateReminderHandler) QuickSend(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	slackTS, channelID, err := h.service.QuickSend(r.Context(), u.ID, req.ChannelID, req.Message, req.DmUserID)
+	slackTS, channelID, err := h.service.QuickSend(r.Context(), u.ID, req.ChannelID, req.Message, req.DmUserID, "quick_send")
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

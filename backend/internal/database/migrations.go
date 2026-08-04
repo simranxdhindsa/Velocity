@@ -1178,6 +1178,27 @@ WHERE bot_type = 'ticket_parser'`,
 		`CREATE INDEX IF NOT EXISTS idx_pending_slack_messages_user_id ON pending_slack_messages(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_pending_slack_messages_scheduled ON pending_slack_messages(scheduled_at) WHERE status = 'pending'`,
 
+		// ── Sent Slack message log — unified history across every feature that posts
+		// to Slack (Claude Queue, Quick Send, blocker alerts, daily digest, standup
+		// compiler, DayTrack, MCP). Powers the Slack Messages hub view: every send
+		// site writes one row here, so edit/delete work the same regardless of source.
+		// source: claude_queue | quick_send | blocker_alert | time_threshold_alert |
+		//         daily_digest | standup | daytrack | mcp
+		`CREATE TABLE IF NOT EXISTS sent_slack_messages (
+			id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id       VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			source        VARCHAR(30) NOT NULL,
+			channel_id    TEXT NOT NULL,
+			channel_label TEXT NOT NULL DEFAULT '',
+			message       TEXT NOT NULL,
+			slack_ts      TEXT NOT NULL,
+			sent_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			edited_at     TIMESTAMPTZ
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sent_slack_messages_user ON sent_slack_messages(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sent_slack_messages_channel ON sent_slack_messages(channel_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sent_slack_messages_sent_at ON sent_slack_messages(sent_at DESC)`,
+
 		// Per-user parked (ignored) blocked tickets — global across all PM views
 		// user_id is VARCHAR to match users.id type; gen_random_uuid() requires no extension
 		`CREATE TABLE IF NOT EXISTS user_ignored_blocked_tickets (

@@ -33,14 +33,24 @@ func NewClient(botToken string) *Client {
 
 // Message represents a Slack message
 type Message struct {
-	TS         string `json:"ts"`
-	User       string `json:"user"`
-	Text       string `json:"text"`
-	Type       string `json:"type"`
-	Subtype    string `json:"subtype,omitempty"`
-	BotID      string `json:"bot_id,omitempty"`
-	ThreadTS   string `json:"thread_ts,omitempty"`
-	ReplyCount int    `json:"reply_count,omitempty"`
+	TS          string       `json:"ts"`
+	User        string       `json:"user"`
+	Text        string       `json:"text"`
+	Type        string       `json:"type"`
+	Subtype     string       `json:"subtype,omitempty"`
+	BotID       string       `json:"bot_id,omitempty"`
+	Username    string       `json:"username,omitempty"`
+	ThreadTS    string       `json:"thread_ts,omitempty"`
+	ReplyCount  int          `json:"reply_count,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+}
+
+// Attachment is a legacy Slack message attachment. Bot integrations (like
+// YouTrack's native Slack app) often post rich Block Kit content this way —
+// Fallback is Slack's own plain-text summary of the whole attachment, used
+// here as a reliable text source when the message's own Text field is empty.
+type Attachment struct {
+	Fallback string `json:"fallback"`
 }
 
 // Channel represents a Slack channel
@@ -277,6 +287,41 @@ func (c *Client) GetUser(ctx context.Context, userID string) (*User, error) {
 	}
 
 	return &resp.User, nil
+}
+
+// BotInfo is a Slack bot integration's identity (e.g. a workspace app like
+// YouTrack's native Slack integration, distinct from Velocity's own bot).
+type BotInfo struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Icons struct {
+		Image48 string `json:"image_48"`
+	} `json:"icons"`
+}
+
+// GetBotInfo resolves a bot_id (from a message) to its display name/icon —
+// used to label messages from other Slack apps (e.g. "YouTrack") instead of
+// a generic fallback.
+func (c *Client) GetBotInfo(ctx context.Context, botID string) (*BotInfo, error) {
+	params := url.Values{}
+	params.Set("bot", botID)
+
+	body, err := c.doGetRequest(ctx, "/bots.info", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Response
+		Bot BotInfo `json:"bot"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("slack API error: %s", resp.Error)
+	}
+	return &resp.Bot, nil
 }
 
 // GetYesterdayMessages returns messages from yesterday for a channel

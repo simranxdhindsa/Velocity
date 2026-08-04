@@ -9,10 +9,11 @@ import type { SlackMention, SlackThread, ReminderItem, ChannelRef } from '../ser
 import { SlackIcon, MentionCard, ThreadCard, isSnoozed, cleanSlackText, timeAgo } from './SlackCards'
 import { SprintPulseTab, SavedItemsTab, SettingsTabContent, RemindersTabContent, getPresetDate } from './SlackTabs'
 import type { Preset } from './SlackTabs'
+import { SlackMessagesHub } from './SlackMessagesHub'
 import '../styles/pages/slack.css'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Tab = 'inbox' | 'threads' | 'reminders' | 'pulse' | 'saved' | 'settings'
+type Tab = 'inbox' | 'threads' | 'reminders' | 'pulse' | 'messages' | 'saved' | 'settings'
 type InboxFilter = 'Needs Action' | 'Pinned' | 'All' | 'Snoozed' | 'Resolved'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -242,6 +243,7 @@ export function SlackIntelligencePage({
     { id: 'threads',  label: 'My Threads',     badge: threads.filter(t => !t.has_reply && !isSnoozed(t.snoozed_until)).length || undefined },
     { id: 'reminders',       label: 'Reminders',        badge: upcomingReminders.length || undefined },
     { id: 'pulse',           label: 'Sprint Pulse',     badge: 'dot' },
+    { id: 'messages', label: 'Messages' },
     { id: 'saved',    label: 'Saved' },
     { id: 'settings', label: 'Settings' },
   ]
@@ -421,6 +423,8 @@ export function SlackIntelligencePage({
         )}
 
         {tab === 'pulse' && <SprintPulseTab onOpenPMAssistant={onOpenPMAssistant} ytBaseUrl={ytBaseUrl} />}
+
+        {tab === 'messages' && <SlackMessagesHub />}
 
         {tab === 'saved' && <SavedItemsTab slackTeamId={slackTeamId} />}
 

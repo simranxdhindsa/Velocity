@@ -118,10 +118,10 @@ func RunPendingMessagesScheduler() {
 				var slackTS string
 				var sendErr error
 				if msg.DmUserID != "" {
-					_, ts, e := svc.QuickSend(ctx, msg.UserID, "", msg.Message, msg.DmUserID)
+					_, ts, e := svc.QuickSend(ctx, msg.UserID, "", msg.Message, msg.DmUserID, "claude_queue")
 					slackTS, sendErr = ts, e
 				} else {
-					ts, _, e := svc.QuickSend(ctx, msg.UserID, msg.ChannelID, msg.Message, "")
+					ts, _, e := svc.QuickSend(ctx, msg.UserID, msg.ChannelID, msg.Message, "", "claude_queue")
 					slackTS, sendErr = ts, e
 				}
 				if sendErr != nil {
@@ -208,7 +208,7 @@ func (h *PendingMessagesHandler) SendNow(w http.ResponseWriter, r *http.Request)
 
 	var slackTS string
 	if target.DmUserID != "" {
-		_, ts, e := h.updateSvc.QuickSend(r.Context(), u.ID, "", target.Message, target.DmUserID)
+		_, ts, e := h.updateSvc.QuickSend(r.Context(), u.ID, "", target.Message, target.DmUserID, "claude_queue")
 		if e != nil {
 			_ = h.repo.MarkFailed(r.Context(), id, e.Error())
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": e.Error()})
@@ -216,7 +216,7 @@ func (h *PendingMessagesHandler) SendNow(w http.ResponseWriter, r *http.Request)
 		}
 		slackTS = ts
 	} else {
-		ts, _, e := h.updateSvc.QuickSend(r.Context(), u.ID, target.ChannelID, target.Message, "")
+		ts, _, e := h.updateSvc.QuickSend(r.Context(), u.ID, target.ChannelID, target.Message, "", "claude_queue")
 		if e != nil {
 			_ = h.repo.MarkFailed(r.Context(), id, e.Error())
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": e.Error()})

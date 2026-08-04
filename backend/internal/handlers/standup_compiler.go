@@ -447,7 +447,7 @@ func (h *StandupCompilerHandler) Post(w http.ResponseWriter, r *http.Request) {
 	}
 
 	text := standupFormatMrkdwn(body.Updates)
-	if err := h.slackService.PostMessage(r.Context(), user.ID, body.ChannelID, text); err != nil {
+	if err := h.slackService.PostMessage(r.Context(), user.ID, body.ChannelID, "standup", text); err != nil {
 		http.Error(w, "failed to post: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

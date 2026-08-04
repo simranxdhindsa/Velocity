@@ -16,12 +16,25 @@ import (
 type Service struct {
 	repo            *database.UpdateReminderRepository
 	integrationRepo *database.IntegrationRepository
+	sentRepo        *database.SentSlackMessagesRepository
 }
 
 func NewService() *Service {
 	return &Service{
 		repo:            database.NewUpdateReminderRepository(),
 		integrationRepo: database.NewIntegrationRepository(),
+		sentRepo:        database.NewSentSlackMessagesRepository(),
+	}
+}
+
+// logSent records a just-sent message in the unified Slack Messages hub log.
+// Best-effort: a logging failure never fails the send itself.
+func (s *Service) logSent(ctx context.Context, userID, source, channelID, message, slackTs string) {
+	if slackTs == "" || channelID == "" {
+		return
+	}
+	if _, err := s.sentRepo.Log(ctx, userID, source, channelID, "", message, slackTs); err != nil {
+		fmt.Printf("[update_reminder] warning: failed to log sent message (source=%s): %v\n", source, err)
 	}
 }
 
@@ -330,10 +343,11 @@ func (s *Service) Execute(ctx context.Context, rule *models.UpdateReminderRule, 
 		result.SkippedSend = "no missing members — everyone has posted"
 	} else {
 		if rule.DeliveryChannel && rule.DeliveryChannelID != "" {
-			if _, err := client.PostMessage(ctx, rule.DeliveryChannelID, renderedChannel); err != nil {
+			if ts, err := client.PostMessage(ctx, rule.DeliveryChannelID, renderedChannel); err != nil {
 				deliveryErrors = append(deliveryErrors, "channel "+rule.DeliveryChannelID+": "+err.Error())
 			} else {
 				delivered = append(delivered, "channel:"+rule.DeliveryChannelID)
+				s.logSent(ctx, rule.UserID, "rules", rule.DeliveryChannelID, renderedChannel, ts)
 			}
 		} else if !rule.DeliveryChannel || rule.DeliveryChannelID == "" {
 			deliveryErrors = append(deliveryErrors, "channel delivery not configured in rule")
@@ -394,8 +408,9 @@ func (s *Service) ExecuteScheduled(ctx context.Context, rule *models.UpdateRemin
 	return nil
 }
 
-// QuickSend posts a one-off message to a channel or DM using the user's Slack token
-func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmUserID string) (slackTS, resolvedChannelID string, err error) {
+// QuickSend posts a one-off message to a channel or DM using the user's Slack token.
+// source tags who's calling ("quick_send" or "claude_queue") for the Slack Messages hub log.
+func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmUserID, source string) (slackTS, resolvedChannelID string, err error) {
 	integration, ferr := s.integrationRepo.GetSlackIntegration(ctx, userID)
 	if ferr != nil || !integration.Connected {
 		return "", "", fmt.Errorf("slack not connected")
@@ -404,9 +419,13 @@ func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmU
 
 	if dmUserID != "" {
 		ch, ts, e := client.PostDirectMessage(ctx, dmUserID, message)
+		// DMs aren't shown in the channel-scoped Slack Messages hub — not logged.
 		return ts, ch, e
 	}
 	ts, e := client.PostMessage(ctx, channelID, message)
+	if e == nil {
+		s.logSent(ctx, userID, source, channelID, message, ts)
+	}
 	return ts, channelID, e
 }
 

@@ -908,6 +908,40 @@ class ApiService {
     return this.request<{ slack_ts: string }>(`/slack/queued/${id}/send-now`, { method: 'POST' })
   }
 
+  // ── Slack Messages hub — unified view over every message Velocity sends ──
+
+  async getSentSlackMessages(channelId?: string, source?: string) {
+    const params = new URLSearchParams()
+    if (channelId) params.append('channel_id', channelId)
+    if (source) params.append('source', source)
+    const query = params.toString() ? `?${params}` : ''
+    return this.request<SentSlackMessage[]>(`/slack/hub/messages${query}`)
+  }
+
+  async sendHubMessage(channelId: string, channelLabel: string, message: string) {
+    return this.request<{ success: boolean }>('/slack/hub/messages', {
+      method: 'POST',
+      body: JSON.stringify({ channel_id: channelId, channel_label: channelLabel, message }),
+    })
+  }
+
+  async updateHubMessage(id: string, message: string) {
+    return this.request<{ success: boolean }>(`/slack/hub/messages/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ message }),
+    })
+  }
+
+  async deleteHubMessage(id: string) {
+    return this.request<{ success: boolean }>(`/slack/hub/messages/${id}`, { method: 'DELETE' })
+  }
+
+  async getLiveSlackMessages(channelId: string, threadTs?: string) {
+    const params = new URLSearchParams({ channel_id: channelId })
+    if (threadTs) params.append('thread_ts', threadTs)
+    return this.request<LiveSlackMessage[]>(`/slack/hub/live-messages?${params}`)
+  }
+
   // ── MCP token management ──────────────────────────────────────────────────
 
   async getMcpToken() {
@@ -2303,6 +2337,35 @@ export interface PendingSlackMessage {
   error_message: string
   created_at: string
   sent_at: string | null
+}
+
+export type SentSlackMessageSource =
+  | 'claude_queue' | 'quick_send' | 'rules' | 'blocker_alert'
+  | 'time_threshold_alert' | 'daily_digest' | 'standup' | 'daytrack' | 'report' | 'hub'
+
+export interface SentSlackMessage {
+  id: string
+  user_id: string
+  source: SentSlackMessageSource
+  channel_id: string
+  channel_label: string
+  message: string
+  slack_ts: string
+  sent_at: string
+  edited_at: string | null
+}
+
+export interface LiveSlackMessage {
+  ts: string
+  user_id: string
+  user_name: string
+  user_avatar: string
+  is_bot: boolean
+  text: string
+  is_velocity: boolean
+  id?: string
+  thread_ts?: string
+  reply_count?: number
 }
 
 export interface SlackWorkspaceUser {

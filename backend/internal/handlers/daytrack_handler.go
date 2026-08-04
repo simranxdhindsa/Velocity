@@ -746,7 +746,7 @@ func (h *DayTrackHandler) PostToSlack(w http.ResponseWriter, r *http.Request) {
 	header := fmt.Sprintf("*%s*\n%s\n\n", displayName, dateParsed.Format("Mon, Jan 2"))
 	text := header + standupFormatMrkdwn([]PersonUpdate{ownerUpdate})
 	slackSvc := slacksvc.NewService()
-	if err := slackSvc.PostMessage(r.Context(), user.ID, cfg.DestChannelID, text); err != nil {
+	if err := slackSvc.PostMessage(r.Context(), user.ID, cfg.DestChannelID, "daytrack", text); err != nil {
 		http.Error(w, "failed to post: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

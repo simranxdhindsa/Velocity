@@ -337,6 +337,13 @@ func main() {
 	slackRoutes.HandleFunc("/queued/{id}", pendingMsgHandler.Update).Methods("PUT")
 	slackRoutes.HandleFunc("/queued/{id}", pendingMsgHandler.Delete).Methods("DELETE")
 	slackRoutes.HandleFunc("/queued/{id}/send-now", pendingMsgHandler.SendNow).Methods("POST")
+	// Slack Messages hub — unified view over every message Velocity has sent, any source
+	sentSlackMsgHandler := handlers.NewSentSlackMessagesHandler()
+	slackRoutes.HandleFunc("/hub/messages", sentSlackMsgHandler.List).Methods("GET")
+	slackRoutes.HandleFunc("/hub/live-messages", sentSlackMsgHandler.GetLive).Methods("GET")
+	slackRoutes.HandleFunc("/hub/messages", sentSlackMsgHandler.Send).Methods("POST")
+	slackRoutes.HandleFunc("/hub/messages/{id}", sentSlackMsgHandler.Update).Methods("PUT")
+	slackRoutes.HandleFunc("/hub/messages/{id}", sentSlackMsgHandler.Delete).Methods("DELETE")
 	// Per-user Slack actions: connect/disconnect + channel selection — any authenticated user
 	slackRoutes.HandleFunc("/connect", slackHandler.Connect).Methods("POST")
 	slackRoutes.HandleFunc("/disconnect", slackHandler.Disconnect).Methods("POST")
@@ -668,6 +675,7 @@ func main() {
 	go func() {
 		notifRepo := database.NewNotificationRepository()
 		activityRepo := database.NewActivityRepository()
+		sentSlackRepo := database.NewSentSlackMessagesRepository()
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
@@ -681,6 +689,11 @@ func main() {
 				log.Printf("⚠️  Activity log cleanup error: %v", err)
 			} else if n > 0 {
 				log.Printf("🗑️  Cleaned up %d activity entries older than 30 days", n)
+			}
+			if n, err := sentSlackRepo.DeleteOld(ctx, 60); err != nil {
+				log.Printf("⚠️  Slack hub message log cleanup error: %v", err)
+			} else if n > 0 {
+				log.Printf("🗑️  Cleaned up %d Slack hub log entries older than 60 days", n)
 			}
 		}
 	}()

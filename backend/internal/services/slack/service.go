@@ -16,6 +16,7 @@ import (
 type Service struct {
 	integrationRepo *database.IntegrationRepository
 	slackRepo       *database.SlackRepository
+	sentRepo        *database.SentSlackMessagesRepository
 }
 
 // NewService creates a new Slack service
@@ -23,6 +24,19 @@ func NewService() *Service {
 	return &Service{
 		integrationRepo: database.NewIntegrationRepository(),
 		slackRepo:       database.NewSlackRepository(),
+		sentRepo:        database.NewSentSlackMessagesRepository(),
+	}
+}
+
+// logSent records a just-sent message in the unified Slack Messages hub log.
+// Best-effort: a logging failure never fails the send itself, since the
+// message already reached Slack by the time this is called.
+func (s *Service) logSent(ctx context.Context, userID, source, channelID, channelLabel, message, slackTs string) {
+	if slackTs == "" {
+		return
+	}
+	if _, err := s.sentRepo.Log(ctx, userID, source, channelID, channelLabel, message, slackTs); err != nil {
+		fmt.Printf("[slack] warning: failed to log sent message (source=%s): %v\n", source, err)
 	}
 }
 
@@ -238,6 +252,126 @@ func (s *Service) GetMessages(ctx context.Context, userID string, from, to time.
 	}
 
 	return enriched, nil
+}
+
+// LiveMessage is a channel message enriched with resolved user info and
+// whether Velocity itself sent it (cross-referenced against the hub's own
+// send log) — the hub uses this to decide whether to show edit/delete
+// actions, since Slack's API only allows a bot to edit/delete its own posts.
+type LiveMessage struct {
+	TS         string `json:"ts"`
+	UserID     string `json:"user_id"`
+	UserName   string `json:"user_name"`
+	UserAvatar string `json:"user_avatar"`
+	IsBot      bool   `json:"is_bot"`
+	Text       string `json:"text"`
+	IsVelocity bool   `json:"is_velocity"`
+	// ID is the sent_slack_messages row id — only set when IsVelocity is true.
+	// The hub uses it to call the existing edit/delete-by-id endpoints.
+	ID         string `json:"id,omitempty"`
+	ThreadTS   string `json:"thread_ts,omitempty"`
+	ReplyCount int    `json:"reply_count,omitempty"`
+}
+
+// GetLiveChannelMessages returns the real, live message history for any
+// channel the bot can see — every sender, not just Velocity's own sends.
+// Pass threadTS to fetch a thread's replies instead of the channel's
+// top-level messages.
+func (s *Service) GetLiveChannelMessages(ctx context.Context, userID, channelID, threadTS string) ([]LiveMessage, error) {
+	integration, err := s.integrationRepo.GetSlackIntegration(ctx, userID)
+	if err != nil || !integration.Connected {
+		return nil, fmt.Errorf("slack not connected")
+	}
+	if channelID == "" {
+		return nil, fmt.Errorf("channel_id is required")
+	}
+
+	client := NewClient(integration.BotToken)
+
+	var messages []Message
+	if threadTS != "" {
+		messages, err = client.GetThreadReplies(ctx, channelID, threadTS)
+	} else {
+		messages, err = client.GetChannelHistory(ctx, channelID, 0, 0, 150)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch messages: %w", err)
+	}
+
+	// Cross-reference against Velocity's own send log for this channel —
+	// exact ts match means Velocity sent it (edit/delete allowed).
+	velocityByTs := map[string]string{} // ts -> sent_slack_messages row id
+	if sent, err := s.sentRepo.List(ctx, userID, channelID, "", 200); err == nil {
+		for _, m := range sent {
+			velocityByTs[m.SlackTs] = m.ID
+		}
+	}
+
+	userCache := make(map[string]*User)
+	botCache := make(map[string]*BotInfo)
+	live := make([]LiveMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Type != "message" {
+			continue
+		}
+		var userName, userAvatar string
+		isBot := msg.BotID != "" || msg.User == ""
+
+		if msg.User != "" {
+			if user, ok := userCache[msg.User]; ok {
+				userName, userAvatar = liveUserDisplay(user)
+			} else if user, err := client.GetUser(ctx, msg.User); err == nil {
+				userCache[msg.User] = user
+				userName, userAvatar = liveUserDisplay(user)
+			} else {
+				userName = msg.User
+			}
+		} else if msg.Username != "" {
+			userName = msg.Username
+		} else if msg.BotID != "" {
+			if bot, ok := botCache[msg.BotID]; ok {
+				userName, userAvatar = bot.Name, bot.Icons.Image48
+			} else if bot, err := client.GetBotInfo(ctx, msg.BotID); err == nil {
+				botCache[msg.BotID] = bot
+				userName, userAvatar = bot.Name, bot.Icons.Image48
+			}
+		}
+		velocityID, isVelocity := velocityByTs[msg.TS]
+		if userName == "" {
+			if isVelocity {
+				userName = "Velocity"
+			} else {
+				userName = "Slack app"
+			}
+		}
+
+		text := msg.Text
+		if text == "" && len(msg.Attachments) > 0 && msg.Attachments[0].Fallback != "" {
+			text = msg.Attachments[0].Fallback
+		}
+
+		live = append(live, LiveMessage{
+			TS:         msg.TS,
+			UserID:     msg.User,
+			UserName:   userName,
+			UserAvatar: userAvatar,
+			IsBot:      isBot,
+			Text:       text,
+			IsVelocity: isVelocity,
+			ID:         velocityID,
+			ThreadTS:   msg.ThreadTS,
+			ReplyCount: msg.ReplyCount,
+		})
+	}
+	return live, nil
+}
+
+func liveUserDisplay(user *User) (name, avatar string) {
+	name = user.RealName
+	if name == "" {
+		name = user.Profile.DisplayName
+	}
+	return name, user.Profile.Image48
 }
 
 // GetYesterdayMessages retrieves messages from yesterday
@@ -515,6 +649,7 @@ func (s *Service) PostDailyDigest(ctx context.Context, userID string, issues []D
 	if err != nil {
 		return "", fmt.Errorf("failed to post digest: %w", err)
 	}
+	s.logSent(ctx, userID, "daily_digest", *integration.ChannelID, "", text, threadTS)
 
 	return threadTS, nil
 }
@@ -563,16 +698,21 @@ func (s *Service) TrackDigestReplies(ctx context.Context, userID, threadTS strin
 	return resolvedIssues, nil
 }
 
-// PostMessage posts a plain text message to a channel.
-func (s *Service) PostMessage(ctx context.Context, userID, channelID, text string) error {
+// PostMessage posts a plain text message to a channel. source tags who's
+// calling (e.g. "standup", "daytrack", "report") for the Slack Messages hub log.
+func (s *Service) PostMessage(ctx context.Context, userID, channelID, source, text string) error {
 	integration, err := s.integrationRepo.GetSlackIntegration(ctx, userID)
 	if err != nil || !integration.Connected {
 		return fmt.Errorf("slack not connected")
 	}
 
 	client := NewClient(integration.BotToken)
-	_, err = client.PostMessage(ctx, channelID, text)
-	return err
+	ts, err := client.PostMessage(ctx, channelID, text)
+	if err != nil {
+		return err
+	}
+	s.logSent(ctx, userID, source, channelID, "", text, ts)
+	return nil
 }
 
 // PostBlockerAlert posts an alert to the monitor channel when an issue is blocked.
@@ -604,8 +744,12 @@ func (s *Service) PostBlockerAlert(ctx context.Context, userID, issueID, summary
 	}
 
 	text := fmt.Sprintf("🚫 *BLOCKED* — *%s* %s\nAssignee: %s", issueID, summary, assigneeTag)
-	_, err = client.PostMessage(ctx, channelID, text)
-	return err
+	ts, err := client.PostMessage(ctx, channelID, text)
+	if err != nil {
+		return err
+	}
+	s.logSent(ctx, userID, "blocker_alert", channelID, "", text, ts)
+	return nil
 }
 
 // PostTimeThresholdAlert posts an alert when an issue exceeds its time threshold.
@@ -624,8 +768,30 @@ func (s *Service) PostTimeThresholdAlert(ctx context.Context, userID, issueID, s
 	text := fmt.Sprintf("⚠️ *Time Threshold Exceeded* — *%s* %s\nSpent: %.1fh  |  Threshold: %.1fh",
 		issueID, summary, spentHours, thresholdHours)
 
-	_, err = client.PostMessage(ctx, *integration.ChannelID, text)
-	return err
+	ts, err := client.PostMessage(ctx, *integration.ChannelID, text)
+	if err != nil {
+		return err
+	}
+	s.logSent(ctx, userID, "time_threshold_alert", *integration.ChannelID, "", text, ts)
+	return nil
+}
+
+// DeleteMessage deletes a Slack message on behalf of a user's bot token.
+func (s *Service) DeleteMessage(ctx context.Context, userID, channelID, ts string) error {
+	integration, err := s.integrationRepo.GetSlackIntegration(ctx, userID)
+	if err != nil || !integration.Connected {
+		return fmt.Errorf("slack not connected")
+	}
+	return NewClient(integration.BotToken).DeleteMessage(ctx, channelID, ts)
+}
+
+// UpdateMessage edits a Slack message's text on behalf of a user's bot token.
+func (s *Service) UpdateMessage(ctx context.Context, userID, channelID, ts, text string) error {
+	integration, err := s.integrationRepo.GetSlackIntegration(ctx, userID)
+	if err != nil || !integration.Connected {
+		return fmt.Errorf("slack not connected")
+	}
+	return NewClient(integration.BotToken).UpdateMessage(ctx, channelID, ts, text)
 }
 
 // SetMonitorChannel sets the channel to monitor for @mentions (separate from digest channel)
