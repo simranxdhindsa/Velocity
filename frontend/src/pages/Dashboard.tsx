@@ -97,7 +97,7 @@ const PATH_TO_PAGE: Record<string, Page> = {
 const PM_REPORTS_TABS = ['tracking', 'daily', 'assignees', 'deployment'] as const
 type PMReportsTab = typeof PM_REPORTS_TABS[number]
 
-const SLACK_TABS = ['inbox', 'threads', 'reminders', 'pulse', 'messages', 'saved', 'settings'] as const
+const SLACK_TABS = ['inbox', 'threads', 'reminders', 'messages', 'settings'] as const
 type SlackTab = typeof SLACK_TABS[number]
 
 const UPDATE_REMINDERS_TABS = ['claude-queue', 'quick-send', 'rules'] as const
@@ -737,7 +737,6 @@ export default function Dashboard() {
             <SlackIntelligencePage
               initialTab={slackTab}
               onTabChange={(tab) => navigate(`/slack/${tab}`)}
-              onOpenPMAssistant={() => setChatOpen(true)}
             />
           </div>
         )}
