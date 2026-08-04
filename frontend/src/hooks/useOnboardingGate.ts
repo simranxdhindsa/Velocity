@@ -4,14 +4,21 @@ import api from '@/services/api'
 const SESSION_KEY = 'vlc_onboarding_dismissed'
 
 export function useOnboardingGate(enabled: boolean) {
-  const [loading, setLoading] = useState(true)
   const [needsOnboarding, setNeedsOnboarding] = useState(false)
+  // Which `enabled` value we've completed a check for — null until the first
+  // check finishes. Comparing this against the current `enabled` lets `loading`
+  // be derived synchronously during render, instead of only updating after the
+  // effect fires. Without this, a false→true flip in `enabled` renders once
+  // with the *previous* (stale) loading value before the effect catches up —
+  // which was flipping App.tsx's render branch and remounting Dashboard.
+  const [checkedFor, setCheckedFor] = useState<boolean | null>(null)
   const dismissedRef = useRef(sessionStorage.getItem(SESSION_KEY) === '1')
 
+  const loading = enabled && checkedFor !== enabled
+
   const check = useCallback(async () => {
-    if (!enabled) { setLoading(false); return }
-    if (dismissedRef.current) { setLoading(false); setNeedsOnboarding(false); return }
-    setLoading(true)
+    if (!enabled) { setCheckedFor(false); return }
+    if (dismissedRef.current) { setNeedsOnboarding(false); setCheckedFor(true); return }
     try {
       const [ytRes, slackRes] = await Promise.all([
         api.getYouTrackIntegration().catch(() => null),
@@ -23,7 +30,7 @@ export function useOnboardingGate(enabled: boolean) {
     } catch {
       setNeedsOnboarding(false)
     } finally {
-      setLoading(false)
+      setCheckedFor(true)
     }
   }, [enabled])
 
