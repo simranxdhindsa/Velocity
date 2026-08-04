@@ -1745,11 +1745,8 @@ ${aiSummaryBlock}
                   <PasteSplitPrompt
                     anchorRect={manualPasteSplit.pasteSplitPending.anchorRect}
                     count={manualPasteSplit.pasteSplitPending.lines.length}
-                    onSplit={() => {
-                      const { lines } = manualPasteSplit.pasteSplitPending!
-                      manualPasteSplit.dismiss()
-                      addManualEntriesSplit(lines)
-                    }}
+                    busy={manualPasteSplit.busy}
+                    onSplit={() => manualPasteSplit.runSplit(addManualEntriesSplit)}
                     onKeepOne={() => {
                       setMName(manualPasteSplit.pasteSplitPending!.joinedValue)
                       manualPasteSplit.dismiss()
@@ -2102,11 +2099,8 @@ ${aiSummaryBlock}
                                     <PasteSplitPrompt
                                       anchorRect={subtaskPasteSplit.pasteSplitPending.anchorRect}
                                       count={subtaskPasteSplit.pasteSplitPending.lines.length}
-                                      onSplit={() => {
-                                        const { lines } = subtaskPasteSplit.pasteSplitPending!
-                                        subtaskPasteSplit.dismiss()
-                                        addSubtasksSplit(lines)
-                                      }}
+                                      busy={subtaskPasteSplit.busy}
+                                      onSplit={() => subtaskPasteSplit.runSplit(addSubtasksSplit)}
                                       onKeepOne={() => {
                                         setStName(subtaskPasteSplit.pasteSplitPending!.joinedValue)
                                         subtaskPasteSplit.dismiss()
@@ -2125,10 +2119,10 @@ ${aiSummaryBlock}
                               <td colSpan={2}></td>
                               <td>
                                 <div className="dt-td-actions">
-                                  <button className="dt-icon-btn dt-icon-btn-edit" onClick={saveSubtask} title="Save subtask">
+                                  <button className="dt-icon-btn dt-icon-btn-edit" onClick={saveSubtask} title="Save subtask" disabled={subtaskPasteSplit.busy}>
                                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                                   </button>
-                                  <button className="dt-icon-btn dt-icon-btn-del" onClick={() => setSubtaskParent(null)} title="Cancel">
+                                  <button className="dt-icon-btn dt-icon-btn-del" onClick={() => setSubtaskParent(null)} title="Cancel" disabled={subtaskPasteSplit.busy}>
                                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                                   </button>
                                 </div>

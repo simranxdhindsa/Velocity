@@ -1,25 +1,29 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { ListChecks } from 'lucide-react'
+import { ListChecks, Loader2 } from 'lucide-react'
 
 /**
  * Small popover shown right after a multi-line paste into a single-line
  * input, asking whether to split it into N separate items or keep it as one.
  * Dismissing (outside click / Escape) defaults to "keep as one" so the
- * pasted text is never silently discarded.
+ * pasted text is never silently discarded. While `busy` (a confirmed split
+ * is running), dismissal and both actions are disabled so a slow bulk-create
+ * can't be double-submitted or interrupted mid-flight.
  */
 export function PasteSplitPrompt({
-  anchorRect, count, onSplit, onKeepOne,
+  anchorRect, count, busy = false, onSplit, onKeepOne,
 }: {
   anchorRect: DOMRect
   count: number
+  busy?: boolean
   onSplit: () => void
   onKeepOne: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (busy) return
     const onMouseDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onKeepOne()
     }
@@ -30,7 +34,7 @@ export function PasteSplitPrompt({
       document.removeEventListener('mousedown', onMouseDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [onKeepOne])
+  }, [onKeepOne, busy])
 
   return createPortal(
     <motion.div
@@ -42,16 +46,25 @@ export function PasteSplitPrompt({
       exit={{ opacity: 0, y: -6, scale: 0.96 }}
       transition={{ duration: 0.15 }}
     >
-      <div className="paste-split-prompt-text">
-        <ListChecks size={14} />
-        Split into {count} tasks?
-      </div>
-      <div className="paste-split-prompt-actions">
-        <button className="paste-split-btn paste-split-btn--primary" onClick={onSplit}>
-          Split into {count}
-        </button>
-        <button className="paste-split-btn" onClick={onKeepOne}>Keep as one</button>
-      </div>
+      {busy ? (
+        <div className="paste-split-prompt-text">
+          <Loader2 size={14} className="spin" />
+          Adding {count} tasks…
+        </div>
+      ) : (
+        <>
+          <div className="paste-split-prompt-text">
+            <ListChecks size={14} />
+            Split into {count} tasks?
+          </div>
+          <div className="paste-split-prompt-actions">
+            <button className="paste-split-btn paste-split-btn--primary" onClick={onSplit}>
+              Split into {count}
+            </button>
+            <button className="paste-split-btn" onClick={onKeepOne}>Keep as one</button>
+          </div>
+        </>
+      )}
     </motion.div>,
     document.body,
   )
