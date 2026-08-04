@@ -9,6 +9,7 @@
 
 
 ### Bug Fixes
+- fix strict id equality blocking MCP Apps init handshake
 - bump MCP initialize protocolVersion to fix broken widget rendering
 - fix Dashboard remount loop from stale loading state in useOnboardingGate
 
