@@ -12,6 +12,7 @@
 - fix Dashboard remount loop from stale loading state in useOnboardingGate
 
 ### Features
+- add MCP Apps interactive UI widgets for create_youtrack_ticket and get_developer_load
 - add @mention autocomplete to Slack Messages Hub compose box
 - paste-to-split multi-line text into separate DayTrack tasks/subtasks
 - add Slack Messages Hub - live 1:1 channel replica in Slack Intelligence
