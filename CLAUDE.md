@@ -32,6 +32,16 @@ After every task, output a short commit message (don't run git commit). One-line
 
 **Documentation rule:** When implementing a significant new feature or fixing something with non-obvious context, ask whether it should be noted in CLAUDE.md (if it's a pattern/rule) or in the relevant `docs/features/*.md` file (if it's feature-specific detail). Don't silently skip it and don't add it without asking.
 
+## QA Rule — UAT, not just DOM checks
+
+When QA'ing a UI feature/fix with Playwright, test like a real user (User Acceptance Testing), not just functional/DOM-level checks. Asserting an element exists, a click registers, or an API call succeeds is not enough — several real bugs (a send button clickable via `.click()` but visually hidden under the floating PM Assistant bubble, a dropdown that rendered but was cut off below the viewport, a message showing a raw `<@USERID>` token instead of the resolved name, a default landing tab that didn't match the reordered tab bar) all passed DOM-count/text-presence assertions and still shipped broken.
+
+Before calling any UI task done:
+- Take and actually look at screenshots — don't just assert `.count() > 0` and move on.
+- Check bounding boxes for overlap with known floating/global UI (e.g. the PM Assistant bubble) and confirm positioned elements (dropdowns, popovers) stay within the viewport.
+- Walk the real entry point a user would take (e.g. click the left-nav item), not just a direct URL to the feature — default/landing-state bugs only show up this way.
+- Verify displayed *content* is correct, not just that something rendered (e.g. a resolved display name vs. a raw ID/token).
+
 ## Architecture
 
 Velocity is a React + Go project management tool. Frontend (port 5173) → Go REST API (port 8080) at `/api`. All protected routes require `Authorization: Bearer <JWT>`.
