@@ -9,6 +9,7 @@
 
 
 ### Bug Fixes
+- bump MCP initialize protocolVersion to fix broken widget rendering
 - fix Dashboard remount loop from stale loading state in useOnboardingGate
 
 ### Features
