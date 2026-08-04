@@ -193,7 +193,7 @@
     if (!msg || typeof msg !== "object") return;
     if (!hostOrigin) hostOrigin = event.origin;
 
-    if (msg.id === initId && msg.result) {
+    if (String(msg.id) === String(initId) && msg.result) {
       post("ui/notifications/initialized");
       return;
     }
