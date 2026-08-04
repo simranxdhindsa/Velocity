@@ -472,10 +472,14 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case "initialize":
 		// No Mcp-Session-Id — we have no server-initiated events so sessions are not needed.
-		// Returning a session ID would cause Claude.ai to open a GET SSE connection, but
-		// claude.ai's shttp proxy returns 405 for browser-side GET, breaking the connection.
+		// protocolVersion must be a recent revision (2025-11-25+): declaring an older one
+		// (e.g. 2025-06-18) makes claude.ai's client assume the legacy session-based
+		// Streamable HTTP transport and open a GET SSE session through its shttp proxy,
+		// which 405s and breaks the connector. Confirmed by diffing HAR captures against
+		// a working MCP Apps connector (Motion), which negotiates 2025-11-25 and never
+		// issues a GET at all — everything goes over POST.
 		resp = rpcOK(req.ID, map[string]interface{}{
-			"protocolVersion": "2025-06-18",
+			"protocolVersion": "2025-11-25",
 			"capabilities": map[string]interface{}{
 				"tools":     map[string]bool{"listChanged": false},
 				"resources": map[string]bool{"listChanged": false},
