@@ -3,6 +3,7 @@
 ## 2026-08-04
 
 ### Enhancements
+- add busy state to paste-split so bulk creation can't be double-submitted
 - restructure Slack Intelligence tabs - Messages first, drop fake/duplicate tabs
 - embed uploaded attachments inline in ticket description
 
