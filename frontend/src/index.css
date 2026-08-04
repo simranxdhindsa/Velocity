@@ -72,6 +72,7 @@
 @import "./styles/components/time-picker.css";
 @import "./styles/components/hover-card.css";
 @import "./styles/components/stat-carousel.css";
+@import "./styles/components/paste-split-prompt.css";
 
 /* ── Light mode theme overrides (must be last) ── */
 @import "./styles/theme-light.css";

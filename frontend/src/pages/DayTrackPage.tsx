@@ -6,6 +6,8 @@ import { useYouTrackEvents } from '../services/useYouTrackEvents'
 import { YouTrackSyncIcon } from '../components/YouTrackSyncIcon'
 import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { usePasteSplit } from '../hooks/usePasteSplit'
+import { PasteSplitPrompt } from '../components/PasteSplitPrompt'
 import '../styles/pages/daytrack.css'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -234,12 +236,13 @@ function CategoryChips({ value, onChange, categories }: {
   )
 }
 
-function TaskNameInput({ value, onChange, suggestions, placeholder, onEnter }: {
+function TaskNameInput({ value, onChange, suggestions, placeholder, onEnter, onPaste }: {
   value: string
   onChange: (v: string) => void
   suggestions: string[]
   placeholder?: string
   onEnter?: () => void
+  onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [showDrop, setShowDrop] = useState(false)
@@ -283,6 +286,7 @@ function TaskNameInput({ value, onChange, suggestions, placeholder, onEnter }: {
           if (e.key === 'Enter') { onEnter?.(); setShowDrop(false) }
           if (e.key === 'Escape') setShowDrop(false)
         }}
+        onPaste={onPaste}
       />
       {showDrop && dropPos && matches.length > 0 && createPortal(
         <div className="dt-suggest-dropdown"
@@ -486,6 +490,11 @@ export function DayTrackPage() {
   const [mStart, setMStart] = useState(_draft?.mStart ?? '')
   const [mEnd, setMEnd] = useState(_draft?.mEnd ?? '')
   const [mNotes, setMNotes] = useState(_draft?.mNotes ?? '')
+
+  // Paste-to-split: pasting 2+ lines into the task-name or subtask-name input
+  // prompts to create one entry per line instead of collapsing them into one.
+  const manualPasteSplit = usePasteSplit()
+  const subtaskPasteSplit = usePasteSplit()
 
   // Timer form — restored from draft
   const [tName, setTName] = useState(_draft?.tName ?? '')
@@ -705,6 +714,35 @@ export function DayTrackPage() {
       dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
       toast(`"${name}" logged`)
     } catch { toast('Failed to add entry', 'warn') }
+  }
+
+  // Creates one entry per pasted line (task-name input's "Split into N" action).
+  async function addManualEntriesSplit(names: string[]) {
+    const created: DayTrackEntry[] = []
+    for (const raw of names) {
+      const name = raw.trim()
+      if (!name) continue
+      try {
+        created.push(await dayTrackApi.createEntry({
+          entry_date: date,
+          name,
+          category: mCat || categories[0] || 'General',
+          start_time: mStart,
+          end_time: '',
+          duration_mins: null,
+          notes: '',
+          status: 'active',
+        }))
+      } catch { /* keep going — report the partial count below */ }
+    }
+    setMName(''); setMEnd(''); setMNotes('')
+    clearDraft()
+    if (created.length > 0) {
+      setEntries(prev => [...prev, ...created])
+      dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
+    }
+    if (created.length === names.filter(n => n.trim()).length) toast(`${created.length} tasks logged`)
+    else toast(`${created.length} of ${names.length} tasks logged — some failed`, 'warn')
   }
 
   function timerStart() {
@@ -970,6 +1008,36 @@ export function DayTrackPage() {
       await loadAll()
       toast(`Subtask "${stName.trim()}" added`)
     } catch { toast('Failed to add subtask', 'warn') }
+  }
+
+  // Creates one subtask per pasted line (subtask input's "Split into N" action).
+  async function addSubtasksSplit(names: string[]) {
+    if (!subtaskParent) return
+    const parent = subtaskParent
+    let createdCount = 0
+    for (const raw of names) {
+      const name = raw.trim()
+      if (!name) continue
+      try {
+        await dayTrackApi.createEntry({
+          entry_date: date,
+          name,
+          category: stCat || parent.category,
+          start_time: stStart,
+          end_time: '',
+          duration_mins: null,
+          notes: '',
+          status: 'active',
+          parent_entry_id: parent.id,
+        })
+        createdCount++
+      } catch { /* keep going — report the partial count below */ }
+    }
+    setExpandedEntries(prev => { const s = new Set(prev); s.add(parent.id); return s })
+    setSubtaskParent(null)
+    await loadAll()
+    if (createdCount === names.filter(n => n.trim()).length) toast(`${createdCount} subtasks added`)
+    else toast(`${createdCount} of ${names.length} subtasks added — some failed`, 'warn')
   }
 
   async function addCategory() {
@@ -1666,12 +1734,28 @@ ${aiSummaryBlock}
                 <label className="form-label">Task Name *</label>
                 <div className="dt-input-with-mic">
                   <TaskNameInput value={mName} onChange={setMName} suggestions={suggestions}
-                    placeholder="What did you work on?" onEnter={addManualEntry} />
+                    placeholder="What did you work on?" onEnter={addManualEntry}
+                    onPaste={manualPasteSplit.handlePaste} />
                   <MicButton
                     onResult={text => { setMName(text); const c = detectCategory(text, categories); if (c) setMCat(c) }}
                     onError={msg => toast(msg, 'warn')}
                   />
                 </div>
+                {manualPasteSplit.pasteSplitPending && (
+                  <PasteSplitPrompt
+                    anchorRect={manualPasteSplit.pasteSplitPending.anchorRect}
+                    count={manualPasteSplit.pasteSplitPending.lines.length}
+                    onSplit={() => {
+                      const { lines } = manualPasteSplit.pasteSplitPending!
+                      manualPasteSplit.dismiss()
+                      addManualEntriesSplit(lines)
+                    }}
+                    onKeepOne={() => {
+                      setMName(manualPasteSplit.pasteSplitPending!.joinedValue)
+                      manualPasteSplit.dismiss()
+                    }}
+                  />
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Category</label>
@@ -2008,11 +2092,27 @@ ${aiSummaryBlock}
                                     <input className="form-input" autoFocus value={stName}
                                       onChange={e => setStName(e.target.value)}
                                       placeholder="What's the subtask?" autoComplete="off"
-                                      onKeyDown={e => { if (e.key === 'Enter') saveSubtask(); if (e.key === 'Escape') setSubtaskParent(null) }} />
+                                      onKeyDown={e => { if (e.key === 'Enter') saveSubtask(); if (e.key === 'Escape') setSubtaskParent(null) }}
+                                      onPaste={subtaskPasteSplit.handlePaste} />
                                     <MicButton
                                       onResult={text => { setStName(text); const c = detectCategory(text, categories); if (c) setStCat(c) }}
                                       onError={msg => toast(msg, 'warn')} />
                                   </div>
+                                  {subtaskPasteSplit.pasteSplitPending && (
+                                    <PasteSplitPrompt
+                                      anchorRect={subtaskPasteSplit.pasteSplitPending.anchorRect}
+                                      count={subtaskPasteSplit.pasteSplitPending.lines.length}
+                                      onSplit={() => {
+                                        const { lines } = subtaskPasteSplit.pasteSplitPending!
+                                        subtaskPasteSplit.dismiss()
+                                        addSubtasksSplit(lines)
+                                      }}
+                                      onKeepOne={() => {
+                                        setStName(subtaskPasteSplit.pasteSplitPending!.joinedValue)
+                                        subtaskPasteSplit.dismiss()
+                                      }}
+                                    />
+                                  )}
                                 </div>
                               </td>
                               <td colSpan={2}>
