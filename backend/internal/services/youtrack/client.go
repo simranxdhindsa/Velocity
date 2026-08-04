@@ -1820,7 +1820,19 @@ func (c *Client) IsDuplicateIssue(ctx context.Context, summary string) (bool, er
 	return false, nil
 }
 
-// UploadAttachment uploads a file to a YouTrack issue.
+// UploadAttachment uploads a file to a YouTrack issue. On success, it also
+// appends a markdown reference to the file at the end of the issue's
+// description — an inline image embed for image/video files, a plain link
+// otherwise — mirroring what YouTrack's own editor does when you paste media
+// directly into the description. This runs for every caller (MCP tools and
+// the Velocity UI both go through this one method), so the embed happens
+// automatically no matter where the upload was triggered from.
+//
+// A failure to embed the reference (fetching/updating the description) does
+// NOT fail the overall upload — the attachment is already on the issue at
+// that point, which is the primary contract of this method. It's logged and
+// swallowed so a transient description-update hiccup never loses a real
+// attachment.
 func (c *Client) UploadAttachment(ctx context.Context, issueID, filename, mimeType string, content []byte) error {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -1848,9 +1860,65 @@ func (c *Client) UploadAttachment(ctx context.Context, issueID, filename, mimeTy
 		return fmt.Errorf("upload request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read upload response: %w", err)
+	}
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("YouTrack attachment upload error: status %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	attachedName := parseUploadedAttachmentName(respBody, filename)
+	if err := c.embedAttachmentInDescription(ctx, issueID, attachedName, mimeType); err != nil {
+		fmt.Printf("[youtrack] warning: failed to embed attachment reference in description for %s: %v\n", issueID, err)
+	}
+	return nil
+}
+
+// parseUploadedAttachmentName extracts the attachment's stored name from the
+// upload response. YouTrack's attachments endpoint has returned both a bare
+// object and a single-element array across versions, so both are handled.
+// Falls back to the originally-sent filename if parsing fails for any reason.
+func parseUploadedAttachmentName(respBody []byte, fallback string) string {
+	var list []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(respBody, &list); err == nil && len(list) > 0 && list[0].Name != "" {
+		return list[0].Name
+	}
+	var single struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(respBody, &single); err == nil && single.Name != "" {
+		return single.Name
+	}
+	return fallback
+}
+
+// embedAttachmentInDescription appends a markdown reference to a
+// just-uploaded attachment at the end of the issue's description — an image
+// embed for visual media, a plain link otherwise.
+func (c *Client) embedAttachmentInDescription(ctx context.Context, issueID, attachedName, mimeType string) error {
+	issue, err := c.GetIssue(ctx, issueID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch current description: %w", err)
+	}
+
+	baseType := strings.TrimSpace(strings.Split(mimeType, ";")[0])
+	var reference string
+	if strings.HasPrefix(baseType, "image/") || strings.HasPrefix(baseType, "video/") {
+		reference = fmt.Sprintf("![](%s)", attachedName)
+	} else {
+		reference = fmt.Sprintf("[%s](%s)", attachedName, attachedName)
+	}
+
+	newDescription := reference
+	if strings.TrimSpace(issue.Description) != "" {
+		newDescription = issue.Description + "\n\n" + reference
+	}
+
+	if _, err := c.UpdateIssue(ctx, issueID, UpdateIssueRequest{Description: newDescription}); err != nil {
+		return fmt.Errorf("failed to update description: %w", err)
 	}
 	return nil
 }
