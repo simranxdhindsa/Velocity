@@ -178,6 +178,9 @@ var mcpTools = []map[string]interface{}{
 			},
 			"required": []string{"logins"},
 		},
+		"_meta": map[string]interface{}{
+			"ui": map[string]interface{}{"resourceUri": "ui://velocity/developer-load"},
+		},
 	},
 	{
 		"name": "create_youtrack_ticket",
@@ -216,6 +219,9 @@ var mcpTools = []map[string]interface{}{
 				},
 			},
 			"required": []string{"summary", "type_name", "priority"},
+		},
+		"_meta": map[string]interface{}{
+			"ui": map[string]interface{}{"resourceUri": "ui://velocity/create-ticket"},
 		},
 	},
 	{
@@ -470,8 +476,16 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		// claude.ai's shttp proxy returns 405 for browser-side GET, breaking the connection.
 		resp = rpcOK(req.ID, map[string]interface{}{
 			"protocolVersion": "2025-06-18",
-			"capabilities":    map[string]interface{}{"tools": map[string]bool{"listChanged": false}},
-			"serverInfo":      map[string]string{"name": "velocity", "version": "1.0.0"},
+			"capabilities": map[string]interface{}{
+				"tools":     map[string]bool{"listChanged": false},
+				"resources": map[string]bool{"listChanged": false},
+				"extensions": map[string]interface{}{
+					"io.modelcontextprotocol/ui": map[string]interface{}{
+						"mimeTypes": []string{mcpUIMimeType},
+					},
+				},
+			},
+			"serverInfo": map[string]string{"name": "velocity", "version": "1.0.0"},
 		})
 
 	case "tools/list":
@@ -479,6 +493,12 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	case "tools/call":
 		resp = h.callTool(r, req.ID, req.Params, userID)
+
+	case "resources/list":
+		resp = handleResourcesList(req.ID)
+
+	case "resources/read":
+		resp = handleResourcesRead(req.ID, req.Params)
 
 	default:
 		resp = rpcErr(req.ID, -32601, "method not found: "+req.Method)
@@ -545,11 +565,23 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 				load[login] = count
 			}
 		}
-		data, _ := json.Marshal(map[string]interface{}{
+		// Best-effort display-name enrichment for the UI widget; falls back to
+		// bare logins if the developer config lookup fails.
+		names := map[string]string{}
+		if configs, cErr := devConfigRepo.GetAll(ctx); cErr == nil {
+			for _, c := range configs {
+				if c != nil && c.DeveloperName != "" {
+					names[c.DeveloperLogin] = c.DeveloperName
+				}
+			}
+		}
+		structured := map[string]interface{}{
 			"sprint": sprintName,
 			"load":   load,
-		})
-		return toolOK(id, string(data))
+			"names":  names,
+		}
+		data, _ := json.Marshal(structured)
+		return toolOKWithUI(id, string(data), structured)
 
 	case "create_youtrack_ticket":
 		var args struct {
@@ -636,7 +668,16 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		ytBaseURL := strings.TrimRight(ytClient.GetBaseURL(), "/")
 		ticketURL := fmt.Sprintf("%s/issue/%s", ytBaseURL, displayID)
 		result := fmt.Sprintf("Created %s — %s\n%s", displayID, issue.Summary, ticketURL)
-		return toolOK(id, result)
+		structured := map[string]interface{}{
+			"issue_id":  displayID,
+			"url":       ticketURL,
+			"summary":   issue.Summary,
+			"type":      args.TypeName,
+			"priority":  args.Priority,
+			"subsystem": args.Subsystem,
+			"assignee":  args.AssigneeLogin,
+		}
+		return toolOKWithUI(id, result, structured)
 
 	case "delete_youtrack_ticket":
 		var args struct {
