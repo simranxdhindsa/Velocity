@@ -11,6 +11,7 @@
 - fix Dashboard remount loop from stale loading state in useOnboardingGate
 
 ### Features
+- paste-to-split multi-line text into separate DayTrack tasks/subtasks
 - add Slack Messages Hub - live 1:1 channel replica in Slack Intelligence
 
 ## 2026-08-03
