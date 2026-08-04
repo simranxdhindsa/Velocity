@@ -24,7 +24,7 @@ interface SlackIntelligencePageProps {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export function SlackIntelligencePage({
-  initialTab = 'inbox',
+  initialTab = 'messages',
   onTabChange,
 }: SlackIntelligencePageProps) {
   const [tab, setTab] = useState<Tab>(initialTab)

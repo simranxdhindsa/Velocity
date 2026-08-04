@@ -71,13 +71,15 @@ export function groupByDay(messages: SentSlackMessage[]): Array<{ key: string; l
 // and triple-backtick code blocks — not GitHub-flavored markdown.
 
 export interface MrkdwnToken {
-  type: 'text' | 'bold' | 'italic' | 'code' | 'codeblock'
+  type: 'text' | 'bold' | 'italic' | 'code' | 'codeblock' | 'mention'
   content: string
+  /** Set only for 'mention' tokens — the raw Slack user id from <@UID> / <@UID|fallback>. */
+  userId?: string
 }
 
 export function parseMrkdwn(text: string): MrkdwnToken[] {
   const tokens: MrkdwnToken[] = []
-  const re = /```([\s\S]+?)```|`([^`]+)`|\*([^*\n]+)\*|_([^_\n]+)_/g
+  const re = /```([\s\S]+?)```|`([^`]+)`|\*([^*\n]+)\*|_([^_\n]+)_|<@([A-Z0-9]+)(?:\|([^>]+))?>/g
   let lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = re.exec(text)) !== null) {
@@ -86,6 +88,7 @@ export function parseMrkdwn(text: string): MrkdwnToken[] {
     else if (match[2] !== undefined) tokens.push({ type: 'code', content: match[2] })
     else if (match[3] !== undefined) tokens.push({ type: 'bold', content: match[3] })
     else if (match[4] !== undefined) tokens.push({ type: 'italic', content: match[4] })
+    else if (match[5] !== undefined) tokens.push({ type: 'mention', content: match[6] ?? '', userId: match[5] })
     lastIndex = re.lastIndex
   }
   if (lastIndex < text.length) tokens.push({ type: 'text', content: text.slice(lastIndex) })

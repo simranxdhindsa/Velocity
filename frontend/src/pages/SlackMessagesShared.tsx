@@ -57,7 +57,7 @@ export function ChannelListSkeleton() {
 
 // ── Message text renderer (Slack mrkdwn) ────────────────────────────────────────
 
-export function MrkdwnText({ text }: { text: string }) {
+export function MrkdwnText({ text, userMap }: { text: string; userMap?: Map<string, string> }) {
   const tokens = parseMrkdwn(text)
   return (
     <>
@@ -66,6 +66,10 @@ export function MrkdwnText({ text }: { text: string }) {
         if (t.type === 'italic') return <em key={i}>{t.content}</em>
         if (t.type === 'code') return <code key={i} className="smh-inline-code">{t.content}</code>
         if (t.type === 'codeblock') return <pre key={i} className="smh-code-block"><code>{t.content}</code></pre>
+        if (t.type === 'mention') {
+          const name = (t.userId && userMap?.get(t.userId)) || t.content || 'unknown'
+          return <span key={i} className="smh-mention">@{name}</span>
+        }
         return <span key={i}>{t.content}</span>
       })}
     </>
@@ -163,13 +167,14 @@ function SenderAvatar({ message }: { message: LiveSlackMessage }) {
 // ── Message row — hover-reveal action bar + inline edit ────────────────────────
 
 export function MessageRow({
-  message, onSaveEdit, onDelete, onViewInSlack, onOpenThread,
+  message, onSaveEdit, onDelete, onViewInSlack, onOpenThread, userMap,
 }: {
   message: LiveSlackMessage
   onSaveEdit: (id: string, text: string) => Promise<void>
   onDelete: (id: string) => void
   onViewInSlack: (message: LiveSlackMessage) => void
   onOpenThread?: (message: LiveSlackMessage) => void
+  userMap?: Map<string, string>
 }) {
   const [hovered, setHovered] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -226,7 +231,7 @@ export function MessageRow({
             </div>
           </div>
         ) : (
-          <div className="smh-msg-text"><MrkdwnText text={message.text} /></div>
+          <div className="smh-msg-text"><MrkdwnText text={message.text} userMap={userMap} /></div>
         )}
 
         {!editing && (message.reply_count ?? 0) > 0 && onOpenThread && (

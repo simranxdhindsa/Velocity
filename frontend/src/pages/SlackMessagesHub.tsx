@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Send, Bold, Italic, Code, Search, ChevronUp } from 'lucide-react'
 import api from '@/services/api'
-import type { LiveSlackMessage } from '@/services/api'
+import type { LiveSlackMessage, SlackWorkspaceUser } from '@/services/api'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { MentionDropdown } from '@/components/MentionDropdown'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
+import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete'
 import {
   ChannelListItem, ChannelListSkeleton, MessageRow, MessageListSkeleton,
 } from './SlackMessagesShared'
@@ -28,6 +30,14 @@ export function SlackMessagesHub() {
 
   const [composeText, setComposeText] = useState('')
   const [sending, setSending] = useState(false)
+  const [workspaceUsers, setWorkspaceUsers] = useState<SlackWorkspaceUser[]>([])
+  const mention = useMentionAutocomplete(workspaceUsers)
+  // Resolves <@USERID> tokens in message text back to a display name for rendering.
+  const userMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const u of workspaceUsers) m.set(u.id, u.profile.display_name || u.real_name || u.name)
+    return m
+  }, [workspaceUsers])
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,11 +69,18 @@ export function SlackMessagesHub() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Load workspace users for @mention autocomplete in the compose box ────
+  useEffect(() => {
+    api.getWorkspaceUsers().then(res => setWorkspaceUsers((res as unknown as SlackWorkspaceUser[]) ?? [])).catch(() => {})
+  }, [])
+
   // ── Load the live channel history for the selected channel ───────────────
-  const fetchMessages = useCallback(async (channelId: string) => {
+  // `silent` skips the loading-skeleton flash — used after sending, when the
+  // list is already visible and we're just refreshing it in place.
+  const fetchMessages = useCallback(async (channelId: string, silent = false) => {
     fetchChannelRef.current = channelId
     if (!channelId) { setMessages([]); return }
-    setMessagesLoading(true)
+    if (!silent) setMessagesLoading(true)
     try {
       const res = await api.getLiveSlackMessages(channelId)
       const list = (res as unknown as LiveSlackMessage[]) ?? []
@@ -76,7 +93,7 @@ export function SlackMessagesHub() {
     } catch {
       if (fetchChannelRef.current === channelId) setError('Failed to load messages')
     } finally {
-      if (fetchChannelRef.current === channelId) setMessagesLoading(false)
+      if (!silent && fetchChannelRef.current === channelId) setMessagesLoading(false)
     }
   }, [])
 
@@ -121,7 +138,7 @@ export function SlackMessagesHub() {
     try {
       await api.sendHubMessage(selectedChannel, activeChannel?.name ?? '', composeText.trim())
       setComposeText('')
-      await fetchMessages(selectedChannel)
+      await fetchMessages(selectedChannel, true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message')
     } finally {
@@ -170,6 +187,16 @@ export function SlackMessagesHub() {
     } finally {
       setThreadLoading(false)
     }
+  }
+
+  const handleMentionSelect = (u: SlackWorkspaceUser) => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const result = mention.applyMention(composeText, ta.selectionStart, u)
+    if (!result) return
+    setComposeText(result.text)
+    mention.dismissMention()
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(result.cursor, result.cursor) })
   }
 
   const insertWrap = (marker: string) => {
@@ -251,6 +278,7 @@ export function SlackMessagesHub() {
                             onDelete={setDeleteTarget}
                             onViewInSlack={handleViewInSlack}
                             onOpenThread={handleOpenThread}
+                            userMap={userMap}
                           />
                         </motion.div>
                         {expandedThread === m.ts && (
@@ -267,6 +295,7 @@ export function SlackMessagesHub() {
                                   onSaveEdit={handleSaveEdit}
                                   onDelete={setDeleteTarget}
                                   onViewInSlack={handleViewInSlack}
+                                  userMap={userMap}
                                 />
                               ))
                             )}
@@ -294,16 +323,25 @@ export function SlackMessagesHub() {
               <textarea
                 ref={textareaRef}
                 className="smh-compose-input"
-                placeholder={`Message #${activeChannel.name}`}
+                placeholder={`Message #${activeChannel.name}… use @ to mention a member`}
                 value={composeText}
-                onChange={e => setComposeText(e.target.value)}
+                onChange={e => { setComposeText(e.target.value); mention.detectMention(e.target.value, e.target.selectionStart, e.target) }}
                 onKeyDown={e => {
+                  if (mention.handleMentionKeyDown(e, handleMentionSelect)) return
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
                     handleSend()
                   }
                 }}
+                onBlur={() => setTimeout(mention.dismissMention, 150)}
                 rows={2}
+              />
+              <MentionDropdown
+                results={mention.mentionResults}
+                activeIdx={mention.mentionIdx}
+                style={mention.mentionDropStyle}
+                onHover={mention.setMentionIdx}
+                onSelect={handleMentionSelect}
               />
               <motion.button
                 className="smh-send-btn"

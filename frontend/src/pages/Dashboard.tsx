@@ -124,7 +124,7 @@ export default function Dashboard() {
   // Derived sub-tab for slack (with validation)
   const slackTab: SlackTab = (SLACK_TABS as readonly string[]).includes(subTab ?? '')
     ? (subTab as SlackTab)
-    : 'inbox'
+    : 'messages'
 
   // Derived sub-tab for integrations (with validation)
   const integrationsTab: IntegrationsTab = (INTEGRATIONS_TABS as readonly string[]).includes(subTab ?? '')
