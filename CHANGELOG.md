@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-04
+
+### Enhancements
+- embed uploaded attachments inline in ticket description
+
+
 ## 2026-08-03
 
 ### Features
