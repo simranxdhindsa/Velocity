@@ -658,8 +658,18 @@
   background: var(--color-primary);
   color: #fff;
   cursor: pointer;
+  overflow: hidden;
 }
 .smh-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.smh-send-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Lucide's Send glyph isn't visually centered in its own viewBox — nudge it
+   so it optically sits in the middle of the circular button. */
+.smh-send-icon svg { transform: translate(-1px, 1px); }
 
 /* ── Light mode ───────────────────────────────────────────────────────────── */
 

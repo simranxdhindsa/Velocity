@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Bold, Italic, Code, Search, ChevronUp, Clock, UserPlus } from 'lucide-react'
 import api from '@/services/api'
 import type { LiveSlackMessage, SlackWorkspaceUser } from '@/services/api'
@@ -39,6 +39,10 @@ export function SlackMessagesHub() {
   const [schedTime, setSchedTime] = useState('10:00')
   const [scheduleConfirm, setScheduleConfirm] = useState(false)
   const [newDMOpen, setNewDMOpen] = useState(false)
+  // Drives the send-button's fly-out/fly-back-in icon animation — set true on
+  // click (independent of when the network request actually resolves, so the
+  // animation feels instant), cleared after 1s to let the icon fly back in.
+  const [justSent, setJustSent] = useState(false)
   const [workspaceUsers, setWorkspaceUsers] = useState<SlackWorkspaceUser[]>([])
   const mention = useMentionAutocomplete(workspaceUsers)
   // Resolves <@USERID> tokens in message text back to a display name for rendering.
@@ -142,6 +146,9 @@ export function SlackMessagesHub() {
   // ── Actions ────────────────────────────────────────────────────────────────
   const handleSend = async () => {
     if (!composeText.trim() || !selectedChannel || sending) return
+
+    setJustSent(true)
+    setTimeout(() => setJustSent(false), 1000)
 
     if (scheduleMode) {
       const [y, mo, d] = schedDate.split('-').map(Number)
@@ -401,7 +408,20 @@ export function SlackMessagesHub() {
                 whileHover={{ scale: composeText.trim() ? 1.05 : 1 }}
                 whileTap={{ scale: composeText.trim() ? 0.95 : 1 }}
               >
-                {scheduleMode ? <Clock size={15} /> : <Send size={15} />}
+                <AnimatePresence mode="wait">
+                  {!justSent && (
+                    <motion.span
+                      key="send-icon"
+                      className="smh-send-icon"
+                      initial={{ x: -14, y: 14, opacity: 0 }}
+                      animate={{ x: 0, y: 0, opacity: 1 }}
+                      exit={{ x: 14, y: -14, opacity: 0 }}
+                      transition={{ duration: 0.28, ease: 'easeInOut' }}
+                    >
+                      {scheduleMode ? <Clock size={15} /> : <Send size={15} />}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </motion.button>
             </div>
           </>
