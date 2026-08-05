@@ -42,6 +42,8 @@ Before calling any UI task done:
 - Walk the real entry point a user would take (e.g. click the left-nav item), not just a direct URL to the feature — default/landing-state bugs only show up this way.
 - Verify displayed *content* is correct, not just that something rendered (e.g. a resolved display name vs. a raw ID/token).
 
+**Full lessons + process checklist:** [`docs/features/uat-testing.md`](docs/features/uat-testing.md) — read before any Playwright QA pass. Add new lessons there as new UAT failure modes are found; don't let them stay only in conversation history.
+
 ## Architecture
 
 Velocity is a React + Go project management tool. Frontend (port 5173) → Go REST API (port 8080) at `/api`. All protected routes require `Authorization: Bearer <JWT>`.
@@ -428,6 +430,7 @@ Detailed descriptions of each feature/tab live in `docs/features/`. Read the rel
 | [`docs/features/board.md`](docs/features/board.md) | Kanban board, List view, Sprint Dashboard |
 | [`docs/features/dev-activity.md`](docs/features/dev-activity.md) | Dev Activity page — 5 subtabs, CSS map, skeuomorphic report design |
 | [`docs/features/other-tabs.md`](docs/features/other-tabs.md) | Calendar, Reminders, Day Track, Integrations, Settings, Admin, Reports, Slack, Bot Config, AI Analysis |
-| [`docs/features/update-reminders.md`](docs/features/update-reminders.md) | Update Reminders — standalone left-nav page with 3 subtabs (Claude Queue, Quick Send, Rules), KPI row, green dot nav indicator, browser notifications, scheduler uses default send time for null-scheduled messages |
+| [`docs/features/update-reminders.md`](docs/features/update-reminders.md) | Update Reminders — standalone left-nav page with 2 subtabs (Claude Queue, Rules; Quick Send was folded into Slack Messages' compose box), KPI row, green dot nav indicator, browser notifications, scheduler uses default send time for null-scheduled messages |
 | [`docs/features/shared-components.md`](docs/features/shared-components.md) | **Read before building any UI** — CustomDropdown, TimePicker, ConfirmModal, HoverCard, CalendarView, global CSS files |
+| [`docs/features/uat-testing.md`](docs/features/uat-testing.md) | **Read before any Playwright QA pass** — UAT lessons learned, real bugs that passed DOM-only checks, process checklist |
 
