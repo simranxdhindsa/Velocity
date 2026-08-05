@@ -6,6 +6,9 @@
 - report widget size to host via ui/notifications/size-changed
 
 
+### Enhancements
+- consolidate Slack Intelligence + Update Reminders tabs, fix UAT-found bugs
+
 ## 2026-08-04
 
 ### Enhancements
