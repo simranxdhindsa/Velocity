@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-05
+
+### Bug Fixes
+- report widget size to host via ui/notifications/size-changed
+
+
 ## 2026-08-04
 
 ### Enhancements
