@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
@@ -560,15 +561,27 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		if err != nil || sprintName == "" {
 			return toolError(id, "could not determine current sprint: "+err.Error())
 		}
+		// Fetch per-login counts concurrently — sequential YouTrack round-trips here
+		// were slow enough (multiple seconds for a handful of logins) to risk tripping
+		// claude.ai's proxy timeout for MCP Apps-enabled tool calls.
 		load := map[string]int{}
+		var loadMu sync.Mutex
+		var wg sync.WaitGroup
 		for _, login := range args.Logins {
-			count, err := ytClient.CountActiveIssuesByAssigneeInSprint(ctx, login, sprintName)
-			if err != nil {
-				load[login] = -1
-			} else {
-				load[login] = count
-			}
+			wg.Add(1)
+			go func(login string) {
+				defer wg.Done()
+				count, err := ytClient.CountActiveIssuesByAssigneeInSprint(ctx, login, sprintName)
+				loadMu.Lock()
+				defer loadMu.Unlock()
+				if err != nil {
+					load[login] = -1
+				} else {
+					load[login] = count
+				}
+			}(login)
 		}
+		wg.Wait()
 		// Best-effort display-name enrichment for the UI widget; falls back to
 		// bare logins if the developer config lookup fails.
 		names := map[string]string{}
