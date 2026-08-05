@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
@@ -179,9 +178,6 @@ var mcpTools = []map[string]interface{}{
 			},
 			"required": []string{"logins"},
 		},
-		"_meta": map[string]interface{}{
-			"ui": map[string]interface{}{"resourceUri": "ui://velocity/developer-load"},
-		},
 	},
 	{
 		"name": "create_youtrack_ticket",
@@ -220,9 +216,6 @@ var mcpTools = []map[string]interface{}{
 				},
 			},
 			"required": []string{"summary", "type_name", "priority"},
-		},
-		"_meta": map[string]interface{}{
-			"ui": map[string]interface{}{"resourceUri": "ui://velocity/create-ticket"},
 		},
 	},
 	{
@@ -473,24 +466,12 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case "initialize":
 		// No Mcp-Session-Id — we have no server-initiated events so sessions are not needed.
-		// protocolVersion must be a recent revision (2025-11-25+): declaring an older one
-		// (e.g. 2025-06-18) makes claude.ai's client assume the legacy session-based
-		// Streamable HTTP transport and open a GET SSE session through its shttp proxy,
-		// which 405s and breaks the connector. Confirmed by diffing HAR captures against
-		// a working MCP Apps connector (Motion), which negotiates 2025-11-25 and never
-		// issues a GET at all — everything goes over POST.
+		// Returning a session ID would cause Claude.ai to open a GET SSE connection, but
+		// claude.ai's shttp proxy returns 405 for browser-side GET, breaking the connection.
 		resp = rpcOK(req.ID, map[string]interface{}{
-			"protocolVersion": "2025-11-25",
-			"capabilities": map[string]interface{}{
-				"tools":     map[string]bool{"listChanged": false},
-				"resources": map[string]bool{"listChanged": false},
-				"extensions": map[string]interface{}{
-					"io.modelcontextprotocol/ui": map[string]interface{}{
-						"mimeTypes": []string{mcpUIMimeType},
-					},
-				},
-			},
-			"serverInfo": map[string]string{"name": "velocity", "version": "1.0.0"},
+			"protocolVersion": "2025-06-18",
+			"capabilities":    map[string]interface{}{"tools": map[string]bool{"listChanged": false}},
+			"serverInfo":      map[string]string{"name": "velocity", "version": "1.0.0"},
 		})
 
 	case "tools/list":
@@ -498,12 +479,6 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	case "tools/call":
 		resp = h.callTool(r, req.ID, req.Params, userID)
-
-	case "resources/list":
-		resp = handleResourcesList(req.ID)
-
-	case "resources/read":
-		resp = handleResourcesRead(req.ID, req.Params)
 
 	default:
 		resp = rpcErr(req.ID, -32601, "method not found: "+req.Method)
@@ -561,44 +536,20 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		if err != nil || sprintName == "" {
 			return toolError(id, "could not determine current sprint: "+err.Error())
 		}
-		// Fetch per-login counts concurrently — sequential YouTrack round-trips here
-		// were slow enough (multiple seconds for a handful of logins) to risk tripping
-		// claude.ai's proxy timeout for MCP Apps-enabled tool calls.
 		load := map[string]int{}
-		var loadMu sync.Mutex
-		var wg sync.WaitGroup
 		for _, login := range args.Logins {
-			wg.Add(1)
-			go func(login string) {
-				defer wg.Done()
-				count, err := ytClient.CountActiveIssuesByAssigneeInSprint(ctx, login, sprintName)
-				loadMu.Lock()
-				defer loadMu.Unlock()
-				if err != nil {
-					load[login] = -1
-				} else {
-					load[login] = count
-				}
-			}(login)
-		}
-		wg.Wait()
-		// Best-effort display-name enrichment for the UI widget; falls back to
-		// bare logins if the developer config lookup fails.
-		names := map[string]string{}
-		if configs, cErr := devConfigRepo.GetAll(ctx); cErr == nil {
-			for _, c := range configs {
-				if c != nil && c.DeveloperName != "" {
-					names[c.DeveloperLogin] = c.DeveloperName
-				}
+			count, err := ytClient.CountActiveIssuesByAssigneeInSprint(ctx, login, sprintName)
+			if err != nil {
+				load[login] = -1
+			} else {
+				load[login] = count
 			}
 		}
-		structured := map[string]interface{}{
+		data, _ := json.Marshal(map[string]interface{}{
 			"sprint": sprintName,
 			"load":   load,
-			"names":  names,
-		}
-		data, _ := json.Marshal(structured)
-		return toolOKWithUI(id, string(data), structured)
+		})
+		return toolOK(id, string(data))
 
 	case "create_youtrack_ticket":
 		var args struct {
@@ -685,16 +636,7 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		ytBaseURL := strings.TrimRight(ytClient.GetBaseURL(), "/")
 		ticketURL := fmt.Sprintf("%s/issue/%s", ytBaseURL, displayID)
 		result := fmt.Sprintf("Created %s — %s\n%s", displayID, issue.Summary, ticketURL)
-		structured := map[string]interface{}{
-			"issue_id":  displayID,
-			"url":       ticketURL,
-			"summary":   issue.Summary,
-			"type":      args.TypeName,
-			"priority":  args.Priority,
-			"subsystem": args.Subsystem,
-			"assignee":  args.AssigneeLogin,
-		}
-		return toolOKWithUI(id, result, structured)
+		return toolOK(id, result)
 
 	case "delete_youtrack_ticket":
 		var args struct {
