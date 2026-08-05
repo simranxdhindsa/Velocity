@@ -193,6 +193,7 @@
             : "") +
         "</div>" +
       "</div>";
+    requestAnimationFrame(reportSize);
   }
 
   window.addEventListener("message", function (event) {
@@ -208,6 +209,17 @@
       render(msg.params.structuredContent);
     }
   });
+
+  function reportSize() {
+    post("ui/notifications/size-changed", {
+      width: document.body.scrollWidth,
+      height: document.body.scrollHeight,
+    });
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(reportSize).observe(document.body);
+  }
+  window.addEventListener("load", reportSize);
 
   post(
     "ui/initialize",

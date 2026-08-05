@@ -184,6 +184,7 @@
           var idx = Number(bar.getAttribute("data-i"));
           bar.style.width = targetWidths[idx] + "%";
         });
+        reportSize();
       });
     });
   }
@@ -201,6 +202,17 @@
       render(msg.params.structuredContent);
     }
   });
+
+  function reportSize() {
+    post("ui/notifications/size-changed", {
+      width: document.body.scrollWidth,
+      height: document.body.scrollHeight,
+    });
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(reportSize).observe(document.body);
+  }
+  window.addEventListener("load", reportSize);
 
   post(
     "ui/initialize",
