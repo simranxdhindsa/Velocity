@@ -35,15 +35,39 @@ export function timeAgo(ts: string) {
   return d < 7 ? `${d}d ago` : new Date(ts).toLocaleDateString()
 }
 
-export function cleanSlackText(text: string): string {
+export function cleanSlackText(text: string, userMap?: Map<string, string>): string {
   return text
-    .replace(/<@U[A-Z0-9]+>/g, '@user')
+    .replace(/<@([A-Z0-9]+)>/g, (_, id) => `@${userMap?.get(id) ?? 'user'}`)
     .replace(/<#C[A-Z0-9]+\|([^>]+)>/g, '#$1')
     .replace(/<#C[A-Z0-9]+>/g, '#channel')
     .replace(/<([^|>]+)\|([^>]+)>/g, '$2')
     .replace(/<https?:[^>]+>/g, '[link]')
     .replace(/\n+/g, ' ')
     .trim()
+}
+
+// Same cleanup as cleanSlackText, but resolves <@USERID> mentions to the real
+// display name (via userMap) instead of the flat "@user" placeholder, and
+// renders it as a highlighted span — matches how mentions render in Messages.
+// Use for on-screen text; keep cleanSlackText for plain-string uses (search).
+export function SlackText({ text, userMap }: { text: string; userMap?: Map<string, string> }) {
+  const cleaned = text
+    .replace(/<#C[A-Z0-9]+\|([^>]+)>/g, '#$1')
+    .replace(/<#C[A-Z0-9]+>/g, '#channel')
+    .replace(/<([^|>]+)\|([^>]+)>/g, '$2')
+    .replace(/<https?:[^>]+>/g, '[link]')
+    .replace(/\n+/g, ' ')
+    .trim()
+  const parts = cleaned.split(/(<@[A-Z0-9]+>)/g)
+  return (
+    <>
+      {parts.map((part, i) => {
+        const match = part.match(/^<@([A-Z0-9]+)>$/)
+        if (!match) return part
+        return <span key={i} className="smh-mention">@{userMap?.get(match[1]) ?? 'user'}</span>
+      })}
+    </>
+  )
 }
 
 export function extractIssueIds(text: string): string[] {
@@ -163,8 +187,8 @@ export function ReplyComposer({ open, channelId, threadTs, mentionTs, savedTempl
 }
 
 // ── Thread Preview ────────────────────────────────────────────────────────────
-export function ThreadPreviewInline({ channelId, threadTs, replyCount }: {
-  channelId: string; threadTs: string; replyCount?: number
+export function ThreadPreviewInline({ channelId, threadTs, replyCount, userMap }: {
+  channelId: string; threadTs: string; replyCount?: number; userMap?: Map<string, string>
 }) {
   const [open, setOpen] = useState(false)
   const [replies, setReplies] = useState<Array<{ sender_name: string; text: string; timestamp: string }>>([])
@@ -206,7 +230,7 @@ export function ThreadPreviewInline({ channelId, threadTs, replyCount }: {
                   <AvatarFallback name={r.sender_name || '?'} size={20} />
                   <div className="si2-thread-reply-body">
                     <span className="si2-thread-reply-name">{r.sender_name}</span>
-                    <span className="si2-thread-reply-text">{cleanSlackText(r.text).slice(0, 90)}</span>
+                    <span className="si2-thread-reply-text">{cleanSlackText(r.text, userMap).slice(0, 90)}</span>
                   </div>
                   <span className="si2-thread-reply-time">{timeAgo(r.timestamp)}</span>
                 </div>
@@ -227,9 +251,10 @@ interface MentionCardProps {
   onDismiss: (ts: string) => void
   onSnooze: (ts: string, until: '2h' | 'tomorrow') => void
   onRemind: (m: SlackMention) => void
+  userMap?: Map<string, string>
 }
 
-export function MentionCard({ m, slackTeamId, channelName, savedTemplates, onDismiss, onSnooze, onRemind }: MentionCardProps) {
+export function MentionCard({ m, slackTeamId, channelName, savedTemplates, onDismiss, onSnooze, onRemind, userMap }: MentionCardProps) {
   const [pinned, setPinned] = useState(m.pinned ?? false)
   const [replyOpen, setReplyOpen] = useState(false)
   const [snoozeOpen, setSnoozeOpen] = useState(false)
@@ -288,7 +313,7 @@ export function MentionCard({ m, slackTeamId, channelName, savedTemplates, onDis
           </button>
         </div>
 
-        <p className="si2-card-text" onClick={openSlack}>{cleanSlackText(m.message_text)}</p>
+        <p className="si2-card-text" onClick={openSlack}><SlackText text={m.message_text} userMap={userMap} /></p>
 
         {!isDone && !snoozed && <SLABar createdAt={m.created_at} />}
 
@@ -298,7 +323,7 @@ export function MentionCard({ m, slackTeamId, channelName, savedTemplates, onDis
           </div>
         )}
 
-        <ThreadPreviewInline channelId={m.channel_id} threadTs={m.thread_ts || m.message_ts} />
+        <ThreadPreviewInline channelId={m.channel_id} threadTs={m.thread_ts || m.message_ts} userMap={userMap} />
 
         {!isDone && (
           <div className="si2-card-actions">
@@ -349,15 +374,20 @@ interface ThreadCardProps {
   slackTeamId: string
   channelName: string
   savedTemplates: string[]
+  onDismiss: (ts: string) => void
   onSnooze: (ts: string, until: '2h' | 'tomorrow') => void
   onRemind: (t: SlackThread) => void
+  userMap?: Map<string, string>
 }
 
-export function ThreadCard({ t, slackTeamId, channelName, savedTemplates, onSnooze, onRemind }: ThreadCardProps) {
+export function ThreadCard({ t, slackTeamId, channelName, savedTemplates, onDismiss, onSnooze, onRemind, userMap }: ThreadCardProps) {
   const [replyOpen, setReplyOpen] = useState(false)
   const [snoozeOpen, setSnoozeOpen] = useState(false)
   const snoozeRef = useRef<HTMLDivElement>(null)
   const snoozed = isSnoozed(t.snoozed_until)
+  // A thread counts as done if someone actually replied (has_reply, auto-detected)
+  // OR the user manually marked it Handled (dismissed) — mirrors MentionCard's isDone.
+  const isDone = t.has_reply || t.dismissed
 
   useEffect(() => {
     if (!snoozeOpen) return
@@ -374,10 +404,10 @@ export function ThreadCard({ t, slackTeamId, channelName, savedTemplates, onSnoo
     setTimeout(() => window.open(`https://app.slack.com/client/${slackTeamId}/${t.channel_id}/p${ts}`, '_blank', 'noopener'), 1500)
   }
 
-  const stripeColor = t.has_reply ? '#22c55e' : snoozed ? 'rgba(245,158,11,0.5)' : '#ef4444'
+  const stripeColor = isDone ? '#22c55e' : snoozed ? 'rgba(245,158,11,0.5)' : '#ef4444'
 
   return (
-    <div className={`si2-card${t.has_reply ? ' si2-card--done' : ''}${snoozed ? ' si2-card--snoozed' : ''}`}>
+    <div className={`si2-card${isDone ? ' si2-card--done' : ''}${snoozed ? ' si2-card--snoozed' : ''}`}>
       <div className="si2-card-stripe" style={{ background: stripeColor }} />
       <div className="si2-card-body">
         {/* Thread identity: channel icon + name (no fake sender — threads don't carry sender metadata) */}
@@ -388,15 +418,21 @@ export function ThreadCard({ t, slackTeamId, channelName, savedTemplates, onSnoo
           <span className="si2-card-sender"><Hash size={11} style={{ opacity: 0.7 }} />{t.channel_name || channelName || t.channel_id}</span>
           {t.has_reply
             ? <span className="si2-reply-chip has-reply"><CheckCircle size={10} /> {t.reply_count} {t.reply_count === 1 ? 'reply' : 'replies'}</span>
-            : <span className="si2-reply-chip no-reply">No replies yet</span>
+            : t.dismissed
+              ? <span className="si2-done-chip"><CheckCircle size={10} /> Handled</span>
+              : <span className="si2-reply-chip no-reply">No replies yet</span>
           }
           {snoozed && <span className="si2-snooze-chip"><Moon size={10} /> Snoozed</span>}
           <span style={{ flex: 1 }} />
           <span className="si2-card-time">{timeAgo(t.created_at)}</span>
         </div>
-        <p className="si2-card-text" onClick={openSlack}>{cleanSlackText(t.message_text)}</p>
-        <ThreadPreviewInline channelId={t.channel_id} threadTs={t.thread_ts} replyCount={t.reply_count} />
+        <p className="si2-card-text" onClick={openSlack}><SlackText text={t.message_text} userMap={userMap} /></p>
+        <ThreadPreviewInline channelId={t.channel_id} threadTs={t.thread_ts} replyCount={t.reply_count} userMap={userMap} />
+        {!isDone && (
         <div className="si2-card-actions">
+          <button className="si2-act-btn si2-act-done" onClick={() => onDismiss(t.thread_ts)}>
+            <CheckCircle size={12} /> Handled
+          </button>
           <button
             className={`si2-act-btn si2-act-reply${replyOpen ? ' active' : ''}`}
             onClick={e => { e.stopPropagation(); setReplyOpen(v => !v) }}
@@ -422,12 +458,14 @@ export function ThreadCard({ t, slackTeamId, channelName, savedTemplates, onSnoo
             )}
           </div>
         </div>
+        )}
         <ReplyComposer
           open={replyOpen}
           channelId={t.channel_id}
           threadTs={t.thread_ts}
           savedTemplates={savedTemplates}
           onClose={() => setReplyOpen(false)}
+          onSent={() => onDismiss(t.thread_ts)}
         />
       </div>
     </div>

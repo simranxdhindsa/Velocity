@@ -318,6 +318,7 @@ func main() {
 	slackRoutes.HandleFunc("/mentions/{messageTS}/snooze", slackHandler.SnoozeMention).Methods("POST")
 	slackRoutes.HandleFunc("/mentions/{messageTS}/pin", slackHandler.PinMention).Methods("POST")
 	slackRoutes.HandleFunc("/threads", slackHandler.GetUnansweredThreads).Methods("GET")
+	slackRoutes.HandleFunc("/threads/{threadTS}/dismiss", slackHandler.DismissThread).Methods("POST")
 	slackRoutes.HandleFunc("/threads/{threadTS}/snooze", slackHandler.SnoozeThread).Methods("POST")
 	slackRoutes.HandleFunc("/thread-replies", slackHandler.GetThreadRepliesHandler).Methods("GET")
 	slackRoutes.HandleFunc("/reminders", slackHandler.CreateFollowupReminder).Methods("POST")

@@ -73,6 +73,10 @@ type SlackUserThread struct {
 	ReplyCount    int        `json:"reply_count" db:"reply_count"`
 	LastCheckedAt *time.Time `json:"last_checked_at,omitempty" db:"last_checked_at"`
 	HasReply      bool       `json:"has_reply" db:"has_reply"`
+	// Dismissed is a manual "I've handled this" flag, set only via DismissThread —
+	// unlike HasReply (recomputed from live Slack data on every scan), this never
+	// gets overwritten by the scanner, mirroring SlackMention.Replied.
+	Dismissed     bool       `json:"dismissed" db:"dismissed"`
 	ReminderSent  bool       `json:"reminder_sent" db:"reminder_sent"`
 	SnoozedUntil  *time.Time `json:"snoozed_until,omitempty" db:"snoozed_until"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`

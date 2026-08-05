@@ -225,7 +225,7 @@ func (r *SlackRepository) GetAllUserThreads(ctx context.Context, userID string, 
 
 	rows, err := pool.Query(ctx, `
 		SELECT id, user_id, channel_id, COALESCE(channel_name, channel_id), thread_ts, message_text, reply_count,
-		       last_checked_at, has_reply, reminder_sent, snoozed_until, created_at
+		       last_checked_at, has_reply, reminder_sent, snoozed_until, created_at, dismissed
 		FROM slack_user_threads
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -240,13 +240,25 @@ func (r *SlackRepository) GetAllUserThreads(ctx context.Context, userID string, 
 	for rows.Next() {
 		var t models.SlackUserThread
 		err := rows.Scan(&t.ID, &t.UserID, &t.ChannelID, &t.ChannelName, &t.ThreadTS, &t.MessageText,
-			&t.ReplyCount, &t.LastCheckedAt, &t.HasReply, &t.ReminderSent, &t.SnoozedUntil, &t.CreatedAt)
+			&t.ReplyCount, &t.LastCheckedAt, &t.HasReply, &t.ReminderSent, &t.SnoozedUntil, &t.CreatedAt, &t.Dismissed)
 		if err != nil {
 			return nil, err
 		}
 		threads = append(threads, t)
 	}
 	return threads, nil
+}
+
+// DismissThread marks a thread as manually handled — independent of has_reply,
+// which the scanner recomputes from live Slack data and would otherwise
+// silently undo this on the next scan.
+func (r *SlackRepository) DismissThread(ctx context.Context, userID, threadTS string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx, `
+		UPDATE slack_user_threads SET dismissed = TRUE
+		WHERE user_id = $1 AND thread_ts = $2
+	`, userID, threadTS)
+	return err
 }
 
 // SnoozeThread sets a snooze time on a user thread

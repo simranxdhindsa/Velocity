@@ -81,6 +81,19 @@
   padding: 9px 14px;
 }
 
+.cq-conn-row--toggle {
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.cq-conn-row--toggle:hover { background: var(--bg-elevated); }
+
+.cq-conn-caret { color: var(--text-muted); flex-shrink: 0; transition: transform 0.18s ease; }
+.cq-conn-caret--open { transform: rotate(180deg); }
+
 .cq-conn-icon { color: var(--text-muted); flex-shrink: 0; }
 .cq-conn-icon--ok { color: var(--color-success); }
 
@@ -132,7 +145,7 @@
 .cq-conn-revoke {
   padding: 3px 9px !important;
   font-size: 11px !important;
-  margin-left: auto;
+  margin: 0 14px 8px;
 }
 
 /* ── Manage/setup panel ─────────────────────────────────────────────────────── */

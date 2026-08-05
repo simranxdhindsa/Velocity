@@ -1576,6 +1576,11 @@ STRICT RULES
 <!-- v4 -->'
 		WHERE bot_type = 'pm_assistant'
 		  AND prompt NOT LIKE '%<!-- v4 -->%'`,
+
+		// Manual "Handled" dismiss for threads (mirrors slack_mentions.replied) —
+		// separate from has_reply, which the scanner recomputes from live Slack
+		// reply counts and would otherwise silently undo a manual dismiss.
+		`ALTER TABLE slack_user_threads ADD COLUMN IF NOT EXISTS dismissed BOOLEAN NOT NULL DEFAULT false`,
 	}
 
 	for i, migration := range migrations {

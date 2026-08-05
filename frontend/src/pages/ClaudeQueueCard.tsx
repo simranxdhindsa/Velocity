@@ -56,6 +56,10 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showRevoke, setShowRevoke] = useState(false)
+  // Connection detail (URL, token, revoke) is config, not queue content — keep
+  // it collapsed behind a click instead of permanently taking up space above
+  // the actual message list.
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
   const connectorUrl = storedToken ? `${MCP_BASE_URL}?token=${storedToken}` : ''
 
@@ -132,7 +136,7 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
 
   return (
     <div className="cq-conn">
-      <div className="cq-conn-row">
+      <button className="cq-conn-row cq-conn-row--toggle" onClick={() => setDetailsOpen(o => !o)}>
         {isConnected
           ? <CheckCircle2 size={12} className="cq-conn-icon cq-conn-icon--ok" />
           : <CircleDashed size={12} className="cq-conn-icon" />
@@ -141,41 +145,55 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
           {isConnected ? 'Connected' : 'Setting up…'}
           {lastUsedLabel && <span className="cq-conn-sub"> · {lastUsedLabel}</span>}
         </span>
-        {isConnected && (
-          <button
-            className="cq-panel-btn cq-panel-btn--danger cq-conn-revoke"
-            onClick={() => setShowRevoke(true)}
-          >
-            <Trash2 size={11} />Revoke
-          </button>
-        )}
-      </div>
+        <ChevronDown size={12} className={`cq-conn-caret${detailsOpen ? ' cq-conn-caret--open' : ''}`} />
+      </button>
 
-      {connectorUrl ? (
-        <div className="cq-url-always">
-          <div className="cq-url-label-sm">Claude.ai connector URL</div>
-          <div className="cq-url-row">
-            <code className="cq-url-code">{connectorUrl}</code>
-            <button
-              className={`cq-copy-btn${copied ? ' cq-copy-btn--ok' : ''}`}
-              onClick={handleCopy}
-            >
-              {copied
-                ? <><Check size={11} />Copied!</>
-                : <><Copy size={11} />Copy</>
-              }
-            </button>
-          </div>
-          <div className="cq-url-hint">
-            Claude.ai → Settings → Connectors → Add custom connector
-          </div>
-        </div>
-      ) : meta?.exists && (
-        <div className="cq-url-hint cq-url-hint--oauth">
-          Connected via Claude.ai OAuth — URL not visible here.
-          Revoke and regenerate if you need the connector URL on this device.
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {detailsOpen && (
+          <motion.div
+            key="conn-details"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            style={{ overflow: 'hidden' }}
+          >
+            {isConnected && (
+              <button
+                className="cq-panel-btn cq-panel-btn--danger cq-conn-revoke"
+                onClick={() => setShowRevoke(true)}
+              >
+                <Trash2 size={11} />Revoke
+              </button>
+            )}
+            {connectorUrl ? (
+              <div className="cq-url-always">
+                <div className="cq-url-label-sm">Claude.ai connector URL</div>
+                <div className="cq-url-row">
+                  <code className="cq-url-code">{connectorUrl}</code>
+                  <button
+                    className={`cq-copy-btn${copied ? ' cq-copy-btn--ok' : ''}`}
+                    onClick={handleCopy}
+                  >
+                    {copied
+                      ? <><Check size={11} />Copied!</>
+                      : <><Copy size={11} />Copy</>
+                    }
+                  </button>
+                </div>
+                <div className="cq-url-hint">
+                  Claude.ai → Settings → Connectors → Add custom connector
+                </div>
+              </div>
+            ) : meta?.exists && (
+              <div className="cq-url-hint cq-url-hint--oauth">
+                Connected via Claude.ai OAuth — URL not visible here.
+                Revoke and regenerate if you need the connector URL on this device.
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {showRevoke && (
         <ConfirmModal

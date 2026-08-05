@@ -1,17 +1,21 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Bold, Italic, Code, Search, ChevronUp } from 'lucide-react'
+import { Send, Bold, Italic, Code, Search, ChevronUp, Clock, UserPlus } from 'lucide-react'
 import api from '@/services/api'
 import type { LiveSlackMessage, SlackWorkspaceUser } from '@/services/api'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { MentionDropdown } from '@/components/MentionDropdown'
+import { CalendarPicker } from '@/components/CalendarPicker'
+import { ClockTimePicker } from '@/components/ClockTimePicker'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete'
 import {
   ChannelListItem, ChannelListSkeleton, MessageRow, MessageListSkeleton,
 } from './SlackMessagesShared'
 import { groupLiveByDay, type HubChannel } from './slack-messages-types'
+import { NewDMModal } from './NewDMModal'
+import { toYMD } from './ClaudeQueueCard'
 import '../styles/pages/slack-messages.css'
 
 export function SlackMessagesHub() {
@@ -30,6 +34,11 @@ export function SlackMessagesHub() {
 
   const [composeText, setComposeText] = useState('')
   const [sending, setSending] = useState(false)
+  const [scheduleMode, setScheduleMode] = useState(false)
+  const [schedDate, setSchedDate] = useState(toYMD(new Date()))
+  const [schedTime, setSchedTime] = useState('10:00')
+  const [scheduleConfirm, setScheduleConfirm] = useState(false)
+  const [newDMOpen, setNewDMOpen] = useState(false)
   const [workspaceUsers, setWorkspaceUsers] = useState<SlackWorkspaceUser[]>([])
   const mention = useMentionAutocomplete(workspaceUsers)
   // Resolves <@USERID> tokens in message text back to a display name for rendering.
@@ -133,6 +142,28 @@ export function SlackMessagesHub() {
   // ── Actions ────────────────────────────────────────────────────────────────
   const handleSend = async () => {
     if (!composeText.trim() || !selectedChannel || sending) return
+
+    if (scheduleMode) {
+      const [y, mo, d] = schedDate.split('-').map(Number)
+      const [hh, mm] = schedTime.split(':').map(Number)
+      const when = new Date(y, mo - 1, d, hh, mm, 0, 0)
+      if (when <= new Date()) { setError('Selected date and time is in the past'); return }
+      setSending(true)
+      setError(null)
+      try {
+        await api.createQueuedMessage(composeText.trim(), when.toISOString(), selectedChannel, `#${activeChannel?.name ?? ''}`)
+        setComposeText('')
+        setScheduleMode(false)
+        setScheduleConfirm(true)
+        setTimeout(() => setScheduleConfirm(false), 3000)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to schedule message')
+      } finally {
+        setSending(false)
+      }
+      return
+    }
+
     setSending(true)
     setError(null)
     try {
@@ -214,13 +245,18 @@ export function SlackMessagesHub() {
   return (
     <div className="smh-root">
       <div className="smh-sidebar">
-        <div className="smh-sidebar-search">
-          <Search size={13} />
-          <input
-            placeholder="Find a channel…"
-            value={channelSearch}
-            onChange={e => setChannelSearch(e.target.value)}
-          />
+        <div className="smh-sidebar-top">
+          <div className="smh-sidebar-search">
+            <Search size={13} />
+            <input
+              placeholder="Find a channel…"
+              value={channelSearch}
+              onChange={e => setChannelSearch(e.target.value)}
+            />
+          </div>
+          <button className="smh-new-dm-btn" onClick={() => setNewDMOpen(true)} title="New direct message" aria-label="New direct message">
+            <UserPlus size={14} />
+          </button>
         </div>
         {channelsLoading ? (
           <ChannelListSkeleton />
@@ -313,13 +349,27 @@ export function SlackMessagesHub() {
             </div>
 
             {error && <div className="smh-error-banner">{error}</div>}
+            {scheduleConfirm && <div className="smh-success-banner">Message scheduled</div>}
 
             <div className="smh-compose">
               <div className="smh-compose-toolbar">
                 <button onClick={() => insertWrap('*')} title="Bold"><Bold size={14} /></button>
                 <button onClick={() => insertWrap('_')} title="Italic"><Italic size={14} /></button>
                 <button onClick={() => insertWrap('`')} title="Code"><Code size={14} /></button>
+                <button
+                  className={`smh-schedule-toggle${scheduleMode ? ' active' : ''}`}
+                  onClick={() => setScheduleMode(m => !m)}
+                  title={scheduleMode ? 'Cancel scheduling' : 'Schedule for later'}
+                >
+                  <Clock size={14} />
+                </button>
               </div>
+              {scheduleMode && (
+                <div className="smh-schedule-row">
+                  <CalendarPicker value={schedDate} onChange={setSchedDate} minDate={toYMD(new Date())} />
+                  <ClockTimePicker value={schedTime} onChange={setSchedTime} />
+                </div>
+              )}
               <textarea
                 ref={textareaRef}
                 className="smh-compose-input"
@@ -347,10 +397,11 @@ export function SlackMessagesHub() {
                 className="smh-send-btn"
                 onClick={handleSend}
                 disabled={!composeText.trim() || sending}
+                title={scheduleMode ? 'Schedule message' : 'Send now'}
                 whileHover={{ scale: composeText.trim() ? 1.05 : 1 }}
                 whileTap={{ scale: composeText.trim() ? 0.95 : 1 }}
               >
-                <Send size={15} />
+                {scheduleMode ? <Clock size={15} /> : <Send size={15} />}
               </motion.button>
             </div>
           </>
@@ -366,6 +417,10 @@ export function SlackMessagesHub() {
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
         />
+      )}
+
+      {newDMOpen && (
+        <NewDMModal users={workspaceUsers} onClose={() => setNewDMOpen(false)} />
       )}
     </div>
   )

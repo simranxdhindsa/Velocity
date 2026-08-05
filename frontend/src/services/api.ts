@@ -768,6 +768,12 @@ class ApiService {
     })
   }
 
+  async dismissSlackThread(threadTS: string) {
+    return this.request(`/slack/threads/${encodeURIComponent(threadTS)}/dismiss`, {
+      method: 'POST',
+    })
+  }
+
   async getSlackThreads() {
     return this.request<{ success: boolean; threads: SlackThread[]; count: number }>('/slack/threads')
   }
@@ -2405,6 +2411,7 @@ export interface SlackThread {
   reply_count: number
   last_checked_at?: string
   has_reply: boolean
+  dismissed: boolean
   reminder_sent: boolean
   snoozed_until?: string
   created_at: string

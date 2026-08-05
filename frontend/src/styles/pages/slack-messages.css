@@ -22,11 +22,18 @@
   overflow-y: auto;
 }
 
-.smh-sidebar-search {
+.smh-sidebar-top {
   display: flex;
   align-items: center;
   gap: 6px;
   margin: 10px;
+}
+
+.smh-sidebar-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 10px;
   border-radius: var(--radius-md);
   background: var(--bg-surface);
@@ -43,6 +50,22 @@
   font-family: var(--font-sans);
 }
 .smh-sidebar-search input::placeholder { color: var(--text-muted); }
+
+.smh-new-dm-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.smh-new-dm-btn:hover { color: var(--color-primary-light); border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.1); }
 
 .smh-chan-list {
   display: flex;
@@ -426,6 +449,155 @@
   font-size: 0.78rem;
 }
 
+.smh-success-banner {
+  margin: 0 18px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-success-muted);
+  color: var(--color-success);
+  font-size: 0.78rem;
+}
+
+/* ── Schedule toggle + inline date/time row ──────────────────────────────── */
+/* Used both as an icon-only button inside .smh-compose-toolbar (inherits that
+   parent's 26x26 button base) and standalone with a label in the DM modal —
+   the rules below cover the standalone case; toolbar context overrides size. */
+.smh-schedule-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.smh-compose-toolbar .smh-schedule-toggle {
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+}
+.smh-schedule-toggle:hover { color: var(--text-primary); border-color: rgba(99, 102, 241, 0.4); }
+.smh-schedule-toggle.active {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: var(--color-primary-light);
+}
+
+.smh-schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── New DM modal ─────────────────────────────────────────────────────────── */
+.smh-dm-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+}
+.smh-dm-search-wrap input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 0.84rem;
+  font-family: var(--font-sans);
+}
+.smh-dm-search-wrap input::placeholder { color: var(--text-muted); }
+
+.smh-dm-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.smh-dm-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+.smh-dm-user-row:hover { background: var(--bg-elevated); }
+.smh-dm-user-row img { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; }
+
+.smh-dm-user-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(var(--color-primary-rgb), 0.16);
+  color: var(--color-primary-light);
+  font-weight: 700;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.smh-dm-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.smh-dm-selected img { width: 24px; height: 24px; border-radius: 50%; }
+.smh-dm-selected-clear {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.smh-dm-selected-clear:hover { color: var(--text-primary); background: var(--bg-elevated); }
+
+.smh-dm-textarea {
+  resize: none;
+  font-family: var(--font-sans);
+}
+
+.smh-dm-schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .smh-compose {
   position: relative;
   flex-shrink: 0;
@@ -526,4 +698,8 @@
   .smh-chan-list::-webkit-scrollbar { display: none; }
   .smh-chan-item { flex-shrink: 0; }
   .smh-main { height: 70vh; }
+
+  /* Touch targets: bump icon buttons to the 44px minimum on touch screens */
+  .smh-new-dm-btn { width: 44px; height: 44px; }
+  .smh-send-btn { width: 40px; height: 40px; }
 }

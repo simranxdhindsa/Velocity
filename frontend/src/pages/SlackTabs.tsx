@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  RefreshCw, CheckCircle, Clock, Hash, MessageSquare, Bell,
+  RefreshCw, CheckCircle, Clock, Hash, MessageSquare,
   Settings, Zap, Plus, X, Trash2, Calendar,
 } from 'lucide-react'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
@@ -9,7 +9,7 @@ import type { ReminderItem } from '../services/api'
 import { timeAgo } from './SlackCards'
 
 // ── Types shared by tab components ───────────────────────────────────────────
-export type ReminderSubTab = 'Upcoming' | 'Sent' | 'Auto-alerts' | 'Templates'
+export type ReminderSubTab = 'Upcoming' | 'Sent'
 export type Preset = 'tomorrow' | 'in2days' | 'nextmon' | 'in1week'
 
 export const PRESET_LABELS: Record<Preset, string> = {
@@ -106,6 +106,7 @@ export function RemindersTabContent({
   const [quickIssueId, setQuickIssueId] = useState('')
   const [newTemplate, setNewTemplate] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState<Set<string>>(new Set())
+  const [templatesOpen, setTemplatesOpen] = useState(false)
 
   const requestDelete = (id: string) => {
     setConfirmingDelete(prev => new Set([...prev, id]))
@@ -114,9 +115,11 @@ export function RemindersTabContent({
   const cancelDelete = (id: string) => setConfirmingDelete(prev => { const s = new Set(prev); s.delete(id); return s })
   const confirmDelete = (id: string) => { onDelete(id); cancelDelete(id) }
 
-  const upcomingReminders = remindersAll.filter(r => r.status === 'pending' && r.type === 'custom').sort((a, b) => a.target_date.localeCompare(b.target_date))
-  const sentReminders = remindersAll.filter(r => r.status === 'sent' && r.type === 'custom').sort((a, b) => b.target_date.localeCompare(a.target_date)).slice(0, 30)
-  const autoReminders = remindersAll.filter(r => r.type !== 'custom').sort((a, b) => b.target_date.localeCompare(a.target_date))
+  // Grouped by status (pending → Upcoming, sent → Sent) rather than by source —
+  // personal ("custom") and scheduler-generated reminders both belong in
+  // whichever bucket reflects whether they've actually gone out yet.
+  const upcomingReminders = remindersAll.filter(r => r.status === 'pending').sort((a, b) => a.target_date.localeCompare(b.target_date))
+  const sentReminders = remindersAll.filter(r => r.status === 'sent').sort((a, b) => b.target_date.localeCompare(a.target_date)).slice(0, 30)
 
   const handleAddTemplate = () => {
     if (!newTemplate.trim()) return
@@ -131,7 +134,7 @@ export function RemindersTabContent({
     setActivePreset(null); setQuickTitle(''); setQuickIssueId('')
   }
 
-  const SUB_TABS: ReminderSubTab[] = ['Upcoming', 'Sent', 'Auto-alerts', 'Templates']
+  const SUB_TABS: ReminderSubTab[] = ['Upcoming', 'Sent']
 
   return (
     <div className="si2-tab-scroll">
@@ -183,6 +186,7 @@ export function RemindersTabContent({
                   <div className="si2-card-head">
                     <Clock size={12} style={{ color: 'var(--color-primary)' }} />
                     <span className="si2-card-time"><Calendar size={10} /> {r.target_date}</span>
+                    {r.type !== 'custom' && <span className="si2-status-chip status-pending">{r.type.replace(/_/g, ' ')}</span>}
                     {r.related_issue_id && <span className="si2-issue-chip">{r.related_issue_id}</span>}
                   </div>
                   <p className="si2-card-text">{r.title}</p>
@@ -220,6 +224,7 @@ export function RemindersTabContent({
                   <div className="si2-card-head">
                     <CheckCircle size={12} style={{ color: '#4ade80' }} />
                     <span className="si2-card-time"><Calendar size={10} /> {r.target_date}</span>
+                    {r.type !== 'custom' && <span className="si2-status-chip status-sent">{r.type.replace(/_/g, ' ')}</span>}
                   </div>
                   <p className="si2-card-text">{r.title}</p>
                 </div>
@@ -239,44 +244,14 @@ export function RemindersTabContent({
           </div>
       )}
 
-      {subTab === 'Auto-alerts' && (
-        autoReminders.length === 0
-          ? <div className="si2-empty">
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-                <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
-              </div>
-              <Bell size={32} /><p>No auto-alerts</p><p className="si2-empty-sub">Scheduler-generated alerts appear here</p>
-            </div>
-          : <div className="si2-card-list">
-            {autoReminders.map(r => (
-              <div key={r.id} className={`si2-card si2-reminder-card${r.status === 'sent' ? ' si2-card--done' : ''}`}>
-                <div className="si2-card-body">
-                  <div className="si2-card-head">
-                    <span className={`si2-status-chip status-${r.status}`}>{r.type.replace(/_/g, ' ')}</span>
-                    <span className="si2-card-time"><Calendar size={10} /> {r.target_date}</span>
-                  </div>
-                  <p className="si2-card-text">{r.title}</p>
-                </div>
-                <div className="si2-card-actions">
-                  {r.status === 'pending' && <button className="si2-act-btn si2-act-done" onClick={() => onDismiss(r.id)}><X size={12} /></button>}
-                  {confirmingDelete.has(r.id) ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      <span style={{ fontSize: '0.72rem', color: '#f87171' }}>Delete?</span>
-                      <button className="si2-act-btn si2-act-done" aria-label="Confirm delete" onClick={() => confirmDelete(r.id)}>Yes</button>
-                      <button className="si2-act-btn" aria-label="Cancel delete" onClick={() => cancelDelete(r.id)}>No</button>
-                    </div>
-                  ) : (
-                    <button className="si2-act-btn" onClick={() => requestDelete(r.id)} title="Delete"><Trash2 size={12} /></button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-      )}
-
-      {subTab === 'Templates' && (
-        <div>
-          <div className="si2-section-label">QUICK REPLY TEMPLATES</div>
+      {/* Reply templates — collapsed by default, this is config not a primary view */}
+      <div className="si2-templates-toggle-row">
+        <button className="si2-templates-toggle" onClick={() => setTemplatesOpen(o => !o)}>
+          Manage reply templates {savedTemplates.length > 0 && `(${savedTemplates.length})`}
+        </button>
+      </div>
+      {templatesOpen && (
+        <div className="si2-templates-panel">
           <div className="si2-template-add-row">
             <input
               className="si2-input"

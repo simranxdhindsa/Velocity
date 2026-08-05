@@ -100,6 +100,62 @@
   color: #4f46e5;
 }
 
+/* ── Header icon buttons (Reminders / Settings) ──────────────────────────── */
+.si2-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.si2-icon-btn:hover { color: var(--text-primary); border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.1); }
+[data-theme="light"] .si2-icon-btn { background: rgba(255, 255, 255, 0.85); border-color: rgba(99, 102, 241, 0.15); color: #64748b; }
+
+.si2-icon-btn-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-danger, #ef4444);
+}
+
+/* ── Mentions / Threads segmented toggle ─────────────────────────────────── */
+.si2-view-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+[data-theme="light"] .si2-view-toggle { background: rgba(255, 255, 255, 0.85); border-color: rgba(99, 102, 241, 0.15); }
+
+.si2-view-toggle-btn {
+  padding: 0.35rem 0.9rem;
+  min-height: 32px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.si2-view-toggle-btn:hover { color: var(--text-secondary); }
+.si2-view-toggle-btn.active { background: rgba(99, 102, 241, 0.18); color: var(--color-primary-light); }
+[data-theme="light"] .si2-view-toggle-btn.active { background: rgba(99, 102, 241, 0.12); color: #4f46e5; }
+
 /* ── Scan message bar ─────────────────────────────────────────────────────── */
 .si2-scan-msg {
   padding: 0.45rem 1.25rem;
@@ -983,6 +1039,19 @@
 [data-theme="light"] .si2-subtab.active { color: #4f46e5; border-bottom-color: #6366f1; }
 
 /* ── Templates ────────────────────────────────────────────────────────────── */
+.si2-templates-toggle-row { margin-top: 0.9rem; padding-top: 0.75rem; border-top: 1px solid var(--border-subtle); }
+.si2-templates-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+.si2-templates-toggle:hover { color: var(--color-primary-light); }
+.si2-templates-panel { margin-top: 0.65rem; }
 .si2-template-add-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
 .si2-template-list { display: flex; flex-direction: column; gap: 0.35rem; }
 
@@ -1038,6 +1107,9 @@
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7);
   width: 100%;
   max-width: 420px;
+  max-height: calc(100vh - 3rem);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   animation: si2-slide-up 0.22s ease;
 }
@@ -1074,7 +1146,10 @@
 .si2-modal-close:hover { background: rgba(255, 255, 255, 0.07); color: var(--text-primary); }
 [data-theme="light"] .si2-modal-close:hover { background: rgba(241, 245, 249, 0.9); }
 
-.si2-modal-body { display: flex; flex-direction: column; gap: 0.65rem; padding: 1rem 1.25rem; }
+.si2-modal-body { display: flex; flex-direction: column; gap: 0.65rem; padding: 1rem 1.25rem; flex: 1; overflow-y: auto; min-height: 0; }
+
+.si2-modal--lg { max-width: 640px; }
+.si2-modal .si2-tab-scroll { flex: 1; overflow-y: auto; min-height: 0; }
 
 .si2-modal-preview {
   font-size: 0.78rem;
@@ -1165,4 +1240,8 @@
 
   /* Tab bar: already has overflow-x:auto */
   .si2-tab { flex-shrink: 0; }
+
+  /* Touch targets: bump icon buttons to the 44px minimum on touch screens */
+  .si2-icon-btn { width: 44px; height: 44px; }
+  .si2-view-toggle-btn { min-height: 40px; }
 }

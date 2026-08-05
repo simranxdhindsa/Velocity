@@ -391,6 +391,33 @@ func (h *SlackHandler) GetUnansweredThreads(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+// DismissThread marks a thread as manually handled, independent of has_reply
+func (h *SlackHandler) DismissThread(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	threadTS := vars["threadTS"]
+	if threadTS == "" {
+		http.Error(w, "threadTS is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.slackRepo.DismissThread(r.Context(), userID, threadTS); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Thread marked as handled",
+	})
+}
+
 // PostDigest posts today's digest to the configured primary channel
 func (h *SlackHandler) PostDigest(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
