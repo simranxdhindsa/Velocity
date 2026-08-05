@@ -486,6 +486,11 @@
 
   /* Hide desktop-only header items */
   .header-center { display: none; }
+  /* Extra specificity (.header-left .wc-wrap, not just .wc-wrap) needed to beat
+     world-clock.css's base rule — that stylesheet is imported from within the
+     WorldClock component and lands after layout.css in the bundle, so an
+     equal-specificity .wc-wrap rule here would lose on source order. */
+  .header-left .wc-wrap { display: none; }
 
   /* Compress header-actions — keep bell + new-task, hide toggle & changelog */
   .jelly-switch-container { display: none !important; }

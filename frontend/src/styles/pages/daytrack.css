@@ -188,6 +188,12 @@
   gap: 16px;
   align-items: start;
 }
+/* Grid items default to min-width: auto, so the (unclassed) column wrapper
+   divs here would otherwise size to their widest descendant's min-content
+   — e.g. .dt-table's min-width: 580px — instead of shrinking to the track. */
+.dt-grid > div {
+  min-width: 0;
+}
 @media (max-width: 900px) {
   .dt-grid { grid-template-columns: 1fr; }
 }
@@ -200,6 +206,11 @@
   padding: 18px;
   margin-bottom: 14px;
   backdrop-filter: var(--glass-blur-sm);
+  /* Grid items default to min-width: auto, so a deeply nested fixed-width
+     descendant (e.g. .dt-table's min-width: 580px) would otherwise force
+     this whole card — and the single-column .dt-grid track — wider than
+     the viewport despite .dt-table-wrap's own overflow-x: auto. */
+  min-width: 0;
 }
 .dt-card-title {
   font-size: var(--text-xs);
@@ -1556,7 +1567,9 @@
   }
   .dt-header-right {
     width: 100%;
-    justify-content: space-between;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
   }
   .dt-header-stats { gap: 6px; }
   .dt-stat-pill { font-size: 11px; padding: 3px 9px; }
