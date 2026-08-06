@@ -7,6 +7,7 @@
 
 
 ### Features
+- add 'get_youtrack_ticket' tool to fetch ticket details by readable ID, including summary, description, status, and attachments
 - hide top-nav clock widget on mobile, and BUG: fix DayTrack horizontal overflow on mobile viewports
 
 ## 2026-08-05
