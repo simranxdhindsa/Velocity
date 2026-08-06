@@ -3,6 +3,7 @@
 ## 2026-08-06
 
 ### Enhancements
+- wire notification bell to real backend data with SSE, fix type/icon mapping, add click-to-navigate and Update Reminders notification events
 - center send icon, add fly-out/fly-in animation on send
 
 
