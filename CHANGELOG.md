@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-06
+
+### Enhancements
+- center send icon, add fly-out/fly-in animation on send
+
+
+### Features
+- hide top-nav clock widget on mobile, and BUG: fix DayTrack horizontal overflow on mobile viewports
+
 ## 2026-08-05
 
 ### Bug Fixes
