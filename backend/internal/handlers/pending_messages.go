@@ -11,6 +11,7 @@ import (
 
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/middleware"
+	"github.com/dhindsa/project-management/internal/models"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 	updatesvc "github.com/dhindsa/project-management/internal/services/update_reminder"
 )
@@ -101,7 +102,7 @@ func (h *PendingMessagesHandler) Delete(w http.ResponseWriter, r *http.Request) 
 }
 
 // RunPendingMessagesScheduler starts a background goroutine that fires due messages every 60s.
-func RunPendingMessagesScheduler() {
+func RunPendingMessagesScheduler(notifHandler *NotificationHandler) {
 	repo := database.NewPendingMessagesRepository()
 	svc := updatesvc.NewService()
 	go func() {
@@ -127,13 +128,36 @@ func RunPendingMessagesScheduler() {
 				if sendErr != nil {
 					log.Printf("⚠️  pending-messages scheduler: send failed for %s: %v", msg.ID, sendErr)
 					_ = repo.MarkFailed(ctx, msg.ID, sendErr.Error())
+					if notifHandler != nil {
+						_ = notifHandler.CreateAndBroadcast(ctx, &models.Notification{
+							UserID:  msg.UserID,
+							Type:    "update_reminder_failed",
+							Title:   "Claude Queue message failed",
+							Message: truncateStr(msg.Message, 120) + ": " + sendErr.Error(),
+						})
+					}
 				} else {
 					_ = repo.MarkSent(ctx, msg.ID, slackTS)
 					log.Printf("✅ pending-messages scheduler: sent %s to %s", msg.ID, msg.ChannelLabel)
+					if notifHandler != nil {
+						_ = notifHandler.CreateAndBroadcast(ctx, &models.Notification{
+							UserID:  msg.UserID,
+							Type:    "update_reminder_sent",
+							Title:   "Claude Queue message sent",
+							Message: truncateStr(msg.Message, 120) + " → " + msg.ChannelLabel,
+						})
+					}
 				}
 			}
 		}
 	}()
+}
+
+func truncateStr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 // POST /api/slack/queued — manually schedule a new message

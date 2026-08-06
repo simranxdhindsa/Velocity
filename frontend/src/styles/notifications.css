@@ -209,6 +209,9 @@
 .np-row { transition: background 140ms ease; }
 .np-row:hover { background: var(--bg-hover) !important; }
 .np-row--exit { animation: npRowExit 260ms ease forwards; overflow: hidden; }
+.np-row--clickable:hover .np-row-delete { opacity: 1; }
+.np-row-delete { opacity: 0; margin-left: 4px; }
+.np-row:hover .np-row-delete { opacity: 1; }
 
 /* Action buttons */
 .np-action-btn {

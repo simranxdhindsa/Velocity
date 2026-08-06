@@ -58,7 +58,7 @@ import { JellySwitch } from '../components/JellySwitch'
 import { ThemeSettingsPage } from './ThemeSettingsPage'
 import { applyUserTheme } from '../utils/themeUtils'
 import { RightPanel } from '../components/notifications/RightPanel'
-import type { LocalNotification } from '../components/notifications/RightPanel'
+import { useNotifications } from '../services/useNotifications'
 import ChangelogPanel from '../components/changelog/ChangelogPanel'
 import type { ChangelogEntry } from '../services/api'
 
@@ -66,8 +66,6 @@ type Page = 'dashboard' | 'board' | 'list' | 'sprint-pulse' | 'daily-ops' | 'cal
 
 // Pages accessible by members/viewers (limited access)
 const MEMBER_PAGES: Page[] = ['dashboard', 'board', 'list', 'sprint-pulse', 'daily-ops', 'activity', 'calendar', 'ai-analysis', 'dev-activity', 'pm-reports', 'daytrack', 'integrations', 'gantt', 'slack', 'update-reminders']
-
-type DashboardNotification = LocalNotification
 
 // Map URL path segments to Page values
 const PATH_TO_PAGE: Record<string, Page> = {
@@ -298,17 +296,8 @@ export default function Dashboard() {
   // Role-based access
   const isFullAccess = user?.role === 'admin' || user?.role === 'project_manager'
 
-  // Notification state — persist to sessionStorage
-  const [notifications, setNotifications] = useState<DashboardNotification[]>(() => {
-    try {
-      const saved = sessionStorage.getItem('pm_notifications')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        return parsed.map((n: DashboardNotification) => ({ ...n, timestamp: new Date(n.timestamp) }))
-      }
-    } catch { /* ignore */ }
-    return []
-  })
+  const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification } = useNotifications()
+  const [ytBaseUrl, setYtBaseUrl] = useState<string>('')
   const [toast, setToast] = useState<{ message: string; type: 'warning' | 'info' } | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatFullscreen, setChatFullscreen] = useState(false)
@@ -316,20 +305,11 @@ export default function Dashboard() {
   const notifRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    sessionStorage.setItem('pm_notifications', JSON.stringify(notifications))
-  }, [notifications])
-
-  // Close notification panel on outside click
-  useEffect(() => {
-    if (!showNotifications) return
-    const handler = (e: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setShowNotifications(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showNotifications])
+    api.getYouTrackStatus().then(res => {
+      const url = (res as any)?.base_url || (res as any)?.data?.base_url || ''
+      if (url) setYtBaseUrl(url)
+    }).catch(() => {})
+  }, [])
 
   // Guard: redirect members to allowed pages
   useEffect(() => {
@@ -337,33 +317,6 @@ export default function Dashboard() {
       navigate('/dashboard', { replace: true })
     }
   }, [currentPage, isFullAccess, navigate])
-
-  const unreadCount = notifications.filter(n => !n.read).length
-
-  const addNotification = (notif: Omit<DashboardNotification, 'id' | 'timestamp' | 'read'>) => {
-    setNotifications(prev => [{
-      ...notif,
-      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      timestamp: new Date(),
-      read: false,
-    }, ...prev])
-  }
-
-  const dismissNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id))
-  }
-
-  const handleMoveToBlocked = async (notif: DashboardNotification) => {
-    try {
-      await api.bulkUpdateYouTrackStates([{ issue_id: notif.issueId, new_state: 'Blocked' }])
-      dismissNotification(notif.id)
-      setToast({ message: `${notif.issueId} moved to Blocked`, type: 'info' })
-      setTimeout(() => setToast(null), 3000)
-    } catch {
-      setToast({ message: `Failed to move ${notif.issueId} to Blocked`, type: 'warning' })
-      setTimeout(() => setToast(null), 3000)
-    }
-  }
 
   const handleLogout = async () => {
     await logout()
@@ -665,9 +618,11 @@ export default function Dashboard() {
               <RightPanel
                 anchorRect={notifAnchorRect}
                 onClose={() => setShowNotifications(false)}
-                localNotifications={notifications}
-                onMoveToBlocked={handleMoveToBlocked}
-                onDismissLocal={dismissNotification}
+                notifications={notifications}
+                onMarkRead={markAsRead}
+                onMarkAllRead={markAllAsRead}
+                onDelete={deleteNotification}
+                ytBaseUrl={ytBaseUrl}
               />
             )}
           </div>

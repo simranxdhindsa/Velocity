@@ -538,7 +538,7 @@ func main() {
 	mcpSettingsRoutes.HandleFunc("", mcpTokenHandler.UpdateSettings).Methods("PUT")
 
 	// Start pending-messages scheduler (fires due Slack messages every 60s)
-	handlers.RunPendingMessagesScheduler()
+	handlers.RunPendingMessagesScheduler(notifHandler)
 
 	// Start DayTrack Slack background scanner (5-min polling)
 	handlers.RunDayTrackSlackScanner(database.NewDayTrackRepository())

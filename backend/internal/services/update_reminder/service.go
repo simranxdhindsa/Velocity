@@ -390,7 +390,7 @@ func (s *Service) Execute(ctx context.Context, rule *models.UpdateReminderRule, 
 }
 
 // ExecuteScheduled is called by the scheduler — always uses fresh snapshot, writes triggered_by=scheduler
-func (s *Service) ExecuteScheduled(ctx context.Context, rule *models.UpdateReminderRule) error {
+func (s *Service) ExecuteScheduled(ctx context.Context, rule *models.UpdateReminderRule) (*ExecuteResult, error) {
 	result, err := s.Execute(ctx, rule, false, true, models.TriggeredByScheduler)
 	if err != nil {
 		errStr := err.Error()
@@ -401,11 +401,10 @@ func (s *Service) ExecuteScheduled(ctx context.Context, rule *models.UpdateRemin
 			Error:       &errStr,
 			ExpiresAt:   database.UpdateReminderRunExpiresAt(),
 		})
-		return err
+		return nil, err
 	}
 
-	_ = result
-	return nil
+	return result, nil
 }
 
 // QuickSend posts a one-off message to a channel or DM using the user's Slack token.

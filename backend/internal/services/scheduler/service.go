@@ -194,10 +194,43 @@ func (s *Service) fireUpdateReminders(ctx context.Context, now time.Time) {
 		if localTime == rule.ScheduleTime && !s.firedToday[key] {
 			s.firedToday[key] = true
 			go func(r *models.UpdateReminderRule) {
-				if err := s.updateReminderSvc.ExecuteScheduled(ctx, r); err != nil {
+				result, err := s.updateReminderSvc.ExecuteScheduled(ctx, r)
+				if err != nil {
 					log.Printf("[Scheduler] update reminder %s (%s) error: %v", r.ID, r.Name, err)
-				} else {
-					log.Printf("[Scheduler] update reminder fired: %s (%s)", r.Name, r.ID)
+					notif := &models.Notification{
+						UserID:  r.UserID,
+						Type:    "update_reminder_failed",
+						Title:   "Update Reminder failed: " + r.Name,
+						Message: err.Error(),
+					}
+					if err := s.notifHandler.CreateAndBroadcast(ctx, notif); err != nil {
+						log.Printf("[Scheduler] Error creating update reminder notification: %v", err)
+					}
+					return
+				}
+
+				log.Printf("[Scheduler] update reminder fired: %s (%s)", r.Name, r.ID)
+
+				if len(result.DeliveryErrors) > 0 {
+					notif := &models.Notification{
+						UserID:  r.UserID,
+						Type:    "update_reminder_failed",
+						Title:   "Update Reminder partially failed: " + r.Name,
+						Message: strings.Join(result.DeliveryErrors, "; "),
+					}
+					if err := s.notifHandler.CreateAndBroadcast(ctx, notif); err != nil {
+						log.Printf("[Scheduler] Error creating update reminder notification: %v", err)
+					}
+				} else if result.SkippedSend == "" && len(result.DeliveredTo) > 0 {
+					notif := &models.Notification{
+						UserID:  r.UserID,
+						Type:    "update_reminder_sent",
+						Title:   "Update Reminder sent: " + r.Name,
+						Message: fmt.Sprintf("Delivered to %d destination(s)", len(result.DeliveredTo)),
+					}
+					if err := s.notifHandler.CreateAndBroadcast(ctx, notif); err != nil {
+						log.Printf("[Scheduler] Error creating update reminder notification: %v", err)
+					}
 				}
 			}(rule)
 		}
