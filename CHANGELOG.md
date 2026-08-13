@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-13
+
+### Features
+- scope dev-hotfix DayTrack entries to subsystem-owning developers, fix re-entry dedup
+
+
 ## 2026-08-06
 
 ### Enhancements
