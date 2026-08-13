@@ -3,6 +3,7 @@
 ## 2026-08-13
 
 ### Features
+- auto-prune DayTrack entries for deleted tickets, post-once-then-update Slack digest
 - scope dev-hotfix DayTrack entries to subsystem-owning developers, fix re-entry dedup
 
 
