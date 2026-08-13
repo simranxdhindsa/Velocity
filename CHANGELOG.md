@@ -6,6 +6,9 @@
 - scope dev-hotfix DayTrack entries to subsystem-owning developers, fix re-entry dedup
 
 
+### Bug Fixes
+- fix DayTrack entries to use IST and record actual start/end duration
+
 ## 2026-08-06
 
 ### Enhancements
