@@ -33,15 +33,16 @@ type formMetaCacheEntry struct {
 
 // YouTrackHandler handles YouTrack integration API requests
 type YouTrackHandler struct {
-	taskRepo     *database.TaskRepository
-	projectRepo  *database.ProjectRepository
-	settingsRepo *database.SettingsRepository
-	sectionRepo  *database.SectionRepository
-	reportRepo   *database.ReportRepository
-	configRepo   *database.WorkflowConfigRepository
-	dayTrackRepo *database.DayTrackRepository
-	notifHandler *NotificationHandler
-	sseHub       *SSEHub
+	taskRepo      *database.TaskRepository
+	projectRepo   *database.ProjectRepository
+	settingsRepo  *database.SettingsRepository
+	sectionRepo   *database.SectionRepository
+	reportRepo    *database.ReportRepository
+	configRepo    *database.WorkflowConfigRepository
+	dayTrackRepo  *database.DayTrackRepository
+	devConfigRepo *database.DeveloperConfigRepository
+	notifHandler  *NotificationHandler
+	sseHub        *SSEHub
 
 	// Per-user form-meta cache (60s TTL). Keyed by userID.
 	formMetaMu    sync.Mutex
@@ -58,6 +59,7 @@ func NewYouTrackHandler(sseHub ...*SSEHub) *YouTrackHandler {
 		reportRepo:    database.NewReportRepository(),
 		configRepo:    database.NewWorkflowConfigRepository(),
 		dayTrackRepo:  database.NewDayTrackRepository(),
+		devConfigRepo: database.NewDeveloperConfigRepository(),
 		formMetaCache: make(map[string]formMetaCacheEntry),
 	}
 	if len(sseHub) > 0 {
@@ -1366,28 +1368,36 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 	fetch(func() error {
 		v, e := client.GetStates(r.Context())
 		if e == nil {
-			mu.Lock(); res.states = v; mu.Unlock()
+			mu.Lock()
+			res.states = v
+			mu.Unlock()
 		}
 		return e
 	})
 	fetch(func() error {
 		v, e := client.GetPriorities(r.Context())
 		if e == nil {
-			mu.Lock(); res.priorities = v; mu.Unlock()
+			mu.Lock()
+			res.priorities = v
+			mu.Unlock()
 		}
 		return e
 	})
 	fetch(func() error {
 		v, e := client.GetCustomFieldValues(r.Context(), "Type")
 		if e == nil {
-			mu.Lock(); res.types = v; mu.Unlock()
+			mu.Lock()
+			res.types = v
+			mu.Unlock()
 		}
 		return e
 	})
 	fetch(func() error {
 		v, e := client.GetCustomFieldValues(r.Context(), "Subsystem")
 		if e == nil {
-			mu.Lock(); res.subsystems = v; mu.Unlock()
+			mu.Lock()
+			res.subsystems = v
+			mu.Unlock()
 		}
 		return e
 	})
@@ -1405,14 +1415,18 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 					v[i].AvatarUrl = base + url.QueryEscape(base64.StdEncoding.EncodeToString([]byte(v[i].AvatarUrl)))
 				}
 			}
-			mu.Lock(); res.users = v; mu.Unlock()
+			mu.Lock()
+			res.users = v
+			mu.Unlock()
 		}
 		return e
 	})
 	fetch(func() error {
 		v, e := client.GetSprints(r.Context())
 		if e == nil {
-			mu.Lock(); res.sprints = v; mu.Unlock()
+			mu.Lock()
+			res.sprints = v
+			mu.Unlock()
 		}
 		return e
 	})
@@ -1423,7 +1437,9 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 			if v == nil {
 				v = []*database.DeveloperSubsystemConfig{}
 			}
-			mu.Lock(); res.developerConfigs = v; mu.Unlock()
+			mu.Lock()
+			res.developerConfigs = v
+			mu.Unlock()
 		}
 		return e
 	})
@@ -1949,15 +1965,15 @@ func (h *YouTrackHandler) ImportFromYouTrack(w http.ResponseWriter, r *http.Requ
 			// Create new task
 			createdTime := time.Unix(issue.Created/1000, 0)
 			newTask := &models.Task{
-				Title:        issue.Summary,
-				Description:  issue.Description,
-				Status:       status,
-				Priority:     priority,
-				ProjectID:    defaultProjectID,
-				YouTrackID:   &issue.ID,
-				SectionName:  &stateName,
-				CreatedBy:    userID,
-				CreatedAt:    createdTime,
+				Title:       issue.Summary,
+				Description: issue.Description,
+				Status:      status,
+				Priority:    priority,
+				ProjectID:   defaultProjectID,
+				YouTrackID:  &issue.ID,
+				SectionName: &stateName,
+				CreatedBy:   userID,
+				CreatedAt:   createdTime,
 			}
 
 			// Set assignee if available
@@ -2600,8 +2616,8 @@ var stateOrder = map[string]int{
 	"open":            0,
 	"submitted":       0,
 	"in progress":     1,
-	"blocked":         1,  // lateral — not forward, not backward relative to In Progress
-	"findings":        1,  // lateral
+	"blocked":         1, // lateral — not forward, not backward relative to In Progress
+	"findings":        1, // lateral
 	"dev":             2,
 	"ready for stage": 3,
 	"stage":           4,
@@ -3101,8 +3117,8 @@ func normalizeYQL(yql string) string {
 var pmStateOrder = map[string]int{
 	"backlog": 0, "open": 0, "to do": 0, "todo": 0, "new": 0,
 	"in progress": 1,
-	"dev": 2,
-	"stage": 3, "ready for stage": 3,
+	"dev":         2,
+	"stage":       3, "ready for stage": 3,
 	"prod": 4, "ready for prod": 4,
 	"done": 5, "closed": 5, "won't fix": 5, "duplicate": 5, "mobile done": 5,
 }
@@ -3944,9 +3960,27 @@ func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issue
 // logYouTrackDevToDayTrack logs a "Fixed/Implemented on <env>" DayTrack entry under the
 // "Development" category for the person who moved a ticket from To Do/In Progress
 // straight into Dev/Stage/PROD/Mobile Done.
+//
+// Scoped to developers who own a subsystem in Developer Config (Integrations → Developers) —
+// a developer with no subsystem assigned never gets these entries. This intentionally does
+// NOT fire for the routine "Ready for Stage → Stage" / "Ready for PROD → PROD" release-sweep
+// hop (bulk-deploying already-QA-verified tickets): devEnvFromState only matches transitions
+// originating from To Do/Backlog/In Progress, so a bulk deploy sweep — whose tickets always
+// originate from a verified column — never matches here regardless of batch size.
+//
+// The external_ref includes the minute so a ticket that bounces backward (e.g. Stage → To Do)
+// and is fixed again later — even later the same day — gets its own fresh entry instead of
+// being deduped against the first fix; true webhook redeliveries (which arrive within the
+// same request cycle, not a minute+ apart) still collapse to one entry.
 func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID, summary, moverName, fromState, toState string) {
 	env, extSuffix, label, ok := devEnvFromState(fromState, toState)
 	if !ok || moverName == "" {
+		// Not a hotfix-shaped transition (didn't originate from To Do/Backlog/In Progress) —
+		// this is the expected, silent case for every routine mid-pipeline move, so no log line.
+		return
+	}
+	if !h.moverOwnsSubsystem(ctx, moverName) {
+		log.Printf("[YouTrack Webhook] DayTrack dev log SKIPPED for %s (%s → %s): mover %q has no subsystem assigned in Developer Config", issueID, fromState, toState, moverName)
 		return
 	}
 	pool := database.GetPool()
@@ -3954,7 +3988,7 @@ func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID,
 	if err := pool.QueryRow(ctx,
 		`SELECT id FROM users WHERE LOWER(name) = LOWER($1) LIMIT 1`, moverName,
 	).Scan(&userID); err != nil {
-		log.Printf("[YouTrack Webhook] DayTrack dev log: no user found for mover %q: %v", moverName, err)
+		log.Printf("[YouTrack Webhook] DayTrack dev log SKIPPED for %s: mover %q owns a subsystem but has no Velocity account (no matching users.name) — %v", issueID, moverName, err)
 		return
 	}
 	now := time.Now()
@@ -3965,7 +3999,7 @@ func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID,
 			entryName = full
 		}
 	}
-	extRef := "yt-dev-" + issueID + "-" + extSuffix
+	extRef := "yt-dev-" + issueID + "-" + extSuffix + "-" + now.Format("200601021504")
 	_, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
 		entryName, "Development",
 		now.Format("3:04 PM"), now.Format("3:04 PM"), nil, "", "done", nil,
@@ -3975,6 +4009,47 @@ func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID,
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack dev entry: %s (%s) by %s", issueID, label, moverName)
 	}
+}
+
+// moverOwnsSubsystem reports whether moverName has at least one subsystem assigned in
+// Developer Config. Developers with no subsystem configured (e.g. a QA-only user) are
+// excluded from hotfix-style dev DayTrack logging entirely.
+//
+// developer_subsystem_configs.developer_name is inconsistently populated in practice —
+// some rows hold a full display name ("Jagmeet Singh"), most hold a bare lowercase
+// YouTrack login ("harpinder") — while moverName always comes from the webhook/users
+// table as a full display name ("Harpinder Singh"). There's no login column on `users`
+// to bridge the two directly, so a plain exact-match on DeveloperName silently misses
+// almost every real developer. Match on DeveloperName OR DeveloperLogin OR the first
+// word of moverName against DeveloperLogin (logins in this dataset are first names).
+func (h *YouTrackHandler) moverOwnsSubsystem(ctx context.Context, moverName string) bool {
+	if h.devConfigRepo == nil {
+		return false
+	}
+	moverName = strings.TrimSpace(moverName)
+	if moverName == "" {
+		return false
+	}
+	moverFirstWord := moverName
+	if idx := strings.IndexByte(moverName, ' '); idx > 0 {
+		moverFirstWord = moverName[:idx]
+	}
+	configs, err := h.devConfigRepo.GetAll(ctx)
+	if err != nil {
+		log.Printf("[YouTrack Webhook] DayTrack dev log: failed to load developer configs: %v", err)
+		return false
+	}
+	for _, c := range configs {
+		login := strings.TrimSpace(c.DeveloperLogin)
+		name := strings.TrimSpace(c.DeveloperName)
+		matches := strings.EqualFold(name, moverName) ||
+			strings.EqualFold(login, moverName) ||
+			(login != "" && strings.EqualFold(login, moverFirstWord))
+		if matches {
+			return len(c.Subsystems) > 0
+		}
+	}
+	return false
 }
 
 // logYouTrackRejectedToDayTrack logs a "QA Rejected" DayTrack entry for the person who moved a ticket backward.
@@ -4504,29 +4579,45 @@ func (h *YouTrackHandler) GetDailyBrief(w http.ResponseWriter, r *http.Request) 
 	if doneYesterday == nil {
 		doneYesterday = []issueRow{}
 	}
-	if p0 == nil { p0 = []issueRow{} }
-	if p1 == nil { p1 = []issueRow{} }
-	if p2 == nil { p2 = []issueRow{} }
-	if p3 == nil { p3 = []issueRow{} }
-	if blockedOurs == nil { blockedOurs = []issueRow{} }
-	if blockedTheirs == nil { blockedTheirs = []issueRow{} }
-	if openItems == nil { openItems = []issueRow{} }
-	if unassigned == nil { unassigned = []issueRow{} }
+	if p0 == nil {
+		p0 = []issueRow{}
+	}
+	if p1 == nil {
+		p1 = []issueRow{}
+	}
+	if p2 == nil {
+		p2 = []issueRow{}
+	}
+	if p3 == nil {
+		p3 = []issueRow{}
+	}
+	if blockedOurs == nil {
+		blockedOurs = []issueRow{}
+	}
+	if blockedTheirs == nil {
+		blockedTheirs = []issueRow{}
+	}
+	if openItems == nil {
+		openItems = []issueRow{}
+	}
+	if unassigned == nil {
+		unassigned = []issueRow{}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"done_yesterday":  doneYesterday,
-			"p0":              p0,
-			"p1":              p1,
-			"p2":              p2,
-			"p3":              p3,
-			"blocked_ours":    blockedOurs,
-			"blocked_theirs":  blockedTheirs,
-			"open_items":      openItems,
-			"unassigned":      unassigned,
-			"generated_at":    time.Now().Format(time.RFC3339),
+			"done_yesterday": doneYesterday,
+			"p0":             p0,
+			"p1":             p1,
+			"p2":             p2,
+			"p3":             p3,
+			"blocked_ours":   blockedOurs,
+			"blocked_theirs": blockedTheirs,
+			"open_items":     openItems,
+			"unassigned":     unassigned,
+			"generated_at":   time.Now().Format(time.RFC3339),
 		},
 	})
 }
@@ -4640,10 +4731,18 @@ func (h *YouTrackHandler) GetEODSummary(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if completedToday == nil { completedToday = []issueRow{} }
-	if newBlockers == nil { newBlockers = []issueRow{} }
-	if stillInProgress == nil { stillInProgress = []issueRow{} }
-	if noMovement == nil { noMovement = []issueRow{} }
+	if completedToday == nil {
+		completedToday = []issueRow{}
+	}
+	if newBlockers == nil {
+		newBlockers = []issueRow{}
+	}
+	if stillInProgress == nil {
+		stillInProgress = []issueRow{}
+	}
+	if noMovement == nil {
+		noMovement = []issueRow{}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4697,15 +4796,15 @@ func (h *YouTrackHandler) GetDeveloperLoad(w http.ResponseWriter, r *http.Reques
 	}
 
 	type devLoad struct {
-		Assignee        string     `json:"assignee"`
-		ActiveIssues    []issueRow `json:"active_issues"`
-		BlockedIssues   []issueRow `json:"blocked_issues"`
-		DoneToday       int        `json:"done_today"`
-		AvgHoursPerP1   float64    `json:"avg_hours_per_p1"`
-		AvgHoursPerP2   float64    `json:"avg_hours_per_p2"`
-		LastActivityAt  *string    `json:"last_activity_at"`
-		MissingUpdate   bool       `json:"missing_update"`
-		Overloaded      bool       `json:"overloaded"`
+		Assignee       string     `json:"assignee"`
+		ActiveIssues   []issueRow `json:"active_issues"`
+		BlockedIssues  []issueRow `json:"blocked_issues"`
+		DoneToday      int        `json:"done_today"`
+		AvgHoursPerP1  float64    `json:"avg_hours_per_p1"`
+		AvgHoursPerP2  float64    `json:"avg_hours_per_p2"`
+		LastActivityAt *string    `json:"last_activity_at"`
+		MissingUpdate  bool       `json:"missing_update"`
+		Overloaded     bool       `json:"overloaded"`
 	}
 
 	loadsMap := make(map[string]*devLoad)
@@ -5059,7 +5158,7 @@ func (h *YouTrackHandler) SaveCarryoverPlan(w http.ResponseWriter, r *http.Reque
 type FeatureIssue struct {
 	IDReadable   string `json:"id_readable"`
 	Summary      string `json:"summary"`
-	IssueType    string `json:"issue_type"`   // FE, BE, RAG, Mobile, etc.
+	IssueType    string `json:"issue_type"` // FE, BE, RAG, Mobile, etc.
 	CurrentState string `json:"current_state"`
 	StateClass   string `json:"state_class"` // "done"|"active"|"pending"|"blocked"
 	Assignee     string `json:"assignee"`
@@ -5413,7 +5512,7 @@ func (h *YouTrackHandler) GetCarryover(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":        true,
+		"success": true,
 		"data": map[string]interface{}{
 			"yesterday":      fetchItems(yesterday),
 			"today":          fetchItems(today),
