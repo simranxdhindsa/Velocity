@@ -1554,6 +1554,35 @@
   to { transform: rotate(360deg); }
 }
 
+/* ── Slack post status pill ────────────────────────────── */
+.dt-slack-posted-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 8px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  animation: dtSlackPillIn 220ms ease;
+}
+.dt-slack-posted-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 4px var(--color-success);
+  flex-shrink: 0;
+}
+@keyframes dtSlackPillIn {
+  from { opacity: 0; transform: translateY(-2px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* ── Mobile responsive ─────────────────────────────────── */
 @media (max-width: 768px) {
   .dt-page { padding: 0 0 40px; }

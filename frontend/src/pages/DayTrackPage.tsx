@@ -98,6 +98,16 @@ function minsLabel(m: number | null | undefined): string {
   return h > 0 ? `${h}h ${min}m` : `${min}m`
 }
 
+function dtRelativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(ms / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 // ── Toast ──────────────────────────────────────────────────────────────────────
 
 type ToastType = 'success' | 'info' | 'warn'
@@ -465,6 +475,7 @@ export function DayTrackPage() {
   const destChanRef = useRef<HTMLButtonElement>(null)
   const [destChanPos, setDestChanPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const [posting, setPosting] = useState(false)
+  const [slackPostStatus, setSlackPostStatus] = useState<{ posted: boolean; updated_at?: string } | null>(null)
   const [openRuleCatIdx, setOpenRuleCatIdx] = useState<number | null>(null)
   const [ruleCatPos, setRuleCatPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const ruleCatRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -658,6 +669,10 @@ export function DayTrackPage() {
     dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
     loadSlackConfig()
   }, [])
+
+  useEffect(() => {
+    dayTrackApi.getSlackPostStatus(date).then(setSlackPostStatus).catch(() => setSlackPostStatus(null))
+  }, [date])
 
   // Default category to first in list (only if not restored from draft)
   useEffect(() => {
@@ -1147,8 +1162,9 @@ export function DayTrackPage() {
   async function postToSlack() {
     setPosting(true)
     try {
-      await dayTrackApi.postToSlack(date)
-      toast('Posted to Slack!', 'success')
+      const res = await dayTrackApi.postToSlack(date)
+      toast(res.updated ? 'Updated in Slack!' : 'Posted to Slack!', 'success')
+      setSlackPostStatus({ posted: true, updated_at: new Date().toISOString() })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to post'
       toast(msg, 'warn')
@@ -1669,6 +1685,12 @@ ${aiSummaryBlock}
             style={{ marginRight: 4 }}>
             <YouTrackSyncIcon size={18} scanning={ytScanning} />
           </button>
+          {slackPostStatus?.posted && slackPostStatus.updated_at && (
+            <span className="dt-slack-posted-pill" key={slackPostStatus.updated_at} title="Already posted to Slack for this date — clicking the button again edits that same message">
+              <span className="dt-slack-posted-dot" />
+              Posted {dtRelativeTime(slackPostStatus.updated_at)}
+            </span>
+          )}
           <button
             className="dt-post-slack-btn"
             style={{ marginRight: 6, padding: '5px 11px', fontSize: 12 }}
@@ -1683,14 +1705,22 @@ ${aiSummaryBlock}
               postToSlack()
             }}
             disabled={posting}
-            title={slackCfg?.dest_channel_id ? `Post today's updates to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}` : 'Configure destination channel in settings'}
+            title={slackCfg?.dest_channel_id ? (slackPostStatus?.posted ? `Update today's Slack post in #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}` : `Post today's updates to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}`) : 'Configure destination channel in settings'}
           >
             {posting ? (
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: 'spin 1s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
             ) : (
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             )}
-            {posting ? 'Posting…' : slackCfg?.dest_channel_id ? `Post to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}` : 'Post to Slack'}
+            {posting
+              ? 'Posting…'
+              : slackPostStatus?.posted
+              ? slackCfg?.dest_channel_id
+                ? `Update in #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}`
+                : 'Update in Slack'
+              : slackCfg?.dest_channel_id
+              ? `Post to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}`
+              : 'Post to Slack'}
           </button>
           <button className="dt-header-settings-btn" title="Slack auto-log settings"
             onClick={() => {

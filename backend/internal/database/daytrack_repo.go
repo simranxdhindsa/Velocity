@@ -9,21 +9,22 @@ import (
 // ── Models ────────────────────────────────────────────────────────────────────
 
 type DayTrackEntry struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"user_id"`
-	EntryDate     string     `json:"entry_date"` // YYYY-MM-DD
-	Name          string     `json:"name"`
-	Category      string     `json:"category"`
-	StartTime     string     `json:"start_time"`
-	EndTime       string     `json:"end_time"`
-	DurationMins  *int       `json:"duration_mins"`
-	Notes         string     `json:"notes"`
-	Status        string     `json:"status"`
-	ParentEntryID *string    `json:"parent_entry_id"`
-	EntrySource   string     `json:"entry_source"` // manual | slack | youtrack_qa | youtrack_created
-	ExternalRef   string     `json:"external_ref"` // Slack TS or YouTrack issue ID
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID              string    `json:"id"`
+	UserID          string    `json:"user_id"`
+	EntryDate       string    `json:"entry_date"` // YYYY-MM-DD
+	Name            string    `json:"name"`
+	Category        string    `json:"category"`
+	StartTime       string    `json:"start_time"`
+	EndTime         string    `json:"end_time"`
+	DurationMins    *int      `json:"duration_mins"`
+	Notes           string    `json:"notes"`
+	Status          string    `json:"status"`
+	ParentEntryID   *string   `json:"parent_entry_id"`
+	EntrySource     string    `json:"entry_source"`                // manual | slack | youtrack_qa | youtrack_created
+	ExternalRef     string    `json:"external_ref"`                // Slack TS or YouTrack issue ID
+	YoutrackIssueID *string   `json:"youtrack_issue_id,omitempty"` // set for entry_source='youtrack' rows; used to prune entries whose ticket was deleted
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // DayTrackSlackConfig holds per-user Slack auto-logging settings.
@@ -75,7 +76,7 @@ func (r *DayTrackRepository) GetEntries(ctx context.Context, userID, date string
 	rows, err := pool.Query(ctx,
 		`SELECT id, user_id, entry_date::text, name, category, COALESCE(start_time,''), COALESCE(end_time,''),
 		        duration_mins, COALESCE(notes,''), status, parent_entry_id,
-		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''),
+		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id,
 		        created_at, updated_at
 		 FROM daytrack_entries WHERE user_id=$1 AND entry_date=$2::date ORDER BY end_time DESC NULLS FIRST, start_time DESC NULLS LAST, created_at DESC`,
 		userID, date)
@@ -88,7 +89,7 @@ func (r *DayTrackRepository) GetEntries(ctx context.Context, userID, date string
 		var e DayTrackEntry
 		if err := rows.Scan(&e.ID, &e.UserID, &e.EntryDate, &e.Name, &e.Category,
 			&e.StartTime, &e.EndTime, &e.DurationMins, &e.Notes, &e.Status, &e.ParentEntryID,
-			&e.EntrySource, &e.ExternalRef,
+			&e.EntrySource, &e.ExternalRef, &e.YoutrackIssueID,
 			&e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -129,6 +130,27 @@ func (r *DayTrackRepository) CreateEntrySourced(ctx context.Context, userID, dat
 		return nil, nil
 	}
 	return &e, err
+}
+
+// SetYoutrackIssueID stamps the source YouTrack issue ID onto a just-created entry so
+// it can later be pruned (see PruneEntriesForDeletedIssue) if that ticket gets deleted.
+func (r *DayTrackRepository) SetYoutrackIssueID(ctx context.Context, entryID, issueID string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx, `UPDATE daytrack_entries SET youtrack_issue_id = $1 WHERE id = $2`, issueID, entryID)
+	return err
+}
+
+// PruneEntriesForDeletedIssue deletes every DayTrack entry (any user, any date) that was
+// auto-logged from a YouTrack ticket confirmed deleted, plus the ticket's own state-log
+// history. Only call this once existence has been positively confirmed (404), never on an
+// ambiguous/failed lookup — the caller is responsible for that distinction.
+func (r *DayTrackRepository) PruneEntriesForDeletedIssue(ctx context.Context, issueID string) error {
+	pool := GetPool()
+	if _, err := pool.Exec(ctx, `DELETE FROM daytrack_entries WHERE youtrack_issue_id = $1`, issueID); err != nil {
+		return err
+	}
+	_, err := pool.Exec(ctx, `DELETE FROM issue_state_log WHERE issue_id = $1`, issueID)
+	return err
 }
 
 func (r *DayTrackRepository) UpdateEntry(ctx context.Context, id, userID, name, category, startTime, endTime string, durationMins *int, notes, status string) (*DayTrackEntry, error) {
@@ -245,7 +267,7 @@ func (r *DayTrackRepository) GetEntriesRange(ctx context.Context, userID, startD
 	rows, err := pool.Query(ctx,
 		`SELECT id, user_id, entry_date::text, name, category, COALESCE(start_time,''), COALESCE(end_time,''),
 		        duration_mins, COALESCE(notes,''), status, parent_entry_id,
-		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''),
+		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id,
 		        created_at, updated_at
 		 FROM daytrack_entries
 		 WHERE user_id=$1 AND entry_date BETWEEN $2::date AND $3::date
@@ -260,7 +282,7 @@ func (r *DayTrackRepository) GetEntriesRange(ctx context.Context, userID, startD
 		var e DayTrackEntry
 		if err := rows.Scan(&e.ID, &e.UserID, &e.EntryDate, &e.Name, &e.Category,
 			&e.StartTime, &e.EndTime, &e.DurationMins, &e.Notes, &e.Status, &e.ParentEntryID,
-			&e.EntrySource, &e.ExternalRef,
+			&e.EntrySource, &e.ExternalRef, &e.YoutrackIssueID,
 			&e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -480,3 +502,47 @@ func (r *DayTrackRepository) EntryExistsByExternalRef(ctx context.Context, userI
 	return exists, err
 }
 
+// ── Daily Slack post idempotency ────────────────────────────────────────────────
+// "Post to Slack" posts once per (user, date) and edits that same message in place on
+// every later click for the same date, instead of spamming a new message each time.
+
+type DayTrackDailyPost struct {
+	UserID    string    `json:"user_id"`
+	EntryDate string    `json:"entry_date"`
+	ChannelID string    `json:"channel_id"`
+	SlackTS   string    `json:"slack_ts"`
+	PostedAt  time.Time `json:"posted_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetDailyPost returns the existing post record for this user+date, or nil if never posted.
+func (r *DayTrackRepository) GetDailyPost(ctx context.Context, userID, date string) (*DayTrackDailyPost, error) {
+	pool := GetPool()
+	var p DayTrackDailyPost
+	err := pool.QueryRow(ctx, `
+		SELECT user_id, entry_date::text, channel_id, slack_ts, posted_at, updated_at
+		FROM daytrack_daily_posts WHERE user_id=$1 AND entry_date=$2::date`,
+		userID, date,
+	).Scan(&p.UserID, &p.EntryDate, &p.ChannelID, &p.SlackTS, &p.PostedAt, &p.UpdatedAt)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
+// UpsertDailyPost records a fresh post (first click of the day) or bumps updated_at for
+// an edit-in-place (later clicks the same day). channelID/slackTS are only meaningful on
+// first insert — ON CONFLICT intentionally leaves them untouched so the stored ts always
+// still points at the original message we're editing.
+func (r *DayTrackRepository) UpsertDailyPost(ctx context.Context, userID, date, channelID, slackTS string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO daytrack_daily_posts (user_id, entry_date, channel_id, slack_ts)
+		VALUES ($1, $2::date, $3, $4)
+		ON CONFLICT (user_id, entry_date) DO UPDATE SET updated_at = NOW()`,
+		userID, date, channelID, slackTS)
+	return err
+}

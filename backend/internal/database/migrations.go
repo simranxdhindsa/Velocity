@@ -1581,6 +1581,24 @@ STRICT RULES
 		// separate from has_reply, which the scanner recomputes from live Slack
 		// reply counts and would otherwise silently undo a manual dismiss.
 		`ALTER TABLE slack_user_threads ADD COLUMN IF NOT EXISTS dismissed BOOLEAN NOT NULL DEFAULT false`,
+
+		// ── DayTrack: orphaned YouTrack-entry cleanup ────────────────────────────
+		// Explicit issue ID column (rather than parsing external_ref, whose own
+		// dashes collide with dashes inside issue IDs like "ARD-2580" or "3-5997").
+		// Only populated going forward for entry_source='youtrack' rows.
+		`ALTER TABLE daytrack_entries ADD COLUMN IF NOT EXISTS youtrack_issue_id VARCHAR(50)`,
+		`CREATE INDEX IF NOT EXISTS idx_daytrack_entries_youtrack_issue_id ON daytrack_entries(youtrack_issue_id) WHERE youtrack_issue_id IS NOT NULL`,
+
+		// ── DayTrack: Slack post idempotency (post-once, edit-in-place after) ───
+		`CREATE TABLE IF NOT EXISTS daytrack_daily_posts (
+			user_id      VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			entry_date   DATE NOT NULL,
+			channel_id   VARCHAR(100) NOT NULL,
+			slack_ts     VARCHAR(50) NOT NULL,
+			posted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (user_id, entry_date)
+		)`,
 	}
 
 	for i, migration := range migrations {

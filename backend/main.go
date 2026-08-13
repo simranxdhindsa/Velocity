@@ -223,7 +223,7 @@ func main() {
 	// Security is enforced inside ProxyAttachment by checking the URL matches the YouTrack instance.
 	api.HandleFunc("/youtrack/proxy", youtrackHandler.ProxyAttachment).Methods("GET", "HEAD")
 	youtrackRoutes.HandleFunc("/sections", youtrackHandler.GetProjectSectionsFromDB).Methods("GET") // Get synced sections from DB
-	youtrackRoutes.HandleFunc("/import", youtrackHandler.ImportFromYouTrack).Methods("POST")       // Import issues from YouTrack
+	youtrackRoutes.HandleFunc("/import", youtrackHandler.ImportFromYouTrack).Methods("POST")        // Import issues from YouTrack
 	youtrackRoutes.HandleFunc("/match-analysis", youtrackHandler.MatchAnalysis).Methods("POST")
 	youtrackRoutes.HandleFunc("/bulk-update-states", youtrackHandler.BulkUpdateStates).Methods("POST")
 	youtrackRoutes.HandleFunc("/sync-recommendations", youtrackHandler.GetSyncRecommendations).Methods("POST")
@@ -448,7 +448,6 @@ func main() {
 	pmScheduler.Start()
 	defer pmScheduler.Stop()
 
-
 	// Wire notification handler into YouTrack handler for overdue/blocked notifications
 	youtrackHandler.SetNotificationHandler(notifHandler)
 
@@ -495,7 +494,7 @@ func main() {
 	reportRoutes.HandleFunc("/sprint-radar", reportHandler.GetSprintRadar).Methods("GET")
 
 	// DayTrack routes (protected)
-	dayTrackHandler := handlers.NewDayTrackHandler()
+	dayTrackHandler := handlers.NewDayTrackHandler(youtrackHandler)
 	dayTrackRoutes := api.PathPrefix("/daytrack").Subrouter()
 	dayTrackRoutes.Use(middleware.AuthMiddleware)
 	dayTrackRoutes.HandleFunc("/entries/range", dayTrackHandler.GetEntriesRange).Methods("GET")
@@ -521,6 +520,7 @@ func main() {
 	dayTrackRoutes.HandleFunc("/slack-resolve-user", dayTrackHandler.ResolveSlackUser).Methods("GET")
 	dayTrackRoutes.HandleFunc("/transcribe", dayTrackHandler.Transcribe).Methods("POST")
 	dayTrackRoutes.HandleFunc("/post-to-slack", dayTrackHandler.PostToSlack).Methods("POST")
+	dayTrackRoutes.HandleFunc("/slack-post-status", dayTrackHandler.GetSlackPostStatus).Methods("GET")
 
 	// MCP server — Claude connector endpoint (token auth, not JWT)
 	mcpHandler := handlers.NewMCPHandler()
@@ -639,9 +639,9 @@ func main() {
 	}
 	isDev := os.Getenv("ENVIRONMENT") == "development"
 	c := cors.New(cors.Options{
-		AllowedOrigins: allowedOrigins,
-		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Authorization", "Content-Type"},
+		AllowedOrigins:   allowedOrigins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
 		AllowOriginFunc: func(origin string) bool {
 			if origin == "" {

@@ -3013,6 +3013,7 @@ export interface DayTrackEntry {
   parent_entry_id: string | null
   entry_source: string   // manual | slack | youtrack_qa | youtrack_created
   external_ref: string   // Slack TS or YouTrack issue ID
+  youtrack_issue_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -3118,7 +3119,9 @@ export const dayTrackApi = {
   resolveSlackUser: () =>
     dtFetch<{ slack_user_id: string }>(`${API_URL}/daytrack/slack-resolve-user`),
   postToSlack: (date?: string) =>
-    dtFetch<{ ok: boolean }>(`${API_URL}/daytrack/post-to-slack`, { method: 'POST', body: JSON.stringify({ date: date ?? '' }) }),
+    dtFetch<{ ok: boolean; updated: boolean }>(`${API_URL}/daytrack/post-to-slack`, { method: 'POST', body: JSON.stringify({ date: date ?? '' }) }),
+  getSlackPostStatus: (date?: string) =>
+    dtFetch<{ posted: boolean; posted_at?: string; updated_at?: string }>(`${API_URL}/daytrack/slack-post-status${date ? `?date=${date}` : ''}`),
   getEntriesRange: (start: string, end: string) =>
     dtFetch<DayTrackEntry[]>(`${API_URL}/daytrack/entries/range?start=${start}&end=${end}`),
 

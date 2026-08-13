@@ -700,19 +700,20 @@ func (s *Service) TrackDigestReplies(ctx context.Context, userID, threadTS strin
 
 // PostMessage posts a plain text message to a channel. source tags who's
 // calling (e.g. "standup", "daytrack", "report") for the Slack Messages hub log.
-func (s *Service) PostMessage(ctx context.Context, userID, channelID, source, text string) error {
+// Returns the posted message's Slack timestamp (ts) for callers that need to edit it later.
+func (s *Service) PostMessage(ctx context.Context, userID, channelID, source, text string) (string, error) {
 	integration, err := s.integrationRepo.GetSlackIntegration(ctx, userID)
 	if err != nil || !integration.Connected {
-		return fmt.Errorf("slack not connected")
+		return "", fmt.Errorf("slack not connected")
 	}
 
 	client := NewClient(integration.BotToken)
 	ts, err := client.PostMessage(ctx, channelID, text)
 	if err != nil {
-		return err
+		return "", err
 	}
 	s.logSent(ctx, userID, source, channelID, "", text, ts)
-	return nil
+	return ts, nil
 }
 
 // PostBlockerAlert posts an alert to the monitor channel when an issue is blocked.

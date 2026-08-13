@@ -110,12 +110,12 @@ func (h *SlackHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"connected":           integration.Connected,
-		"team_id":             integration.TeamID,
-		"team_name":           integration.TeamName,
-		"channel_id":          integration.ChannelID,
-		"channel_name":        integration.ChannelName,
-		"monitor_channel_id":  integration.MonitorChannelID,
+		"connected":            integration.Connected,
+		"team_id":              integration.TeamID,
+		"team_name":            integration.TeamName,
+		"channel_id":           integration.ChannelID,
+		"channel_name":         integration.ChannelName,
+		"monitor_channel_id":   integration.MonitorChannelID,
 		"monitor_channel_name": integration.MonitorChannelName,
 	})
 }
@@ -457,11 +457,11 @@ func (h *SlackHandler) CreateFollowupReminder(w http.ResponseWriter, r *http.Req
 	}
 
 	var req struct {
-		ThreadTS    string `json:"thread_ts"`
-		ChannelID   string `json:"channel_id"`
-		MessageText string `json:"message_text"`
+		ThreadTS     string `json:"thread_ts"`
+		ChannelID    string `json:"channel_id"`
+		MessageText  string `json:"message_text"`
 		FollowUpDate string `json:"follow_up_date"`
-		Note        string `json:"note"`
+		Note         string `json:"note"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -550,7 +550,7 @@ func (h *SlackHandler) SnoozeMention(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":     true,
+		"success":       true,
 		"snoozed_until": until.Format(time.RFC3339),
 	})
 }
@@ -625,7 +625,7 @@ func (h *SlackHandler) PostMorningReport(w http.ResponseWriter, r *http.Request)
 	var posted []string
 	var errs []string
 	for _, channelID := range req.ChannelIDs {
-		if err := h.service.PostMessage(r.Context(), userID, channelID, "report", req.ReportText); err != nil {
+		if _, err := h.service.PostMessage(r.Context(), userID, channelID, "report", req.ReportText); err != nil {
 			errs = append(errs, channelID+": "+err.Error())
 		} else {
 			posted = append(posted, channelID)

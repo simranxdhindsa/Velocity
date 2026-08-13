@@ -89,7 +89,7 @@ func (h *SentSlackMessagesHandler) Send(w http.ResponseWriter, r *http.Request) 
 	}
 
 	message := resolveSlackMentions(r.Context(), h.slackSvc, u.ID, req.Message)
-	if err := h.slackSvc.PostMessage(r.Context(), u.ID, req.ChannelID, "hub", message); err != nil {
+	if _, err := h.slackSvc.PostMessage(r.Context(), u.ID, req.ChannelID, "hub", message); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}

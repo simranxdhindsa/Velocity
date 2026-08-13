@@ -17,19 +17,19 @@ import (
 )
 
 var (
-	reStandupMention  = regexp.MustCompile(`<@[A-Z0-9]+>`)
-	reStandupLink     = regexp.MustCompile(`<https?://[^|>]*\|([^>]*)>`)
-	reStandupURL      = regexp.MustCompile(`<https?://[^>]*>`)
-	reStandupEmoji    = regexp.MustCompile(`:[a-z0-9_+\-]+:`)
-	reStandupEdited   = regexp.MustCompile(`\s*\(edited\)\s*$`)
+	reStandupMention = regexp.MustCompile(`<@[A-Z0-9]+>`)
+	reStandupLink    = regexp.MustCompile(`<https?://[^|>]*\|([^>]*)>`)
+	reStandupURL     = regexp.MustCompile(`<https?://[^>]*>`)
+	reStandupEmoji   = regexp.MustCompile(`:[a-z0-9_+\-]+:`)
+	reStandupEdited  = regexp.MustCompile(`\s*\(edited\)\s*$`)
 	// Matches stray " Groq inserts between sections array close ] and root object close }
-	reStrayEndQuote   = regexp.MustCompile(`\](\s*)"\s*}`)
+	reStrayEndQuote = regexp.MustCompile(`\](\s*)"\s*}`)
 	// Extracts ticket ID from Slack-wrapped YouTrack URLs: <https://...?issue=ARD-1850>
-	reYouTrackSlack   = regexp.MustCompile(`<https?://[^>]*[?&]issue=([A-Z]+-\d+)[^>]*>`)
+	reYouTrackSlack = regexp.MustCompile(`<https?://[^>]*[?&]issue=([A-Z]+-\d+)[^>]*>`)
 	// Extracts ticket ID from plain-text YouTrack URLs: https://...?issue=ARD-1850
-	reYouTrackIssue   = regexp.MustCompile(`https?://\S*[?&]issue=([A-Z]+-\d+)\S*`)
+	reYouTrackIssue = regexp.MustCompile(`https?://\S*[?&]issue=([A-Z]+-\d+)\S*`)
 	// Strips any remaining plain-text https?:// URLs after ticket extraction
-	rePlainURL        = regexp.MustCompile(`https?://\S+`)
+	rePlainURL = regexp.MustCompile(`https?://\S+`)
 )
 
 // cleanForGroq strips Slack mrkdwn noise before sending to Groq.
@@ -121,16 +121,16 @@ func repairJSON(s string) string {
 
 func cleanForGroq(text string) string {
 	text = reStandupEdited.ReplaceAllString(text, "")
-	text = reStandupMention.ReplaceAllString(text, "")        // remove <@UXXX>
-	text = reStandupLink.ReplaceAllString(text, "$1")         // keep display text of <url|label> links
+	text = reStandupMention.ReplaceAllString(text, "") // remove <@UXXX>
+	text = reStandupLink.ReplaceAllString(text, "$1")  // keep display text of <url|label> links
 	// Extract ticket IDs from Slack-wrapped YouTrack URLs BEFORE stripping them
 	// e.g. <https://loop.youtrack.cloud/...?issue=ARD-1850> → ARD-1850
 	text = reYouTrackSlack.ReplaceAllString(text, "$1")
-	text = reStandupURL.ReplaceAllString(text, "")            // strip remaining Slack-wrapped URLs
+	text = reStandupURL.ReplaceAllString(text, "") // strip remaining Slack-wrapped URLs
 	// Extract ticket IDs from plain-text YouTrack URLs
 	text = reYouTrackIssue.ReplaceAllString(text, "$1")
-	text = rePlainURL.ReplaceAllString(text, "")              // strip remaining plain URLs
-	text = reStandupEmoji.ReplaceAllString(text, "")          // strip :emoji:
+	text = rePlainURL.ReplaceAllString(text, "")     // strip remaining plain URLs
+	text = reStandupEmoji.ReplaceAllString(text, "") // strip :emoji:
 	// Strip mrkdwn formatting chars but keep bullets and structure
 	var b strings.Builder
 	for _, r := range text {
@@ -418,11 +418,11 @@ func (h *StandupCompilerHandler) Compile(w http.ResponseWriter, r *http.Request)
 		"success": true,
 		"updates": result,
 		"debug": map[string]interface{}{
-			"window_start":  windowStart,
-			"window_end":    windowEnd,
-			"oldest_unix":   oldest,
-			"latest_unix":   latest,
-			"channels":      channelLog,
+			"window_start":   windowStart,
+			"window_end":     windowEnd,
+			"oldest_unix":    oldest,
+			"latest_unix":    latest,
+			"channels":       channelLog,
 			"owner_slack_id": ownerSlackID,
 		},
 	})
@@ -447,7 +447,7 @@ func (h *StandupCompilerHandler) Post(w http.ResponseWriter, r *http.Request) {
 	}
 
 	text := standupFormatMrkdwn(body.Updates)
-	if err := h.slackService.PostMessage(r.Context(), user.ID, body.ChannelID, "standup", text); err != nil {
+	if _, err := h.slackService.PostMessage(r.Context(), user.ID, body.ChannelID, "standup", text); err != nil {
 		http.Error(w, "failed to post: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -507,9 +507,9 @@ func (h *StandupCompilerHandler) ParseOne(w http.ResponseWriter, r *http.Request
 			retryAfter := standupParseRetryAfter(err.Error())
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":     false,
+				"success":      false,
 				"rate_limited": true,
-				"retry_after": retryAfter,
+				"retry_after":  retryAfter,
 			})
 			return
 		}
@@ -1007,8 +1007,8 @@ func (h *StandupCompilerHandler) Weekly(w http.ResponseWriter, r *http.Request) 
 	if allRaw.Len() == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"items":   []string{},
+			"success":    true,
+			"items":      []string{},
 			"week_start": monday.Format("2006-01-02"),
 			"week_end":   friday.Format("2006-01-02"),
 			"debug":      map[string]interface{}{"channels": channelLog},

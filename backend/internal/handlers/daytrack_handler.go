@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -218,15 +219,70 @@ func timeToMins(t string) int {
 }
 
 type DayTrackHandler struct {
-	repo     *database.DayTrackRepository
-	userRepo *database.UserRepository
+	repo      *database.DayTrackRepository
+	userRepo  *database.UserRepository
+	ytHandler *YouTrackHandler
 }
 
-func NewDayTrackHandler() *DayTrackHandler {
+func NewDayTrackHandler(ytHandler *YouTrackHandler) *DayTrackHandler {
 	return &DayTrackHandler{
-		repo:     database.NewDayTrackRepository(),
-		userRepo: database.NewUserRepository(),
+		repo:      database.NewDayTrackRepository(),
+		userRepo:  database.NewUserRepository(),
+		ytHandler: ytHandler,
 	}
+}
+
+// pruneDeletedYouTrackEntries checks every distinct YouTrack issue ID referenced by these
+// entries against YouTrack and deletes (both the DayTrack entry and its issue_state_log
+// history) any whose ticket was confirmed deleted (404). Deliberately conservative: any
+// other outcome — YouTrack not configured, a transient/auth/network error — leaves the
+// entry alone rather than risk deleting real data on an ambiguous signal.
+func (h *DayTrackHandler) pruneDeletedYouTrackEntries(ctx context.Context, entries []database.DayTrackEntry) []database.DayTrackEntry {
+	if h.ytHandler == nil {
+		return entries
+	}
+	client, err := h.ytHandler.getYouTrackClient(ctx)
+	if err != nil || client == nil {
+		return entries
+	}
+
+	checked := make(map[string]bool) // issueID -> exists
+	deleted := make(map[string]bool)
+	for _, e := range entries {
+		if e.EntrySource != "youtrack" || e.YoutrackIssueID == nil || *e.YoutrackIssueID == "" {
+			continue
+		}
+		issueID := *e.YoutrackIssueID
+		if _, done := checked[issueID]; done {
+			continue
+		}
+		_, err := client.GetIssue(ctx, issueID)
+		if err == nil {
+			checked[issueID] = true
+			continue
+		}
+		if err.Error() == "YouTrack resource not found" {
+			checked[issueID] = false
+			deleted[issueID] = true
+			if pruneErr := h.repo.PruneEntriesForDeletedIssue(ctx, issueID); pruneErr != nil {
+				log.Printf("[DayTrack] failed to prune entries for deleted issue %s: %v", issueID, pruneErr)
+			}
+		} else {
+			// Ambiguous failure (network/auth/rate-limit) — keep the entry, don't guess.
+			checked[issueID] = true
+		}
+	}
+	if len(deleted) == 0 {
+		return entries
+	}
+	out := entries[:0]
+	for _, e := range entries {
+		if e.YoutrackIssueID != nil && deleted[*e.YoutrackIssueID] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func dtJSON(w http.ResponseWriter, v interface{}) {
@@ -359,9 +415,13 @@ func callGroqChat(ctx context.Context, apiKey, model, system, user string, maxTo
 	raw, _ := io.ReadAll(resp.Body)
 	var res struct {
 		Choices []struct {
-			Message struct{ Content string `json:"content"` } `json:"message"`
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
 		} `json:"choices"`
-		Error *struct{ Message string `json:"message"` } `json:"error"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return "", err
@@ -389,6 +449,7 @@ func (h *DayTrackHandler) GetEntries(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	entries = h.pruneDeletedYouTrackEntries(r.Context(), entries)
 	dtJSON(w, entries)
 }
 
@@ -486,6 +547,7 @@ func (h *DayTrackHandler) GetEntriesRange(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	entries = h.pruneDeletedYouTrackEntries(r.Context(), entries)
 	dtJSON(w, entries)
 }
 
@@ -746,9 +808,59 @@ func (h *DayTrackHandler) PostToSlack(w http.ResponseWriter, r *http.Request) {
 	header := fmt.Sprintf("*%s*\n%s\n\n", displayName, dateParsed.Format("Mon, Jan 2"))
 	text := header + standupFormatMrkdwn([]PersonUpdate{ownerUpdate})
 	slackSvc := slacksvc.NewService()
-	if err := slackSvc.PostMessage(r.Context(), user.ID, cfg.DestChannelID, "daytrack", text); err != nil {
+
+	// Post once per (user, date); every later click for the same date edits that same
+	// message in place instead of spamming a new one, so the channel always reflects
+	// this day's latest entries under a single message.
+	existing, _ := h.repo.GetDailyPost(r.Context(), user.ID, date)
+	if existing != nil && existing.ChannelID == cfg.DestChannelID {
+		if err := slackSvc.UpdateMessage(r.Context(), user.ID, cfg.DestChannelID, existing.SlackTS, text); err != nil {
+			http.Error(w, "failed to update: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := h.repo.UpsertDailyPost(r.Context(), user.ID, date, cfg.DestChannelID, existing.SlackTS); err != nil {
+			log.Printf("[DayTrack] failed to bump daily post updated_at: %v", err)
+		}
+		dtJSON(w, map[string]interface{}{"ok": true, "updated": true})
+		return
+	}
+
+	ts, err := slackSvc.PostMessage(r.Context(), user.ID, cfg.DestChannelID, "daytrack", text)
+	if err != nil {
 		http.Error(w, "failed to post: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	dtJSON(w, map[string]bool{"ok": true})
+	if err := h.repo.UpsertDailyPost(r.Context(), user.ID, date, cfg.DestChannelID, ts); err != nil {
+		log.Printf("[DayTrack] failed to record daily post: %v", err)
+	}
+	dtJSON(w, map[string]interface{}{"ok": true, "updated": false})
+}
+
+// GetSlackPostStatus reports whether today's (or the given date's) DayTrack update has
+// already been posted to Slack, so the frontend can show "Posted" vs "Post to Slack" and
+// swap the button to an edit-in-place action.
+func (h *DayTrackHandler) GetSlackPostStatus(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	date := strings.TrimSpace(r.URL.Query().Get("date"))
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	post, err := h.repo.GetDailyPost(r.Context(), user.ID, date)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if post == nil {
+		dtJSON(w, map[string]interface{}{"posted": false})
+		return
+	}
+	dtJSON(w, map[string]interface{}{
+		"posted":     true,
+		"posted_at":  post.PostedAt,
+		"updated_at": post.UpdatedAt,
+	})
 }

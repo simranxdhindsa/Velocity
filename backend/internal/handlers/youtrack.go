@@ -3959,7 +3959,7 @@ func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issue
 		}
 	}
 	extRef := "yt-tested-" + issueID + "-" + extSuffix
-	_, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
+	entry, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
 		entryName, "Testing",
 		now.Format("3:04 PM"), now.Format("3:04 PM"), nil, "", "done", nil,
 		"youtrack", extRef)
@@ -3967,6 +3967,9 @@ func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issue
 		log.Printf("[YouTrack Webhook] DayTrack tested log failed for %s on %s: %v", issueID, env, err)
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack tested entry: %s verified on %s by %s", issueID, env, moverName)
+		if entry != nil {
+			_ = h.dayTrackRepo.SetYoutrackIssueID(ctx, entry.ID, issueID)
+		}
 	}
 }
 
@@ -4037,7 +4040,7 @@ func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID,
 		}
 	}
 	extRef := "yt-dev-" + issueID + "-" + extSuffix + "-" + now.Format("200601021504")
-	_, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
+	entry, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
 		entryName, "Development",
 		startTime.Format("3:04 PM"), now.Format("3:04 PM"), durationMins, "", "done", nil,
 		"youtrack", extRef)
@@ -4045,6 +4048,9 @@ func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID,
 		log.Printf("[YouTrack Webhook] DayTrack dev log failed for %s on %s: %v", issueID, env, err)
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack dev entry: %s (%s) by %s, started %s", issueID, label, moverName, startTime.Format("3:04 PM"))
+		if entry != nil {
+			_ = h.dayTrackRepo.SetYoutrackIssueID(ctx, entry.ID, issueID)
+		}
 	}
 }
 
@@ -4112,7 +4118,7 @@ func (h *YouTrackHandler) logYouTrackRejectedToDayTrack(ctx context.Context, iss
 	}
 	// Dedup key includes fromState so re-fires of the same transition don't double-log.
 	extRef := "yt-rejected-" + issueID + "-" + strings.ToLower(strings.ReplaceAll(fromState, " ", "-"))
-	_, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
+	entry, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
 		entryName, "Testing",
 		now.Format("3:04 PM"), now.Format("3:04 PM"), nil, "", "done", nil,
 		"youtrack", extRef)
@@ -4120,6 +4126,9 @@ func (h *YouTrackHandler) logYouTrackRejectedToDayTrack(ctx context.Context, iss
 		log.Printf("[YouTrack Webhook] DayTrack rejected log failed for %s: %v", issueID, err)
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack rejected entry: %s moved back from %s to %s by %s", issueID, fromState, toState, moverName)
+		if entry != nil {
+			_ = h.dayTrackRepo.SetYoutrackIssueID(ctx, entry.ID, issueID)
+		}
 	}
 }
 
@@ -4142,7 +4151,7 @@ func (h *YouTrackHandler) logYouTrackCreationToDayTrack(ctx context.Context, iss
 		entryName = entryName[:117] + "..."
 	}
 	extRef := "yt-create-" + issueID
-	_, err = h.dayTrackRepo.CreateEntrySourced(ctx, userID, dateStr,
+	entry, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, dateStr,
 		entryName, "Tickets Created",
 		timeStr, timeStr, nil, "", "done", nil,
 		"youtrack", extRef)
@@ -4150,6 +4159,9 @@ func (h *YouTrackHandler) logYouTrackCreationToDayTrack(ctx context.Context, iss
 		log.Printf("[YouTrack Webhook] DayTrack creation log failed for %s: %v", issueID, err)
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack entry created for ticket %s by %s", issueID, creatorName)
+		if entry != nil {
+			_ = h.dayTrackRepo.SetYoutrackIssueID(ctx, entry.ID, issueID)
+		}
 	}
 }
 
