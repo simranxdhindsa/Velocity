@@ -3923,6 +3923,19 @@ func devEnvFromState(fromState, toState string) (env, extSuffix, label string, o
 	return "", "", "", false
 }
 
+// nowIST returns the current time in Asia/Kolkata. The DayTrack entries below are
+// formatted and stored as plain "3:04 PM" wall-clock strings (no timezone info), so a
+// bare time.Now() renders in whatever zone the server process happens to run in — on
+// this project's server that's UTC, which showed up as entries logged ~5:30 early.
+// Falls back to time.Now() (UTC) if the zone database entry is somehow unavailable.
+func nowIST() time.Time {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		return time.Now()
+	}
+	return time.Now().In(loc)
+}
+
 // logYouTrackTestedToDayTrack logs a "Verified on <env>" DayTrack entry for the person who moved the ticket.
 func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issueID, summary, moverName, fromState, toState string) {
 	env, extSuffix, ok := testedEnvFromState(fromState, toState)
@@ -3937,7 +3950,7 @@ func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issue
 		log.Printf("[YouTrack Webhook] DayTrack tested log: no user found for mover %q: %v", moverName, err)
 		return
 	}
-	now := time.Now()
+	now := nowIST()
 	entryName := issueID + ": Verified on " + env
 	if summary != "" {
 		full := issueID + ": " + summary + " – Verified on " + env
@@ -3991,7 +4004,31 @@ func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID,
 		log.Printf("[YouTrack Webhook] DayTrack dev log SKIPPED for %s: mover %q owns a subsystem but has no Velocity account (no matching users.name) — %v", issueID, moverName, err)
 		return
 	}
-	now := time.Now()
+	now := nowIST()
+
+	// Start time = the most recent time this ticket entered the state it's leaving right
+	// now (fromState) — e.g. the latest "→ In Progress" transition. ORDER BY ... DESC LIMIT 1
+	// means any earlier To Do ↔ In Progress bouncing is ignored; only the latest cycle counts.
+	// Falls back to a zero-duration entry (start == end) if there's no prior row to anchor to.
+	startTime := now
+	var durationMins *int
+	var lastEnteredAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT transitioned_at FROM issue_state_log
+		WHERE issue_id = $1 AND to_state = $2
+		ORDER BY transitioned_at DESC LIMIT 1
+	`, issueID, fromState).Scan(&lastEnteredAt); err == nil {
+		loc, _ := time.LoadLocation("Asia/Kolkata")
+		if loc != nil {
+			lastEnteredAt = lastEnteredAt.In(loc)
+		}
+		startTime = lastEnteredAt
+		mins := int(now.Sub(lastEnteredAt).Minutes())
+		if mins > 0 {
+			durationMins = &mins
+		}
+	}
+
 	entryName := issueID + ": " + label
 	if summary != "" {
 		full := issueID + ": " + summary + " – " + label
@@ -4002,12 +4039,12 @@ func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID,
 	extRef := "yt-dev-" + issueID + "-" + extSuffix + "-" + now.Format("200601021504")
 	_, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
 		entryName, "Development",
-		now.Format("3:04 PM"), now.Format("3:04 PM"), nil, "", "done", nil,
+		startTime.Format("3:04 PM"), now.Format("3:04 PM"), durationMins, "", "done", nil,
 		"youtrack", extRef)
 	if err != nil {
 		log.Printf("[YouTrack Webhook] DayTrack dev log failed for %s on %s: %v", issueID, env, err)
 	} else {
-		log.Printf("[YouTrack Webhook] DayTrack dev entry: %s (%s) by %s", issueID, label, moverName)
+		log.Printf("[YouTrack Webhook] DayTrack dev entry: %s (%s) by %s, started %s", issueID, label, moverName, startTime.Format("3:04 PM"))
 	}
 }
 
@@ -4065,7 +4102,7 @@ func (h *YouTrackHandler) logYouTrackRejectedToDayTrack(ctx context.Context, iss
 		log.Printf("[YouTrack Webhook] DayTrack rejected log: no user found for mover %q: %v", moverName, err)
 		return
 	}
-	now := time.Now()
+	now := nowIST()
 	entryName := fmt.Sprintf("%s: QA Rejected — %s → %s", issueID, fromState, toState)
 	if summary != "" {
 		full := fmt.Sprintf("%s: %s – QA Rejected (%s → %s)", issueID, summary, fromState, toState)
@@ -4097,7 +4134,7 @@ func (h *YouTrackHandler) logYouTrackCreationToDayTrack(ctx context.Context, iss
 		log.Printf("[YouTrack Webhook] DayTrack creation log: no user found for creator %q: %v", creatorName, err)
 		return
 	}
-	now := time.Now()
+	now := nowIST()
 	timeStr := now.Format("3:04 PM")
 	dateStr := now.Format("2006-01-02")
 	entryName := issueID + ": " + summary
