@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-14
+
+### Refactors
+- split mcp.go into one file per MCP tool, doc convention in docs/features/mcp-server.md
+
+
 ## 2026-08-13
 
 ### Features
