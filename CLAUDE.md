@@ -62,6 +62,8 @@ backend/
   migrations/           # Auto-run on startup via migrations.go (use CREATE TABLE IF NOT EXISTS)
 ```
 
+→ MCP server details (`/api/mcp`, one-file-per-tool convention): [`docs/features/mcp-server.md`](docs/features/mcp-server.md)
+
 ### Frontend
 ```
 frontend/src/
@@ -432,5 +434,6 @@ Detailed descriptions of each feature/tab live in `docs/features/`. Read the rel
 | [`docs/features/other-tabs.md`](docs/features/other-tabs.md) | Calendar, Reminders, Day Track, Integrations, Settings, Admin, Reports, Slack, Bot Config, AI Analysis |
 | [`docs/features/update-reminders.md`](docs/features/update-reminders.md) | Update Reminders — standalone left-nav page with 2 subtabs (Claude Queue, Rules; Quick Send was folded into Slack Messages' compose box), KPI row, green dot nav indicator, browser notifications, scheduler uses default send time for null-scheduled messages |
 | [`docs/features/shared-components.md`](docs/features/shared-components.md) | **Read before building any UI** — CustomDropdown, TimePicker, ConfirmModal, HoverCard, CalendarView, global CSS files |
+| [`docs/features/mcp-server.md`](docs/features/mcp-server.md) | `/api/mcp` server — one-file-per-tool convention, how to add a new tool, current tool list |
 | [`docs/features/uat-testing.md`](docs/features/uat-testing.md) | **Read before any Playwright QA pass** — UAT lessons learned, real bugs that passed DOM-only checks, process checklist |
 
