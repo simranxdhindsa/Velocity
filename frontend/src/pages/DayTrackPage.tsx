@@ -8,6 +8,7 @@ import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { usePasteSplit } from '../hooks/usePasteSplit'
 import { PasteSplitPrompt } from '../components/PasteSplitPrompt'
+import { getISTHours, getISTMinutes, getISTDate } from '../utils/istTime'
 import '../styles/pages/daytrack.css'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -27,13 +28,12 @@ function catColor(cat: string, cats: string[]): string {
 }
 
 function toDateStr(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 }
 
 function fmtDate(d: Date): string {
-  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
+  const istString = d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })
+  return istString
 }
 
 function to12h(hhmm: string): string {
@@ -59,7 +59,8 @@ function to24h(time12: string): string {
 
 function nowHHMM(): string {
   const n = new Date()
-  return to12h(`${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`)
+  const istTime = n.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })
+  return to12h(istTime)
 }
 
 function timeToMins(t: string): number {
@@ -437,12 +438,12 @@ function MicButton({ onResult, onError }: {
 const ClockDisplay = memo(function ClockDisplay() {
   const [clock, setClock] = useState(() => {
     const n = new Date()
-    return n.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    return n.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })
   })
   useEffect(() => {
     const id = setInterval(() => {
       const n = new Date()
-      setClock(n.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+      setClock(n.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' }))
     }, 1000)
     return () => clearInterval(id)
   }, [])
