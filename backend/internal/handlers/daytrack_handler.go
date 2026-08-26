@@ -232,12 +232,25 @@ func NewDayTrackHandler(ytHandler *YouTrackHandler) *DayTrackHandler {
 	}
 }
 
-// pruneDeletedYouTrackEntries checks every distinct YouTrack issue ID referenced by these
+// istToday returns today's date ("2006-01-02") in Asia/Kolkata, DayTrack's default timezone.
+func istToday() string {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		return time.Now().Format("2006-01-02")
+	}
+	return time.Now().In(loc).Format("2006-01-02")
+}
+
+// pruneDeletedYouTrackEntries checks every distinct YouTrack issue ID referenced by today's
 // entries against YouTrack and deletes (both the DayTrack entry and its issue_state_log
 // history) any whose ticket was confirmed deleted (404). Deliberately conservative: any
 // other outcome — YouTrack not configured, a transient/auth/network error — leaves the
 // entry alone rather than risk deleting real data on an ambiguous signal.
-func (h *DayTrackHandler) pruneDeletedYouTrackEntries(ctx context.Context, entries []database.DayTrackEntry) []database.DayTrackEntry {
+//
+// Scoped to today only, and skipped entirely once today's update has already been posted
+// to Slack — an entry that's part of a sent record must not silently disappear. Past dates
+// are never touched (deleting historical entries retroactively is out of scope).
+func (h *DayTrackHandler) pruneDeletedYouTrackEntries(ctx context.Context, userID string, entries []database.DayTrackEntry) []database.DayTrackEntry {
 	if h.ytHandler == nil {
 		return entries
 	}
@@ -246,10 +259,19 @@ func (h *DayTrackHandler) pruneDeletedYouTrackEntries(ctx context.Context, entri
 		return entries
 	}
 
+	today := istToday()
+	alreadyPosted := false
+	if post, postErr := h.repo.GetDailyPost(ctx, userID, today); postErr == nil && post != nil {
+		alreadyPosted = true
+	}
+
 	checked := make(map[string]bool) // issueID -> exists
 	deleted := make(map[string]bool)
 	for _, e := range entries {
 		if e.EntrySource != "youtrack" || e.YoutrackIssueID == nil || *e.YoutrackIssueID == "" {
+			continue
+		}
+		if e.EntryDate != today || alreadyPosted {
 			continue
 		}
 		issueID := *e.YoutrackIssueID
@@ -449,7 +471,7 @@ func (h *DayTrackHandler) GetEntries(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	entries = h.pruneDeletedYouTrackEntries(r.Context(), entries)
+	entries = h.pruneDeletedYouTrackEntries(r.Context(), userID, entries)
 	dtJSON(w, entries)
 }
 
@@ -547,7 +569,7 @@ func (h *DayTrackHandler) GetEntriesRange(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	entries = h.pruneDeletedYouTrackEntries(r.Context(), entries)
+	entries = h.pruneDeletedYouTrackEntries(r.Context(), userID, entries)
 	dtJSON(w, entries)
 }
 
