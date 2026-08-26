@@ -214,9 +214,11 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
   const [priorities, setPriorities] = useState<string[]>([])
   const [users,      setUsers]      = useState<YouTrackUser[]>([])
   const [boards,     setBoards]     = useState<Array<{ id: string; name: string }>>([])
-  const [sprints,    setSprints]    = useState<Array<{ id: string; name: string }>>([])
+  const [sprints,    setSprints]    = useState<Array<{ id: string; name: string; boardId?: string }>>([])
   const [userOpen,   setUserOpen]   = useState(false)
+  const [boardOpen,  setBoardOpen]  = useState(false)
   const userRef = useRef<HTMLDivElement>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
 
   // Comments
   const [comments, setComments] = useState<YouTrackComment[]>([])
@@ -337,6 +339,15 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // ── Outside click closes board dropdown ──────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!boardRef.current?.contains(e.target as Node)) setBoardOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   // ── Field update helpers ─────────────────────────────────────────────────
   const saveField = async (field: string, updater: () => Promise<void>) => {
     setSaving(s => ({ ...s, [field]: true }))
@@ -364,6 +375,13 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
     setLocalDueDate(dateStr)
     const ms = dateStr ? new Date(dateStr).getTime() : 0
     saveField('due_date', () => api.updateYouTrackIssue(issue.id, { due_date: ms } as any) as Promise<any>)
+  }
+
+  const handleBoardChange = (boardName: string) => {
+    setLocalBoard(boardName)
+    setBoardOpen(false)
+    // When board changes, filter available sprints to show only sprints from this board
+    // The user then needs to select a sprint from this board
   }
 
   const handleSprintChange = (sprintName: string) => {
@@ -923,12 +941,19 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
               </div>
 
               {/* Board */}
-              {localBoard && (
-                <div className="idp-meta-row">
-                  <span className="idp-meta-label">Board</span>
-                  <span className="idp-meta-value">{localBoard}</span>
-                </div>
-              )}
+              <div className="idp-meta-row">
+                <span className="idp-meta-label">Board</span>
+                {isYouTrack && boards.length > 0 ? (
+                  <InlineSelect
+                    value={localBoard}
+                    options={boards.map(b => b.name)}
+                    onSelect={handleBoardChange}
+                    saving={saving['board']}
+                  />
+                ) : (
+                  <span className="idp-meta-value">{localBoard || '—'}</span>
+                )}
+              </div>
 
               {/* Sprint */}
               <div className="idp-meta-row">
