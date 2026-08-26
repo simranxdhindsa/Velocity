@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-08-26
+
+### Features
+- display and edit board and sprint in issue detail panel
+
+
+### Enhancements
+- make board field editable in issue detail panel
+- fix board/sprint fetching using dedicated YouTrack API endpoint
+
 ## 2026-08-14
 
 ### Refactors
