@@ -2189,6 +2189,8 @@ export interface YouTrackIssue {
   section?: string
   due_date?: number
   swimlane_value?: string
+  sprint?: string
+  board?: string
 }
 
 export interface YouTrackAttachment {

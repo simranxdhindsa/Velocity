@@ -203,6 +203,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
   const [localPriority, setLocalPriority] = useState(issue.priority || '')
   const [localAssignee, setLocalAssignee] = useState<YouTrackUser | undefined>(issue.assignee)
   const [localDueDate,  setLocalDueDate]  = useState(issue.due_date ? new Date(issue.due_date).toISOString().slice(0,10) : '')
+  const [localSprint,   setLocalSprint]   = useState(issue.sprint || '')
+  const [localBoard,    setLocalBoard]    = useState(issue.board || '')
 
   // Saving indicators per field
   const [saving, setSaving] = useState<Record<string, boolean>>({})
@@ -211,6 +213,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
   const [states,     setStates]     = useState<string[]>([])
   const [priorities, setPriorities] = useState<string[]>([])
   const [users,      setUsers]      = useState<YouTrackUser[]>([])
+  const [boards,     setBoards]     = useState<Array<{ id: string; name: string }>>([])
+  const [sprints,    setSprints]    = useState<Array<{ id: string; name: string }>>([])
   const [userOpen,   setUserOpen]   = useState(false)
   const userRef = useRef<HTMLDivElement>(null)
 
@@ -265,6 +269,14 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
     api.getYouTrackUsers().then(res => {
       const data = (res as any).data ?? res
       setUsers(Array.isArray(data) ? data : [])
+    }).catch(() => {})
+    api.getYouTrackBoards().then(res => {
+      const data = (res as any).data ?? res
+      setBoards(Array.isArray(data) ? data : [])
+    }).catch(() => {})
+    api.getYouTrackSprints().then(res => {
+      const data = (res as any).data ?? res
+      setSprints(Array.isArray(data) ? data : [])
     }).catch(() => {})
   }, [isYouTrack])
 
@@ -352,6 +364,13 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
     setLocalDueDate(dateStr)
     const ms = dateStr ? new Date(dateStr).getTime() : 0
     saveField('due_date', () => api.updateYouTrackIssue(issue.id, { due_date: ms } as any) as Promise<any>)
+  }
+
+  const handleSprintChange = (sprintName: string) => {
+    setLocalSprint(sprintName)
+    const sprint = sprints.find(s => s.name === sprintName)
+    const sprintID = sprint ? sprint.id : ''
+    saveField('sprint', () => api.updateYouTrackIssue(issue.id, { sprint_id: sprintID } as any) as Promise<any>)
   }
 
   // ── Link handlers ────────────────────────────────────────────────────────
@@ -900,6 +919,29 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                   <span className={`idp-meta-value ${dueDateMs && dueDateMs < Date.now() ? 'idp-overdue' : ''}`}>
                     {fmtDate(dueDateMs)}
                   </span>
+                )}
+              </div>
+
+              {/* Board */}
+              {localBoard && (
+                <div className="idp-meta-row">
+                  <span className="idp-meta-label">Board</span>
+                  <span className="idp-meta-value">{localBoard}</span>
+                </div>
+              )}
+
+              {/* Sprint */}
+              <div className="idp-meta-row">
+                <span className="idp-meta-label">Sprint</span>
+                {isYouTrack && sprints.length > 0 ? (
+                  <InlineSelect
+                    value={localSprint}
+                    options={sprints.map(s => s.name)}
+                    onSelect={handleSprintChange}
+                    saving={saving['sprint']}
+                  />
+                ) : (
+                  <span className="idp-meta-value">{localSprint || '—'}</span>
                 )}
               </div>
 

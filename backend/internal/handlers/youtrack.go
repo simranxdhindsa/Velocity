@@ -773,6 +773,28 @@ func (h *YouTrackHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 		assignee.AvatarUrl = client.GetBaseURL() + assignee.AvatarUrl
 	}
 
+	// Extract sprint name from custom fields
+	var sprintName string
+	for _, field := range issue.CustomFields {
+		if field.Name == "Sprint" {
+			if val, ok := field.Value.(map[string]interface{}); ok {
+				if name, ok := val["name"].(string); ok {
+					sprintName = name
+				}
+			}
+		}
+	}
+
+	// Get board name - sprint belongs to the configured board
+	var boardName string
+	if sprintName != "" {
+		boards, err := client.GetBoards(r.Context())
+		if err == nil && len(boards) > 0 {
+			// Use the first board (typically there's only one configured per user)
+			boardName = boards[0].Name
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -789,6 +811,8 @@ func (h *YouTrackHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 			"created":     issue.Created,
 			"updated":     issue.Updated,
 			"attachments": issue.Attachments,
+			"sprint":      sprintName,
+			"board":       boardName,
 		},
 	})
 }
@@ -1258,6 +1282,16 @@ func (h *YouTrackHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Failed to update issue: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Update sprint if provided (best-effort — non-fatal if it fails)
+	if req.SprintID != "" {
+		go func() {
+			ctx2 := context.Background()
+			if addErr := client.AddIssueToSprint(ctx2, req.SprintID, issueID); addErr != nil {
+				log.Printf("failed to add issue %s to sprint %s: %v", issueID, req.SprintID, addErr)
+			}
+		}()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
