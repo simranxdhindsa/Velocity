@@ -773,25 +773,15 @@ func (h *YouTrackHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 		assignee.AvatarUrl = client.GetBaseURL() + assignee.AvatarUrl
 	}
 
-	// Extract sprint name from custom fields
-	var sprintName string
-	for _, field := range issue.CustomFields {
-		if field.Name == "Sprint" {
-			if val, ok := field.Value.(map[string]interface{}); ok {
-				if name, ok := val["name"].(string); ok {
-					sprintName = name
-				}
-			}
-		}
-	}
-
-	// Get board name - sprint belongs to the configured board
-	var boardName string
-	if sprintName != "" {
-		boards, err := client.GetBoards(r.Context())
-		if err == nil && len(boards) > 0 {
-			// Use the first board (typically there's only one configured per user)
-			boardName = boards[0].Name
+	// Get sprints for this issue
+	var sprintName, boardName string
+	sprints, err := client.GetIssueSprints(r.Context(), issueID)
+	if err == nil && len(sprints) > 0 {
+		// Use the first sprint (typically an issue is in one sprint at a time)
+		sprintName = sprints[0].Name
+		// Get board name from the sprint's agile (board)
+		if sprints[0].Agile != nil {
+			boardName = sprints[0].Agile.Name
 		}
 	}
 

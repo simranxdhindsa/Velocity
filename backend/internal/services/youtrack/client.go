@@ -392,11 +392,12 @@ type Board struct {
 
 // Sprint represents a YouTrack agile sprint
 type Sprint struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Start       int64  `json:"start"`
-	Finish      int64  `json:"finish"`
-	IsCompleted bool   `json:"isCompleted"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Start       int64   `json:"start"`
+	Finish      int64   `json:"finish"`
+	IsCompleted bool    `json:"isCompleted"`
+	Agile       *Board  `json:"agile,omitempty"` // Board (agile) this sprint belongs to
 }
 
 // State represents a workflow state
@@ -2179,6 +2180,21 @@ func (c *Client) GetIssuesByFixVersion(ctx context.Context, version string) ([]I
 		return nil, fmt.Errorf("failed to unmarshal issues: %w", err)
 	}
 	return issues, nil
+}
+
+// GetIssueSprints returns all sprints that an issue belongs to
+func (c *Client) GetIssueSprints(ctx context.Context, issueID string) ([]Sprint, error) {
+	fields := "id,name,agile(id,name,sprintsSettings(disableSprints)),archived,finish,start"
+	path := fmt.Sprintf("/api/issues/%s/sprints?$top=-1&fields=%s", url.PathEscape(issueID), url.QueryEscape(fields))
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var sprints []Sprint
+	if err := json.Unmarshal(body, &sprints); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal issue sprints: %w", err)
+	}
+	return sprints, nil
 }
 
 // AddIssueToSprint adds an existing issue to a sprint.
