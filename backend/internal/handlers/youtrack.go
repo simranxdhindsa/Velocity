@@ -3662,10 +3662,131 @@ func (h *YouTrackHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// summarizeWebhookTrigger renders a short, human-readable description of what fired this
+// webhook batch (e.g. "ARD-1872 created", "ARD-1900 updated (State, Priority)"), purely for
+// log readability around checkTodayDeletedTickets.
+func summarizeWebhookTrigger(events []youtrack.WebhookEvent) string {
+	if len(events) == 0 {
+		return "empty payload"
+	}
+	parts := make([]string, 0, len(events))
+	for _, event := range events {
+		if event.Issue == nil {
+			continue
+		}
+		issueID := event.Issue.IDReadable
+		if issueID == "" {
+			issueID = event.Issue.ID
+		}
+		if issueID == "" {
+			issueID = event.IssueID
+		}
+		if issueID == "" {
+			continue
+		}
+		// Created and Updated land within a couple seconds of each other only on the
+		// issue's very first webhook delivery — a reasonable proxy for "just created"
+		// since the payload carries no explicit creation flag.
+		if event.Issue.Created > 0 && event.Issue.Updated > 0 && event.Issue.Updated-event.Issue.Created < 5000 {
+			parts = append(parts, issueID+" created")
+			continue
+		}
+		changes := event.NormalizedChanges()
+		if len(changes) == 0 {
+			parts = append(parts, issueID+" updated")
+			continue
+		}
+		names := make([]string, 0, len(changes))
+		for _, c := range changes {
+			names = append(names, c.Name)
+		}
+		parts = append(parts, fmt.Sprintf("%s updated (%s)", issueID, strings.Join(names, ", ")))
+	}
+	if len(parts) == 0 {
+		return "no issue payload"
+	}
+	return strings.Join(parts, "; ")
+}
+
+// checkTodayDeletedTickets piggybacks on any incoming YouTrack webhook (a ticket created,
+// moved, or otherwise changed) to opportunistically re-check today's YouTrack-sourced
+// DayTrack entries for tickets that got deleted, and pushes an SSE event so DayTrack removes
+// them live without a page refresh. Scoped to today only, and skipped per-user once that
+// user's update has already been posted to Slack — same rule as the on-load prune in
+// DayTrackHandler.pruneDeletedYouTrackEntries.
+func (h *YouTrackHandler) checkTodayDeletedTickets(ctx context.Context, trigger string) {
+	if h.dayTrackRepo == nil {
+		return
+	}
+	client, err := h.getYouTrackClient(ctx)
+	if err != nil || client == nil {
+		return
+	}
+	today := istToday()
+	links, err := h.dayTrackRepo.TodayYouTrackLinkedIssues(ctx, today)
+	if err != nil {
+		log.Printf("[DayTrack Webhook] failed to load today's linked issues: %v", err)
+		return
+	}
+	if len(links) == 0 {
+		return
+	}
+	log.Printf("[DayTrack Webhook] webhook (%s) → checking %d linked ticket(s) for %s", trigger, len(links), today)
+
+	postedByUser := make(map[string]bool)
+	checked := make(map[string]bool)
+	deletedCount := 0
+	for _, link := range links {
+		if checked[link.IssueID] {
+			continue
+		}
+		posted, known := postedByUser[link.UserID]
+		if !known {
+			post, _ := h.dayTrackRepo.GetDailyPost(ctx, link.UserID, today)
+			posted = post != nil
+			postedByUser[link.UserID] = posted
+		}
+		if posted {
+			continue
+		}
+		checked[link.IssueID] = true
+
+		if _, err := client.GetIssue(ctx, link.IssueID); err == nil {
+			continue // still exists — nothing to do
+		} else if err.Error() != "YouTrack resource not found" {
+			continue // ambiguous failure (network/auth/rate-limit) — leave it alone
+		}
+
+		if pruneErr := h.dayTrackRepo.PruneEntriesForDeletedIssue(ctx, link.IssueID); pruneErr != nil {
+			log.Printf("[DayTrack Webhook] ✗ %s confirmed deleted on YouTrack but failed to prune: %v", link.IssueID, pruneErr)
+			continue
+		}
+		deletedCount++
+		log.Printf("[DayTrack Webhook] ✓ %s deleted on YouTrack → removed its DayTrack entries + notified frontend via SSE", link.IssueID)
+		if h.sseHub != nil {
+			h.sseHub.Broadcast(SSEEvent{
+				Type: "youtrack_update",
+				Data: map[string]interface{}{
+					"issue_id":  link.IssueID,
+					"field":     "deleted",
+					"old_value": "",
+					"new_value": "",
+					"summary":   "",
+				},
+			})
+		}
+	}
+	if deletedCount == 0 {
+		log.Printf("[DayTrack Webhook] checked %d ticket(s), none deleted", len(checked))
+	}
+}
+
 // processWebhookEvents handles YouTrack webhook events in the background
 func (h *YouTrackHandler) processWebhookEvents(events []youtrack.WebhookEvent) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	h.checkTodayDeletedTickets(ctx, summarizeWebhookTrigger(events))
 
 	for _, event := range events {
 		if event.Issue == nil {
@@ -4386,7 +4507,6 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 				continue
 			}
 			updatedAt := time.UnixMilli(issue.Updated)
-			log.Printf("[ScanYTTickets] tested yql: issue=%s state=%q updated=%s", issueID, stateName, updatedAt.Format(time.RFC3339))
 			createTestedEntry(issueID, issue.Summary, "", stateName, updatedAt.Format("3:04 PM"), updatedAt.Format("2006-01-02"))
 		}
 	}
@@ -4428,7 +4548,6 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 				issueID = act.Target.ID
 			}
 			if _, _, ok := testedEnvFromState(fromState, toState); ok {
-				log.Printf("[ScanYTTickets] tested activity (secondary): issue=%s from=%q to=%q author=%s", issueID, fromState, toState, act.Author.Login)
 				createTestedEntry(issueID, act.Target.Summary, fromState, toState, actTime.Format("3:04 PM"), actTime.Format("2006-01-02"))
 			}
 			if _, _, _, ok := devEnvFromState(fromState, toState); ok {

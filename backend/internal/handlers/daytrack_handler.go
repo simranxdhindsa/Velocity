@@ -287,7 +287,9 @@ func (h *DayTrackHandler) pruneDeletedYouTrackEntries(ctx context.Context, userI
 			checked[issueID] = false
 			deleted[issueID] = true
 			if pruneErr := h.repo.PruneEntriesForDeletedIssue(ctx, issueID); pruneErr != nil {
-				log.Printf("[DayTrack] failed to prune entries for deleted issue %s: %v", issueID, pruneErr)
+				log.Printf("[DayTrack Webhook] ✗ %s confirmed deleted on YouTrack (page load check) but failed to prune: %v", issueID, pruneErr)
+			} else {
+				log.Printf("[DayTrack Webhook] ✓ %s deleted on YouTrack → removed its DayTrack entries (page load check)", issueID)
 			}
 		} else {
 			// Ambiguous failure (network/auth/rate-limit) — keep the entry, don't guess.

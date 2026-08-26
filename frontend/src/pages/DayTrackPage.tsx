@@ -658,11 +658,15 @@ export function DayTrackPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Live-refresh: when a YouTrack ticket's state changes while this page is open on
-  // today, reload entries so webhook-driven Day Track entries show up without a reopen.
+  // Live-refresh: when a YouTrack ticket's state changes, or a ticket referenced by today's
+  // entries is confirmed deleted (pushed by the backend's webhook-triggered check), reload
+  // entries so Day Track reflects it without a manual reopen.
   useYouTrackEvents(event => {
-    if (event.field !== 'State') return
+    if (event.field !== 'State' && event.field !== 'deleted') return
     if (date !== toDateStr(new Date())) return
+    if (event.field === 'deleted') {
+      console.log(`%c[DayTrack] ${event.issue_id} deleted on YouTrack — auto-removing from today's entries`, 'color:#e8912d;font-weight:600')
+    }
     loadAll()
   })
 

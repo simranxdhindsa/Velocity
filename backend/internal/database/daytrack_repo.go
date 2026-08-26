@@ -140,6 +140,36 @@ func (r *DayTrackRepository) SetYoutrackIssueID(ctx context.Context, entryID, is
 	return err
 }
 
+// YouTrackLinkedEntry is one (user, issue) pair pulled from today's YouTrack-sourced entries,
+// used to opportunistically re-check ticket existence when any YouTrack webhook fires.
+type YouTrackLinkedEntry struct {
+	UserID  string
+	IssueID string
+}
+
+// TodayYouTrackLinkedIssues returns the distinct (user_id, youtrack_issue_id) pairs for every
+// YouTrack-sourced DayTrack entry dated `date`.
+func (r *DayTrackRepository) TodayYouTrackLinkedIssues(ctx context.Context, date string) ([]YouTrackLinkedEntry, error) {
+	pool := GetPool()
+	rows, err := pool.Query(ctx,
+		`SELECT DISTINCT user_id, youtrack_issue_id FROM daytrack_entries
+		 WHERE entry_date = $1 AND entry_source = 'youtrack'
+		   AND youtrack_issue_id IS NOT NULL AND youtrack_issue_id != ''`, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []YouTrackLinkedEntry
+	for rows.Next() {
+		var e YouTrackLinkedEntry
+		if err := rows.Scan(&e.UserID, &e.IssueID); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // PruneEntriesForDeletedIssue deletes every DayTrack entry (any user, any date) that was
 // auto-logged from a YouTrack ticket confirmed deleted, plus the ticket's own state-log
 // history. Only call this once existence has been positively confirmed (404), never on an
