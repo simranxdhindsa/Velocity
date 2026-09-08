@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-08
+
+### Features
+- log MCP tool activity to DB (7-day retention) and add private admin MCP Activity view
+
+
+### Enhancements
+- drop manual MCP token generate/revoke UI, show plain OAuth connector URL
+
 ## 2026-08-26
 
 ### Features
