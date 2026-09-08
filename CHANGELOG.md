@@ -7,10 +7,12 @@
 
 
 ### Enhancements
+- live-remove deleted YouTrack tickets from DayTrack via webhook + SSE
 - make board field editable in issue detail panel
 - fix board/sprint fetching using dedicated YouTrack API endpoint
 
 ### Bug Fixes
+- scope DayTrack YouTrack-deletion pruning to today only, skip once posted
 - fix IST timezone throughout Velocity app
 
 ## 2026-08-14
