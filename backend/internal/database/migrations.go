@@ -1210,6 +1210,22 @@ WHERE bot_type = 'ticket_parser'`,
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_uibt_user ON user_ignored_blocked_tickets(user_id)`,
 
+		// MCP activity log — one row per tools/call made through Claude's Velocity
+		// connector. Rows older than 7 days are pruned by a background job
+		// (see RunMCPActivityPruner), so this table intentionally has no
+		// long-term retention.
+		`CREATE TABLE IF NOT EXISTS mcp_activity_log (
+			id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id      VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
+			tool_name    VARCHAR(100) NOT NULL,
+			action_label VARCHAR(100) NOT NULL,
+			summary      TEXT NOT NULL DEFAULT '',
+			success      BOOLEAN NOT NULL DEFAULT TRUE,
+			duration_ms  INTEGER NOT NULL DEFAULT 0,
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_mcp_activity_created_at ON mcp_activity_log(created_at DESC)`,
+
 		// ticket_parser prompt v2: adds PRESERVE MODE so fully-written tickets are not condensed.
 		// Runs unconditionally (no idempotency guard) so it always wins over earlier migrations
 		// that set the same column — this must stay the LAST ticket_parser UPDATE in this slice.

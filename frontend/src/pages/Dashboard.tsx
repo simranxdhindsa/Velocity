@@ -54,6 +54,7 @@ import { UpdateRemindersTab } from './UpdateRemindersTab'
 import { ActivityPage } from './ActivityPage'
 import { DayTrackPage } from './DayTrackPage'
 import { GanttPage } from './GanttPage'
+import { McpActivityPage } from './McpActivityPage'
 import { JellySwitch } from '../components/JellySwitch'
 import { ThemeSettingsPage } from './ThemeSettingsPage'
 import { applyUserTheme } from '../utils/themeUtils'
@@ -62,7 +63,7 @@ import { useNotifications } from '../services/useNotifications'
 import ChangelogPanel from '../components/changelog/ChangelogPanel'
 import type { ChangelogEntry } from '../services/api'
 
-type Page = 'dashboard' | 'board' | 'list' | 'sprint-pulse' | 'daily-ops' | 'calendar' | 'reports' | 'ai-analysis' | 'dev-activity' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme' | 'gantt' | 'update-reminders'
+type Page = 'dashboard' | 'board' | 'list' | 'sprint-pulse' | 'daily-ops' | 'calendar' | 'reports' | 'ai-analysis' | 'dev-activity' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme' | 'gantt' | 'update-reminders' | 'mcp-activity'
 
 // Pages accessible by members/viewers (limited access)
 const MEMBER_PAGES: Page[] = ['dashboard', 'board', 'list', 'sprint-pulse', 'daily-ops', 'activity', 'calendar', 'ai-analysis', 'dev-activity', 'pm-reports', 'daytrack', 'integrations', 'gantt', 'slack', 'update-reminders']
@@ -90,6 +91,7 @@ const PATH_TO_PAGE: Record<string, Page> = {
   'theme': 'theme',
   'gantt': 'gantt',
   'update-reminders': 'update-reminders',
+  'mcp-activity': 'mcp-activity',
 }
 
 const PM_REPORTS_TABS = ['tracking', 'daily', 'assignees', 'deployment'] as const
@@ -499,6 +501,8 @@ export default function Dashboard() {
                 <span>Access Control</span>
               </button>
             )}
+            {/* No sidebar entry on purpose — private route, admin-only, reachable
+                at /mcp-activity directly. Not meant to be a discoverable nav item. */}
             <button
               className={`sidebar-nav-item ${currentPage === 'theme' ? 'active' : ''}`}
               onClick={() => setCurrentPage('theme')}
@@ -547,6 +551,7 @@ export default function Dashboard() {
             {currentPage === 'team' && 'Team Management'}
             {currentPage === 'bots' && 'Bot Configuration'}
             {currentPage === 'settings' && 'Access Control'}
+            {currentPage === 'mcp-activity' && 'MCP Activity'}
             {currentPage === 'integrations' && 'Integrations'}
             {currentPage === 'slack' && 'Slack Intelligence'}
             {currentPage === 'update-reminders' && 'Update Reminders'}
@@ -725,6 +730,11 @@ export default function Dashboard() {
         {mountedTabs.has('settings') && (
           <div className={currentPage !== 'settings' ? 'dash-tab-hidden' : undefined}>
             <SettingsPage />
+          </div>
+        )}
+        {mountedTabs.has('mcp-activity') && (
+          <div className={currentPage !== 'mcp-activity' ? 'dash-tab-hidden' : undefined}>
+            <McpActivityPage />
           </div>
         )}
         {mountedTabs.has('bots') && (

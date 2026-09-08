@@ -2056,6 +2056,23 @@ class ApiService {
   async unignoreBlockedTicket(issueId: string) {
     return this.request<void>(`/ignored-blocked/${encodeURIComponent(issueId)}`, { method: 'DELETE' })
   }
+
+  // ── MCP activity log ──────────────────────────────────────────────────────
+  async getMcpActivity(limit = 200) {
+    return this.request<MCPActivityEntry[]>(`/mcp/activity?limit=${limit}`)
+  }
+}
+
+export interface MCPActivityEntry {
+  id: string
+  user_id: string
+  user_name: string
+  tool_name: string
+  action_label: string
+  summary: string
+  success: boolean
+  duration_ms: number
+  created_at: string
 }
 
 // Types

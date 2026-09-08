@@ -536,6 +536,14 @@ func main() {
 	mcpSettingsRoutes := api.PathPrefix("/mcp/settings").Subrouter()
 	mcpSettingsRoutes.Use(middleware.AuthMiddleware)
 	mcpSettingsRoutes.HandleFunc("", mcpTokenHandler.UpdateSettings).Methods("PUT")
+	// MCP activity log — what's been done through the connector (admin only)
+	mcpActivityHandler := handlers.NewMCPActivityHandler()
+	mcpActivityRoutes := api.PathPrefix("/mcp/activity").Subrouter()
+	mcpActivityRoutes.Use(middleware.AuthMiddleware)
+	mcpActivityRoutes.Use(middleware.AdminOnly)
+	mcpActivityRoutes.HandleFunc("", mcpActivityHandler.List).Methods("GET")
+	// Keep only the last 7 days of MCP activity
+	handlers.RunMCPActivityPruner(database.NewMCPActivityRepository())
 
 	// Start pending-messages scheduler (fires due Slack messages every 60s)
 	handlers.RunPendingMessagesScheduler(notifHandler)
