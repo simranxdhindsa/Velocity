@@ -50,64 +50,32 @@ function renderMentionedText(text: string, userNames: Map<string, string>): Reac
 
 type TokenMeta = { exists: boolean; created_at?: string; last_used_at?: string; default_send_time?: string }
 
+// Claude connects via OAuth (Claude.ai → Add custom connector → this URL, then
+// sign in with Google) — no manual token to generate, copy with a token baked
+// in, or revoke. This just shows the static connector URL and whether Claude
+// has completed that OAuth handshake yet.
 function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }) {
   const [meta, setMeta] = useState<TokenMeta | null>(null)
-  const [storedToken, setStoredToken] = usePersistedState<string>(PERSIST.MCP_PLAIN_TOKEN, '')
   const [copied, setCopied] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [showRevoke, setShowRevoke] = useState(false)
-  // Connection detail (URL, token, revoke) is config, not queue content — keep
-  // it collapsed behind a click instead of permanently taking up space above
-  // the actual message list.
+  // Connection detail (URL) is config, not queue content — keep it collapsed
+  // behind a click instead of permanently taking up space above the queue.
   const [detailsOpen, setDetailsOpen] = useState(false)
 
-  const connectorUrl = storedToken ? `${MCP_BASE_URL}?token=${storedToken}` : ''
-
-  const generateToken = useCallback(async () => {
-    setLoading(true)
-    try {
-      const r = await api.generateMcpToken()
-      const raw = r as any
-      const token = raw?.token ?? raw?.data?.token
-      if (token) {
-        setStoredToken(token)
-        setMeta({ exists: true, created_at: new Date().toISOString() })
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [setStoredToken])
-
   useEffect(() => {
-    const init = async () => {
-      const r = await api.getMcpToken()
+    api.getMcpToken().then(r => {
       const raw = r as any
       const m = raw?.exists !== undefined ? raw : raw?.data
       if (!m) return
       setMeta(m)
       if (m.default_send_time) onDefaultTime(m.default_send_time)
-      if (!m.exists) {
-        // No token in DB — auto-generate silently
-        await generateToken()
-      }
-      // If token exists but storedToken is empty it means the token was issued via
-      // OAuth on another device; don't overwrite it — the user can revoke to get a URL here.
-    }
-    init()
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const isConnected = meta?.exists === true || !!storedToken
-
-  const handleRevoke = async () => {
-    await api.revokeMcpToken()
-    setMeta({ exists: false })
-    setStoredToken('')
-    setShowRevoke(false)
-  }
+  const isConnected = meta?.exists === true
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(connectorUrl)
+    navigator.clipboard.writeText(MCP_BASE_URL)
     setCopied(true)
     setTimeout(() => setCopied(false), 1800)
   }
@@ -118,22 +86,6 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
       }))}`
     : null
 
-  // Revoked state — token explicitly removed, show generate button
-  if (meta !== null && !isConnected) {
-    return (
-      <div className="cq-conn">
-        <div className="cq-conn-row">
-          <CircleDashed size={12} className="cq-conn-icon" />
-          <span className="cq-conn-label">Not connected</span>
-          <button className="cq-conn-action" onClick={generateToken} disabled={loading}>
-            {loading && <RefreshCw size={11} className="cq-spin" />}
-            Generate token
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="cq-conn">
       <button className="cq-conn-row cq-conn-row--toggle" onClick={() => setDetailsOpen(o => !o)}>
@@ -142,7 +94,7 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
           : <CircleDashed size={12} className="cq-conn-icon" />
         }
         <span className="cq-conn-label">
-          {isConnected ? 'Connected' : 'Setting up…'}
+          {isConnected ? 'Connected' : 'Not connected yet'}
           {lastUsedLabel && <span className="cq-conn-sub"> · {lastUsedLabel}</span>}
         </span>
         <ChevronDown size={12} className={`cq-conn-caret${detailsOpen ? ' cq-conn-caret--open' : ''}`} />
@@ -158,54 +110,27 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: 'hidden' }}
           >
-            {isConnected && (
-              <button
-                className="cq-panel-btn cq-panel-btn--danger cq-conn-revoke"
-                onClick={() => setShowRevoke(true)}
-              >
-                <Trash2 size={11} />Revoke
-              </button>
-            )}
-            {connectorUrl ? (
-              <div className="cq-url-always">
-                <div className="cq-url-label-sm">Claude.ai connector URL</div>
-                <div className="cq-url-row">
-                  <code className="cq-url-code">{connectorUrl}</code>
-                  <button
-                    className={`cq-copy-btn${copied ? ' cq-copy-btn--ok' : ''}`}
-                    onClick={handleCopy}
-                  >
-                    {copied
-                      ? <><Check size={11} />Copied!</>
-                      : <><Copy size={11} />Copy</>
-                    }
-                  </button>
-                </div>
-                <div className="cq-url-hint">
-                  Claude.ai → Settings → Connectors → Add custom connector
-                </div>
+            <div className="cq-url-always">
+              <div className="cq-url-label-sm">Claude.ai connector URL</div>
+              <div className="cq-url-row">
+                <code className="cq-url-code">{MCP_BASE_URL}</code>
+                <button
+                  className={`cq-copy-btn${copied ? ' cq-copy-btn--ok' : ''}`}
+                  onClick={handleCopy}
+                >
+                  {copied
+                    ? <><Check size={11} />Copied!</>
+                    : <><Copy size={11} />Copy</>
+                  }
+                </button>
               </div>
-            ) : meta?.exists && (
-              <div className="cq-url-hint cq-url-hint--oauth">
-                Connected via Claude.ai OAuth — URL not visible here.
-                Revoke and regenerate if you need the connector URL on this device.
+              <div className="cq-url-hint">
+                Claude.ai → Settings → Connectors → Add custom connector. You'll be asked to sign in the first time, that's the connection.
               </div>
-            )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
-
-      {showRevoke && (
-        <ConfirmModal
-          variant="danger"
-          title="Revoke MCP token?"
-          message="Claude will lose access to queue messages immediately."
-          detail="You can generate a new token anytime — just paste the new URL into your Claude.ai connector."
-          confirmLabel="Revoke"
-          onConfirm={handleRevoke}
-          onCancel={() => setShowRevoke(false)}
-        />
-      )}
     </div>
   )
 }
