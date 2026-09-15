@@ -89,18 +89,20 @@ func mcpS3Client(ctx context.Context) (*s3storage.Client, error) {
 // Auth: ?token= query param (plain MCP token, NOT a JWT).
 // All JWT-protected token management lives in MCPTokenHandler (mcp_token.go).
 type MCPHandler struct {
-	tokenRepo *database.MCPTokenRepository
-	msgRepo   *database.PendingMessagesRepository
-	slackSvc  *slacksvc.Service
-	updateSvc *updatesvc.Service
+	tokenRepo    *database.MCPTokenRepository
+	settingsRepo *database.MCPSettingsRepository
+	msgRepo      *database.PendingMessagesRepository
+	slackSvc     *slacksvc.Service
+	updateSvc    *updatesvc.Service
 }
 
 func NewMCPHandler() *MCPHandler {
 	return &MCPHandler{
-		tokenRepo: database.NewMCPTokenRepository(),
-		msgRepo:   database.NewPendingMessagesRepository(),
-		slackSvc:  slacksvc.NewService(),
-		updateSvc: updatesvc.NewService(),
+		tokenRepo:    database.NewMCPTokenRepository(),
+		settingsRepo: database.NewMCPSettingsRepository(),
+		msgRepo:      database.NewPendingMessagesRepository(),
+		slackSvc:     slacksvc.NewService(),
+		updateSvc:    updatesvc.NewService(),
 	}
 }
 

@@ -16,21 +16,29 @@ func NewMCPTokenRepository() *MCPTokenRepository {
 	return &MCPTokenRepository{}
 }
 
+// MCPToken is one connected client's access token record. A user can have
+// several of these (Claude, Codex, Gemini, ...) — each client gets its own
+// row so that one connecting never invalidates another's session.
 type MCPToken struct {
-	ID                  string
-	UserID              string
-	CreatedAt           time.Time
-	LastUsedAt          *time.Time
-	DefaultSendTime     string // HH:MM, e.g. "10:00"
-	DefaultSendTimezone string // IANA tz, e.g. "Asia/Kolkata"
+	ID         string
+	UserID     string
+	ClientID   string
+	ClientName string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
 }
 
-// GenerateToken creates a new MCP token for the user (replaces any existing one).
-// Returns the plain-text token — shown once, never stored.
-func (r *MCPTokenRepository) GenerateToken(ctx context.Context, userID string) (string, error) {
+// GenerateToken creates (or rotates) the token for one specific client on this
+// user's account. Only that client's row is touched — other connected
+// clients' tokens are untouched. Returns the plain-text token — shown once,
+// never stored.
+func (r *MCPTokenRepository) GenerateToken(ctx context.Context, userID, clientID, clientName string) (string, error) {
 	pool := GetPool()
 	if pool == nil {
 		return "", fmt.Errorf("database not available")
+	}
+	if clientID == "" {
+		clientID = "legacy"
 	}
 
 	raw := make([]byte, 32)
@@ -41,13 +49,14 @@ func (r *MCPTokenRepository) GenerateToken(ctx context.Context, userID string) (
 	hash := sha256sum(plain)
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO user_mcp_tokens (user_id, token_hash)
-		VALUES ($1, $2)
-		ON CONFLICT (user_id) DO UPDATE
+		INSERT INTO user_mcp_tokens (user_id, client_id, client_name, token_hash)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, client_id) DO UPDATE
 			SET token_hash   = EXCLUDED.token_hash,
+			    client_name  = EXCLUDED.client_name,
 			    created_at   = NOW(),
 			    last_used_at = NULL
-	`, userID, hash)
+	`, userID, clientID, clientName, hash)
 	if err != nil {
 		return "", err
 	}
@@ -75,63 +84,46 @@ func (r *MCPTokenRepository) GetUserByToken(ctx context.Context, plain string) (
 	return userID, nil
 }
 
-// RevokeToken deletes the token for a user.
-func (r *MCPTokenRepository) RevokeToken(ctx context.Context, userID string) error {
+// RevokeToken deletes one client's token for a user, leaving the user's other
+// connected clients' sessions intact.
+func (r *MCPTokenRepository) RevokeToken(ctx context.Context, userID, clientID string) error {
 	pool := GetPool()
 	if pool == nil {
 		return nil
 	}
-	_, err := pool.Exec(ctx, `DELETE FROM user_mcp_tokens WHERE user_id = $1`, userID)
+	if clientID == "" {
+		clientID = "legacy"
+	}
+	_, err := pool.Exec(ctx, `DELETE FROM user_mcp_tokens WHERE user_id = $1 AND client_id = $2`, userID, clientID)
 	return err
 }
 
-// GetToken returns metadata (no hash) for the user's token, or nil if none.
-func (r *MCPTokenRepository) GetToken(ctx context.Context, userID string) (*MCPToken, error) {
+// ListTokens returns metadata (no hashes) for every client connected to this
+// user's account, newest first.
+func (r *MCPTokenRepository) ListTokens(ctx context.Context, userID string) ([]MCPToken, error) {
 	pool := GetPool()
 	if pool == nil {
 		return nil, nil
 	}
-	t := &MCPToken{}
-	err := pool.QueryRow(ctx, `
-		SELECT id::text, user_id, created_at, last_used_at, default_send_time, default_send_timezone
+	rows, err := pool.Query(ctx, `
+		SELECT id::text, user_id, client_id, client_name, created_at, last_used_at
 		FROM user_mcp_tokens WHERE user_id = $1
-	`, userID).Scan(&t.ID, &t.UserID, &t.CreatedAt, &t.LastUsedAt, &t.DefaultSendTime, &t.DefaultSendTimezone)
+		ORDER BY created_at DESC
+	`, userID)
 	if err != nil {
-		return nil, nil // no token
+		return nil, err
 	}
-	return t, nil
-}
+	defer rows.Close()
 
-// GetDefaultSendSettings returns the user's default send time (HH:MM) and IANA timezone.
-func (r *MCPTokenRepository) GetDefaultSendSettings(ctx context.Context, userID string) (hhmm, tz string) {
-	pool := GetPool()
-	if pool == nil {
-		return "10:00", "UTC"
+	var out []MCPToken
+	for rows.Next() {
+		var t MCPToken
+		if err := rows.Scan(&t.ID, &t.UserID, &t.ClientID, &t.ClientName, &t.CreatedAt, &t.LastUsedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
 	}
-	if err := pool.QueryRow(ctx, `
-		SELECT default_send_time, default_send_timezone FROM user_mcp_tokens WHERE user_id = $1
-	`, userID).Scan(&hhmm, &tz); err != nil || hhmm == "" {
-		return "10:00", "UTC"
-	}
-	if tz == "" {
-		tz = "UTC"
-	}
-	return hhmm, tz
-}
-
-// UpdateDefaultSendSettings persists the user's preferred send time and timezone.
-func (r *MCPTokenRepository) UpdateDefaultSendSettings(ctx context.Context, userID, hhmm, tz string) error {
-	pool := GetPool()
-	if pool == nil {
-		return nil
-	}
-	if tz == "" {
-		tz = "UTC"
-	}
-	_, err := pool.Exec(ctx, `
-		UPDATE user_mcp_tokens SET default_send_time = $1, default_send_timezone = $2 WHERE user_id = $3
-	`, hhmm, tz, userID)
-	return err
+	return out, rows.Err()
 }
 
 func sha256sum(s string) string {

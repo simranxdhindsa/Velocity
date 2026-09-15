@@ -113,8 +113,15 @@ func (h *OAuthHandler) Token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate (or replace) the user's MCP token and return it as access_token
-	plain, err := h.tokenRepo.GenerateToken(r.Context(), userID)
+	// Generate (or rotate) this client's own MCP token and return it as
+	// access_token. Keyed by client_id so a second client (e.g. Codex)
+	// connecting doesn't overwrite and invalidate an already-connected
+	// client's (e.g. Claude's) token.
+	clientName := clientID
+	if client, _ := h.repo.GetClient(r.Context(), clientID); client != nil && client.ClientName != "" {
+		clientName = client.ClientName
+	}
+	plain, err := h.tokenRepo.GenerateToken(r.Context(), userID, clientID, clientName)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
@@ -139,10 +146,10 @@ func (h *OAuthHandler) CreateCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		ClientID     string `json:"client_id"`
-		RedirectURI  string `json:"redirect_uri"`
-		Challenge    string `json:"code_challenge"`
-		Method       string `json:"code_challenge_method"`
+		ClientID    string `json:"client_id"`
+		RedirectURI string `json:"redirect_uri"`
+		Challenge   string `json:"code_challenge"`
+		Method      string `json:"code_challenge_method"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ClientID == "" || body.RedirectURI == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})

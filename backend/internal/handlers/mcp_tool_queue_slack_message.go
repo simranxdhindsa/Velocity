@@ -63,7 +63,7 @@ func mcpQueueSlackMessage(ctx context.Context, h *MCPHandler, userID string, id 
 	message := resolveSlackMentions(ctx, h.slackSvc, userID, a.Message)
 
 	// Fetch user's default settings once — timezone used for both explicit and default paths
-	defaultHHMM, tzName := h.tokenRepo.GetDefaultSendSettings(ctx, userID)
+	defaultHHMM, tzName := h.settingsRepo.GetDefaultSendSettings(ctx, userID)
 	userLoc, locErr := time.LoadLocation(tzName)
 	if locErr != nil {
 		userLoc = time.UTC

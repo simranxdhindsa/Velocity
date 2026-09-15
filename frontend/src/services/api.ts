@@ -951,15 +951,21 @@ class ApiService {
   // ── MCP token management ──────────────────────────────────────────────────
 
   async getMcpToken() {
-    return this.request<{ exists: boolean; created_at?: string; last_used_at?: string }>('/mcp/token')
+    return this.request<{
+      exists: boolean
+      created_at?: string
+      last_used_at?: string
+      connections?: MCPConnection[]
+    }>('/mcp/token')
   }
 
   async generateMcpToken() {
     return this.request<{ token: string }>('/mcp/token', { method: 'POST' })
   }
 
-  async revokeMcpToken() {
-    return this.request<{ success: boolean }>('/mcp/token', { method: 'DELETE' })
+  async revokeMcpToken(clientId?: string) {
+    const qs = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
+    return this.request<{ success: boolean }>(`/mcp/token${qs}`, { method: 'DELETE' })
   }
 
   async updateMcpSettings(defaultSendTime: string, timezone?: string) {
@@ -2061,6 +2067,13 @@ class ApiService {
   async getMcpActivity(limit = 200) {
     return this.request<MCPActivityEntry[]>(`/mcp/activity?limit=${limit}`)
   }
+}
+
+export interface MCPConnection {
+  client_id: string
+  client_name: string
+  created_at: string
+  last_used_at?: string
 }
 
 export interface MCPActivityEntry {

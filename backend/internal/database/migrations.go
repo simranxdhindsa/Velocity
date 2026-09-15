@@ -1139,6 +1139,28 @@ WHERE bot_type = 'ticket_parser'`,
 		`ALTER TABLE user_mcp_tokens ADD COLUMN IF NOT EXISTS default_send_timezone VARCHAR(100) NOT NULL DEFAULT 'UTC'`,
 		`CREATE INDEX IF NOT EXISTS idx_user_mcp_tokens_user_id ON user_mcp_tokens(user_id)`,
 
+		// ── Fix: MCP tokens were one-per-user, so connecting a second client
+		// (e.g. Codex) silently overwrote and invalidated the token held by an
+		// already-connected client (e.g. Claude), logging it out. Give each
+		// client its own token row instead of sharing one per user.
+		`ALTER TABLE user_mcp_tokens DROP CONSTRAINT IF EXISTS user_mcp_tokens_user_id_key`,
+		`ALTER TABLE user_mcp_tokens ADD COLUMN IF NOT EXISTS client_id TEXT NOT NULL DEFAULT 'legacy'`,
+		`ALTER TABLE user_mcp_tokens ADD COLUMN IF NOT EXISTS client_name TEXT NOT NULL DEFAULT ''`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_mcp_tokens_user_client ON user_mcp_tokens(user_id, client_id)`,
+
+		// default_send_time/timezone above are per-user preferences, not per-client,
+		// so they move to their own table now that a user can have multiple token rows.
+		`CREATE TABLE IF NOT EXISTS user_mcp_settings (
+			user_id                VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			default_send_time      VARCHAR(5) NOT NULL DEFAULT '10:00',
+			default_send_timezone  VARCHAR(100) NOT NULL DEFAULT 'UTC'
+		)`,
+		`INSERT INTO user_mcp_settings (user_id, default_send_time, default_send_timezone)
+			SELECT DISTINCT ON (user_id) user_id, default_send_time, default_send_timezone
+			FROM user_mcp_tokens
+			ORDER BY user_id, created_at DESC
+			ON CONFLICT (user_id) DO NOTHING`,
+
 		// ── MCP OAuth 2.1 — allows Claude.ai to connect via standard OAuth flow ──
 		`CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
 			client_id   TEXT PRIMARY KEY,

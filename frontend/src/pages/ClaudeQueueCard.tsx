@@ -7,7 +7,7 @@ import {
   CheckCircle2, CircleDashed, Plus, Search,
 } from 'lucide-react'
 import api from '../services/api'
-import type { PendingSlackMessage, ChannelRef, SlackWorkspaceUser } from '../services/api'
+import type { PendingSlackMessage, ChannelRef, SlackWorkspaceUser, MCPConnection } from '../services/api'
 import { usePersistedState, PERSIST } from '../hooks/usePersistedState'
 import { ClockTimePicker, displayTime, upperAmPm } from '../components/ClockTimePicker'
 import { CalendarPicker } from '../components/CalendarPicker'
@@ -48,12 +48,19 @@ function renderMentionedText(text: string, userNames: Map<string, string>): Reac
 
 // ── Compact connection status + manage panel ──────────────────────────────────
 
-type TokenMeta = { exists: boolean; created_at?: string; last_used_at?: string; default_send_time?: string }
+type TokenMeta = {
+  exists: boolean
+  created_at?: string
+  last_used_at?: string
+  default_send_time?: string
+  connections?: MCPConnection[]
+}
 
 // Claude connects via OAuth (Claude.ai → Add custom connector → this URL, then
 // sign in with Google) — no manual token to generate, copy with a token baked
-// in, or revoke. This just shows the static connector URL and whether Claude
-// has completed that OAuth handshake yet.
+// in, or revoke. This just shows the static connector URL and which clients
+// (Claude, Codex, etc.) have completed that OAuth handshake — each gets its
+// own independent connection, so one connecting never signs another out.
 function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }) {
   const [meta, setMeta] = useState<TokenMeta | null>(null)
   const [copied, setCopied] = useState(false)
@@ -72,6 +79,7 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const connections = meta?.connections ?? []
   const isConnected = meta?.exists === true
 
   const handleCopy = () => {
@@ -80,11 +88,12 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
     setTimeout(() => setCopied(false), 1800)
   }
 
-  const lastUsedLabel = meta?.last_used_at
-    ? `last used ${upperAmPm(new Date(meta.last_used_at).toLocaleString('en-IN', {
-        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata',
-      }))}`
-    : null
+  const fmtWhen = (iso: string) =>
+    upperAmPm(new Date(iso).toLocaleString('en-IN', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata',
+    }))
+
+  const lastUsedLabel = meta?.last_used_at ? `last used ${fmtWhen(meta.last_used_at)}` : null
 
   return (
     <div className="cq-conn">
@@ -94,7 +103,9 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
           : <CircleDashed size={12} className="cq-conn-icon" />
         }
         <span className="cq-conn-label">
-          {isConnected ? 'Connected' : 'Not connected yet'}
+          {isConnected
+            ? connections.length > 1 ? `Connected (${connections.length} clients)` : 'Connected'
+            : 'Not connected yet'}
           {lastUsedLabel && <span className="cq-conn-sub"> · {lastUsedLabel}</span>}
         </span>
         <ChevronDown size={12} className={`cq-conn-caret${detailsOpen ? ' cq-conn-caret--open' : ''}`} />
@@ -126,7 +137,20 @@ function ConnectionBar({ onDefaultTime }: { onDefaultTime: (t: string) => void }
               </div>
               <div className="cq-url-hint">
                 Claude.ai → Settings → Connectors → Add custom connector. You'll be asked to sign in the first time, that's the connection.
+                Each MCP client (Claude, Codex, Gemini, ...) connects independently, so connecting a new one never disconnects another.
               </div>
+              {connections.length > 0 && (
+                <div className="cq-conn-list">
+                  {connections.map(c => (
+                    <div className="cq-conn-list-row" key={c.client_id}>
+                      <span className="cq-conn-list-name">{c.client_name || c.client_id}</span>
+                      <span className="cq-conn-list-when">
+                        {c.last_used_at ? `last used ${fmtWhen(c.last_used_at)}` : `connected ${fmtWhen(c.created_at)}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </motion.div>
         )}

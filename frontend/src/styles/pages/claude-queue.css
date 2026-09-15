@@ -225,6 +225,33 @@
   padding-left: 2px;
 }
 
+.cq-conn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cq-conn-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.cq-conn-list-name {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.cq-conn-list-when {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 /* Panel action buttons */
 
 .cq-panel-actions {
