@@ -939,8 +939,14 @@ func (h *DayTrackHandler) DeleteSlackPost(w http.ResponseWriter, r *http.Request
 	}
 	slackSvc := slacksvc.NewService()
 	if err := slackSvc.DeleteMessage(r.Context(), user.ID, post.ChannelID, post.SlackTS); err != nil {
-		http.Error(w, "failed to delete from Slack: "+err.Error(), http.StatusInternalServerError)
-		return
+		// If the message is already gone from Slack (deleted manually, or too old to
+		// delete), our own record is just stale — clear it instead of leaving the user
+		// stuck with a permanently-failing delete button.
+		if !strings.Contains(err.Error(), "message_not_found") {
+			http.Error(w, "failed to delete from Slack: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("[DayTrack] Slack message already gone for user %s date %s, clearing local record", user.ID, date)
 	}
 	if err := h.repo.DeleteDailyPost(r.Context(), user.ID, date); err != nil {
 		log.Printf("[DayTrack] failed to clear daily post record: %v", err)

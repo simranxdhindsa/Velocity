@@ -96,6 +96,8 @@
   overflow-x: auto;
   scrollbar-width: none;
   max-width: 100%;
+  min-width: 0;
+  flex-shrink: 1;
 }
 .dt-header-right::-webkit-scrollbar { display: none; }
 .dt-clock {
@@ -1599,16 +1601,15 @@
 .dt-slack-posted-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   margin-right: 8px;
-  padding: 4px 9px;
+  padding: 4px 6px;
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   white-space: nowrap;
+  flex-shrink: 0;
   animation: dtSlackPillIn 220ms ease;
 }
 .dt-slack-posted-dot {
@@ -1618,13 +1619,13 @@
   background: var(--color-success);
   box-shadow: 0 0 4px var(--color-success);
   flex-shrink: 0;
+  margin-left: 2px;
 }
 .dt-slack-posted-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 2px;
-  padding: 2px;
+  padding: 5px;
   border-radius: 50%;
   color: var(--text-muted);
   background: transparent;
