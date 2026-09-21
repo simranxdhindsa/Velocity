@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -4325,36 +4326,57 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 	if scanDate == "" {
 		scanDate = time.Now().Format("2006-01-02")
 	}
+
+	added, skipped, testedAdded, devAdded, err := h.scanYouTrackTicketsForUser(ctx, userID, scanDate)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errYTScanInvalidDate) || errors.Is(err, errYTScanNotConfigured) {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "added": added, "skipped": skipped, "tested": testedAdded, "developed": devAdded})
+}
+
+var (
+	errYTScanInvalidDate   = errors.New("invalid date format, expected YYYY-MM-DD")
+	errYTScanNotConfigured = errors.New("YouTrack not configured")
+)
+
+// scanYouTrackTicketsForUser pulls today's created and tested/developed tickets for userID
+// from YouTrack and logs any new ones to DayTrack. Shared by the manual sync button (via
+// ScanYouTrackTickets above) and the DayTrack daily auto-send job, so an auto-sent update
+// reflects the same fresh YouTrack state a manual click would have pulled in first.
+func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID, scanDate string) (added, skipped, testedAdded, devAdded int, err error) {
 	// Validate format
 	scanDay, parseErr := time.ParseInLocation("2006-01-02", scanDate, time.Local)
 	if parseErr != nil {
-		http.Error(w, "invalid date format, expected YYYY-MM-DD", http.StatusBadRequest)
-		return
+		return 0, 0, 0, 0, errYTScanInvalidDate
 	}
 
 	ytClient, err := h.getYouTrackClientForUser(ctx, userID)
 	if err != nil || ytClient == nil {
 		log.Printf("[ScanYTTickets] YouTrack client unavailable: %v", err)
-		http.Error(w, "YouTrack not configured", http.StatusBadRequest)
-		return
+		return 0, 0, 0, 0, errYTScanNotConfigured
 	}
 
 	// Identify this user in YouTrack by calling /api/users/me with their token
 	ytMe, err := ytClient.GetCurrentUser(ctx)
 	if err != nil || ytMe == nil {
 		log.Printf("[ScanYTTickets] GetCurrentUser failed: %v", err)
-		http.Error(w, "Could not identify YouTrack user", http.StatusInternalServerError)
-		return
+		return 0, 0, 0, 0, fmt.Errorf("could not identify YouTrack user: %w", err)
 	}
 	issues, err := ytClient.GetIssuesCreatedToday(ctx, scanDate, "")
 	if err != nil {
 		log.Printf("[ScanYTTickets] GetIssuesCreatedToday error: %v", err)
-		http.Error(w, "YouTrack query failed: "+err.Error(), http.StatusInternalServerError)
-		return
+		return 0, 0, 0, 0, fmt.Errorf("YouTrack query failed: %w", err)
 	}
 
-	added := 0
-	skipped := 0
+	added = 0
+	skipped = 0
 	for _, issue := range issues {
 		issueID := issue.IDReadable
 		if issueID == "" {
@@ -4412,8 +4434,8 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 	//
 	// ON CONFLICT (user_id, external_ref) DO NOTHING in the DB deduplicates any overlaps.
 
-	testedAdded := 0
-	devAdded := 0
+	testedAdded = 0
+	devAdded = 0
 	seenExtRefs := make(map[string]struct{})
 
 	// helper: create one tested DayTrack entry, track uniqueness in seenExtRefs.
@@ -4557,8 +4579,7 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "added": added, "skipped": skipped, "tested": testedAdded, "developed": devAdded})
+	return added, skipped, testedAdded, devAdded, nil
 }
 
 // notifyBlocked fires a notification when a ticket moves to Blocked state.

@@ -968,6 +968,18 @@ func runDayTrackAutoSend(h *DayTrackHandler, date string) {
 		if dbUser, err := h.userRepo.GetByID(ctx, cfg.UserID); err == nil {
 			displayName = dbUser.Name
 		}
+
+		// Pull in newly created / tested / dev-moved tickets first — the same YouTrack
+		// sync the manual sync-icon button runs — so the auto-sent update includes
+		// today's latest ticket activity, not just whatever was already logged.
+		if h.ytHandler != nil {
+			if added, _, tested, dev, err := h.ytHandler.scanYouTrackTicketsForUser(ctx, cfg.UserID, date); err != nil {
+				log.Printf("[DayTrack AutoSend] YouTrack sync failed for user %s: %v", cfg.UserID, err)
+			} else if added+tested+dev > 0 {
+				log.Printf("[DayTrack AutoSend] YouTrack sync for user %s: +%d created, +%d tested, +%d dev", cfg.UserID, added, tested, dev)
+			}
+		}
+
 		if _, err := h.postDayTrackUpdate(ctx, cfg.UserID, date, cfg.DestChannelID, displayName); err != nil {
 			if !errors.Is(err, errDayTrackNoEntries) {
 				log.Printf("[DayTrack AutoSend] failed for user %s: %v", cfg.UserID, err)
