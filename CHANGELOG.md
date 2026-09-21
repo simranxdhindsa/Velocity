@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-15
+
+### Bug Fixes
+- isolate MCP OAuth tokens per client so connecting one no longer logs out another
+
+
 ## 2026-09-08
 
 ### Features
