@@ -9,6 +9,9 @@
 ### Bug Fixes
 - add theme to MEMBER_PAGES so non-admin/PM users aren't redirected away from the Theme tab
 
+### Features
+- auto-send Day Track update to Slack daily at 11:50 PM IST, with an on/off toggle (time is not user-configurable)
+
 ## 2026-09-15
 
 ### Bug Fixes
