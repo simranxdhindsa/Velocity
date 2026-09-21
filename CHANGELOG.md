@@ -3,6 +3,7 @@
 ## 2026-09-21
 
 ### Enhancements
+- pull latest YouTrack ticket activity before the Day Track auto-send job posts, matching the manual sync + post flow
 - separate Sign In/Sign Off/Breaks entries in Day Track log with a divider noting they're excluded from the Slack report
 
 
