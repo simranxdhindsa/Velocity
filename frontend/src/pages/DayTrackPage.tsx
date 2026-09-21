@@ -1105,6 +1105,20 @@ export function DayTrackPage() {
     }
   }
 
+  function autoSendTooltip(): string {
+    if (!slackCfg?.dest_channel_id) {
+      return 'Set a Destination Channel in settings first to turn on Auto Send.'
+    }
+    const channel = slackCfg.dest_channel_name ? `#${slackCfg.dest_channel_name}` : slackCfg.dest_channel_id
+    const lines = slackCfg.auto_send_enabled
+      ? [`Auto Send is on: today's update posts to ${channel} every day at 11:50 PM IST.`]
+      : [`Turn on to post today's update to ${channel} every day at 11:50 PM IST.`]
+    lines.push('Pulls the latest YouTrack tickets first, so it is always in sync.')
+    lines.push('Only sends today\'s entries, never a previous or future day.')
+    lines.push('The time is fixed and cannot be changed.')
+    return lines.join('\n')
+  }
+
   async function toggleAutoSend(checked: boolean) {
     if (!slackCfg) return
     const prev = slackCfg
@@ -1709,7 +1723,7 @@ ${aiSummaryBlock}
             style={{ marginRight: 4 }}>
             <YouTrackSyncIcon size={18} scanning={ytScanning} />
           </button>
-          <div className="dt-autosend-chip" title="Auto-posts today's update to your destination channel every day at 11:50 PM IST">
+          <div className="dt-autosend-chip" title={autoSendTooltip()}>
             <SmoothToggle
               checked={!!slackCfg?.auto_send_enabled}
               disabled={!slackCfg || !slackCfg.dest_channel_id}
