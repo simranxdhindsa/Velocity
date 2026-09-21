@@ -3067,6 +3067,7 @@ export interface DayTrackSlackConfig {
   dest_channel_id: string
   dest_channel_name: string
   timezone: string  // IANA tz, e.g. "Asia/Kolkata"
+  auto_send_enabled: boolean  // auto-post today's update to dest_channel_id at the fixed daily time (server-side, not user-configurable)
 }
 
 export const DEFAULT_KEYWORD_RULES: DayTrackKWRule[] = [

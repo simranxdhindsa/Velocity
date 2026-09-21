@@ -1637,6 +1637,10 @@ STRICT RULES
 			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (user_id, entry_date)
 		)`,
+
+		// ── DayTrack: daily auto-send toggle ─────────────────────────────────────
+		// Time itself (11:50 PM IST) is hardcoded in the scheduler, not stored per-user.
+		`ALTER TABLE daytrack_slack_config ADD COLUMN IF NOT EXISTS auto_send_enabled BOOLEAN NOT NULL DEFAULT false`,
 	}
 
 	for i, migration := range migrations {

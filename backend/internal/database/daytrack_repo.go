@@ -39,7 +39,8 @@ type DayTrackSlackConfig struct {
 	LastScannedTS   string           `json:"last_scanned_ts"`
 	DestChannelID   string           `json:"dest_channel_id"`
 	DestChannelName string           `json:"dest_channel_name"`
-	Timezone        string           `json:"timezone"` // IANA tz name, e.g. "Asia/Kolkata"
+	Timezone        string           `json:"timezone"`          // IANA tz name, e.g. "Asia/Kolkata"
+	AutoSendEnabled bool             `json:"auto_send_enabled"` // auto-post today's update at the fixed daily time; time itself is not user-configurable
 }
 
 // DayTrackKWRule is a single keyword → rule_type mapping.
@@ -406,10 +407,12 @@ func (r *DayTrackRepository) GetSlackConfig(ctx context.Context, userID string) 
 	var rulesJSON []byte
 	err := pool.QueryRow(ctx,
 		`SELECT id, user_id, channel_id, channel_name, slack_user_id, keyword_rules, enabled, last_scanned_ts,
-		        COALESCE(dest_channel_id,''), COALESCE(dest_channel_name,''), COALESCE(timezone,'Asia/Kolkata')
+		        COALESCE(dest_channel_id,''), COALESCE(dest_channel_name,''), COALESCE(timezone,'Asia/Kolkata'),
+		        auto_send_enabled
 		 FROM daytrack_slack_config WHERE user_id=$1`, userID,
 	).Scan(&cfg.ID, &cfg.UserID, &cfg.ChannelID, &cfg.ChannelName, &cfg.SlackUserID,
-		&rulesJSON, &cfg.Enabled, &cfg.LastScannedTS, &cfg.DestChannelID, &cfg.DestChannelName, &cfg.Timezone)
+		&rulesJSON, &cfg.Enabled, &cfg.LastScannedTS, &cfg.DestChannelID, &cfg.DestChannelName, &cfg.Timezone,
+		&cfg.AutoSendEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -430,13 +433,13 @@ func (r *DayTrackRepository) UpsertSlackConfig(ctx context.Context, cfg *DayTrac
 		tz = "Asia/Kolkata"
 	}
 	_, err = pool.Exec(ctx,
-		`INSERT INTO daytrack_slack_config (user_id, channel_id, channel_name, slack_user_id, keyword_rules, enabled, dest_channel_id, dest_channel_name, timezone, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+		`INSERT INTO daytrack_slack_config (user_id, channel_id, channel_name, slack_user_id, keyword_rules, enabled, dest_channel_id, dest_channel_name, timezone, auto_send_enabled, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
 		 ON CONFLICT(user_id) DO UPDATE SET
 		   channel_id=$2, channel_name=$3, slack_user_id=$4,
-		   keyword_rules=$5, enabled=$6, dest_channel_id=$7, dest_channel_name=$8, timezone=$9, updated_at=NOW()`,
+		   keyword_rules=$5, enabled=$6, dest_channel_id=$7, dest_channel_name=$8, timezone=$9, auto_send_enabled=$10, updated_at=NOW()`,
 		cfg.UserID, cfg.ChannelID, cfg.ChannelName, cfg.SlackUserID, rulesJSON, cfg.Enabled,
-		cfg.DestChannelID, cfg.DestChannelName, tz)
+		cfg.DestChannelID, cfg.DestChannelName, tz, cfg.AutoSendEnabled)
 	return err
 }
 
@@ -476,6 +479,38 @@ func (r *DayTrackRepository) GetAllEnabledSlackConfigs(ctx context.Context) ([]S
 		}
 		if len(rulesJSON) > 0 {
 			_ = json.Unmarshal(rulesJSON, &c.KeywordRules)
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// AutoSendConfig is a user opted into the daily auto-send-to-Slack job.
+type AutoSendConfig struct {
+	UserID        string
+	DestChannelID string
+}
+
+// GetAllAutoSendConfigs returns every user with auto-send turned on, a destination channel
+// set, and a connected Slack integration to post through. Used by the daily scheduler.
+func (r *DayTrackRepository) GetAllAutoSendConfigs(ctx context.Context) ([]AutoSendConfig, error) {
+	pool := GetPool()
+	rows, err := pool.Query(ctx,
+		`SELECT dsc.user_id, dsc.dest_channel_id
+		 FROM daytrack_slack_config dsc
+		 JOIN slack_integrations si ON si.user_id = dsc.user_id
+		 WHERE dsc.auto_send_enabled = true
+		   AND dsc.dest_channel_id != ''
+		   AND si.connected = true`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AutoSendConfig
+	for rows.Next() {
+		var c AutoSendConfig
+		if err := rows.Scan(&c.UserID, &c.DestChannelID); err != nil {
+			continue
 		}
 		out = append(out, c)
 	}

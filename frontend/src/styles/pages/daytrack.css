@@ -1301,6 +1301,27 @@
 }
 .dt-slack-user-row .form-input { flex: 1; min-width: 0; }
 
+.dt-autosend-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  margin-right: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.dt-autosend-chip-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+[data-theme="light"] .dt-autosend-chip {
+  background: rgba(0, 0, 0, 0.03);
+}
+
 .dt-settings-rules-header {
   display: flex;
   align-items: center;

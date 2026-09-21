@@ -551,6 +551,9 @@ func main() {
 	// Start DayTrack Slack background scanner (5-min polling)
 	handlers.RunDayTrackSlackScanner(database.NewDayTrackRepository())
 
+	// Start DayTrack daily auto-send scheduler (posts today's update at 11:50 PM IST for opted-in users)
+	handlers.RunDayTrackAutoSendScheduler(dayTrackHandler)
+
 	// User management routes (protected - admin only)
 	userRoutes := api.PathPrefix("/users").Subrouter()
 	userRoutes.Use(middleware.AuthMiddleware)

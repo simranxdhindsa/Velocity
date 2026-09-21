@@ -8,6 +8,7 @@ import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { usePasteSplit } from '../hooks/usePasteSplit'
 import { PasteSplitPrompt } from '../components/PasteSplitPrompt'
+import { SmoothToggle } from '../components/SmoothToggle'
 import { getISTHours, getISTMinutes, getISTDate } from '../utils/istTime'
 import '../styles/pages/daytrack.css'
 
@@ -1086,7 +1087,7 @@ export function DayTrackPage() {
       const cfg = await dayTrackApi.getSlackConfig()
       setSlackCfg(cfg.keyword_rules?.length ? cfg : { ...cfg, keyword_rules: DEFAULT_KEYWORD_RULES })
     } catch {
-      setSlackCfg({ channel_id: '', channel_name: '', slack_user_id: '', keyword_rules: DEFAULT_KEYWORD_RULES, enabled: true, dest_channel_id: '', dest_channel_name: '', timezone: 'Asia/Kolkata' })
+      setSlackCfg({ channel_id: '', channel_name: '', slack_user_id: '', keyword_rules: DEFAULT_KEYWORD_RULES, enabled: true, dest_channel_id: '', dest_channel_name: '', timezone: 'Asia/Kolkata', auto_send_enabled: false })
     } finally {
       setSlackCfgLoading(false)
     }
@@ -1101,6 +1102,19 @@ export function DayTrackPage() {
       setSlackChannels([])
     } finally {
       setChannelsLoading(false)
+    }
+  }
+
+  async function toggleAutoSend(checked: boolean) {
+    if (!slackCfg) return
+    const prev = slackCfg
+    setSlackCfg(c => c ? { ...c, auto_send_enabled: checked } : c)
+    try {
+      await dayTrackApi.saveSlackConfig({ ...slackCfg, auto_send_enabled: checked })
+      toast(checked ? 'Auto send enabled, posts today\'s update daily at 11:50 PM IST' : 'Auto send disabled', 'info')
+    } catch {
+      setSlackCfg(prev)
+      toast('Failed to update auto send', 'warn')
     }
   }
 
@@ -1695,6 +1709,14 @@ ${aiSummaryBlock}
             style={{ marginRight: 4 }}>
             <YouTrackSyncIcon size={18} scanning={ytScanning} />
           </button>
+          <div className="dt-autosend-chip" title="Auto-posts today's update to your destination channel every day at 11:50 PM IST">
+            <SmoothToggle
+              checked={!!slackCfg?.auto_send_enabled}
+              disabled={!slackCfg || !slackCfg.dest_channel_id}
+              onChange={toggleAutoSend}
+            />
+            <span className="dt-autosend-chip-label">Auto Send</span>
+          </div>
           {slackPostStatus?.posted && slackPostStatus.updated_at && (
             <span className="dt-slack-posted-pill" key={slackPostStatus.updated_at} title="Already posted to Slack for this date — clicking the button again edits that same message">
               <span className="dt-slack-posted-dot" />

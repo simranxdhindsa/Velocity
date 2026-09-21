@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -100,11 +101,15 @@ func (h *DayTrackHandler) GetSlackConfig(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		// Not found — return defaults
 		dtJSON(w, map[string]interface{}{
-			"channel_id":    "",
-			"channel_name":  "",
-			"slack_user_id": "",
-			"enabled":       true,
-			"keyword_rules": DefaultKeywordRules(),
+			"channel_id":        "",
+			"channel_name":      "",
+			"slack_user_id":     "",
+			"enabled":           true,
+			"keyword_rules":     DefaultKeywordRules(),
+			"dest_channel_id":   "",
+			"dest_channel_name": "",
+			"timezone":          "Asia/Kolkata",
+			"auto_send_enabled": false,
 		})
 		return
 	}
@@ -793,6 +798,57 @@ func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName str
 	return PersonUpdate{DisplayName: displayName, Sections: sections}
 }
 
+// errDayTrackNoEntries means there's nothing reportable for that user+date — not a failure,
+// just nothing to send (e.g. the auto-send job hits a day with no entries yet).
+var errDayTrackNoEntries = errors.New("no entries for date")
+
+// postDayTrackUpdate refreshes entries against YouTrack (same prune the page does on load,
+// so a ticket deleted after the page was last viewed doesn't get sent), builds the Slack
+// report for userID+date, and posts it — or edits the existing post for that date in place.
+// Shared by the manual "Post to Slack" button and the daily auto-send scheduler so both
+// paths always send the exact same thing.
+func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, destChannelID, displayName string) (updated bool, err error) {
+	entries, err := h.repo.GetEntries(ctx, userID, date)
+	if err != nil {
+		return false, err
+	}
+	entries = h.pruneDeletedYouTrackEntries(ctx, userID, entries)
+
+	ownerUpdate := daytracBuildSlackSections(entries, "")
+	ownerUpdate.IsOwner = true
+	if len(ownerUpdate.Sections) == 0 {
+		return false, errDayTrackNoEntries
+	}
+
+	dateParsed, _ := time.Parse("2006-01-02", date)
+	header := fmt.Sprintf("*%s*\n%s\n\n", displayName, dateParsed.Format("Mon, Jan 2"))
+	text := header + standupFormatMrkdwn([]PersonUpdate{ownerUpdate})
+	slackSvc := slacksvc.NewService()
+
+	// Post once per (user, date); every later send for the same date edits that same
+	// message in place instead of spamming a new one, so the channel always reflects
+	// this day's latest entries under a single message.
+	existing, _ := h.repo.GetDailyPost(ctx, userID, date)
+	if existing != nil && existing.ChannelID == destChannelID {
+		if err := slackSvc.UpdateMessage(ctx, userID, destChannelID, existing.SlackTS, text); err != nil {
+			return false, err
+		}
+		if err := h.repo.UpsertDailyPost(ctx, userID, date, destChannelID, existing.SlackTS); err != nil {
+			log.Printf("[DayTrack] failed to bump daily post updated_at: %v", err)
+		}
+		return true, nil
+	}
+
+	ts, err := slackSvc.PostMessage(ctx, userID, destChannelID, "daytrack", text)
+	if err != nil {
+		return false, err
+	}
+	if err := h.repo.UpsertDailyPost(ctx, userID, date, destChannelID, ts); err != nil {
+		log.Printf("[DayTrack] failed to record daily post: %v", err)
+	}
+	return false, nil
+}
+
 // PostToSlack formats DayTrack entries for a given date and posts to the configured destination channel.
 func (h *DayTrackHandler) PostToSlack(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)
@@ -813,51 +869,21 @@ func (h *DayTrackHandler) PostToSlack(w http.ResponseWriter, r *http.Request) {
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-	entries, err := h.repo.GetEntries(r.Context(), user.ID, date)
-	if err != nil || len(entries) == 0 {
-		http.Error(w, "no entries for "+date, http.StatusBadRequest)
-		return
-	}
-	ownerUpdate := daytracBuildSlackSections(entries, "")
-	ownerUpdate.IsOwner = true
-	if len(ownerUpdate.Sections) == 0 {
-		http.Error(w, "no entries for "+date, http.StatusBadRequest)
-		return
-	}
 	displayName := user.Name
 	if dbUser, err2 := h.userRepo.GetByID(r.Context(), user.ID); err2 == nil && dbUser.Name != "" {
 		displayName = dbUser.Name
 	}
-	dateParsed, _ := time.Parse("2006-01-02", date)
-	header := fmt.Sprintf("*%s*\n%s\n\n", displayName, dateParsed.Format("Mon, Jan 2"))
-	text := header + standupFormatMrkdwn([]PersonUpdate{ownerUpdate})
-	slackSvc := slacksvc.NewService()
 
-	// Post once per (user, date); every later click for the same date edits that same
-	// message in place instead of spamming a new one, so the channel always reflects
-	// this day's latest entries under a single message.
-	existing, _ := h.repo.GetDailyPost(r.Context(), user.ID, date)
-	if existing != nil && existing.ChannelID == cfg.DestChannelID {
-		if err := slackSvc.UpdateMessage(r.Context(), user.ID, cfg.DestChannelID, existing.SlackTS, text); err != nil {
-			http.Error(w, "failed to update: "+err.Error(), http.StatusInternalServerError)
+	updated, err := h.postDayTrackUpdate(r.Context(), user.ID, date, cfg.DestChannelID, displayName)
+	if err != nil {
+		if errors.Is(err, errDayTrackNoEntries) {
+			http.Error(w, "no entries for "+date, http.StatusBadRequest)
 			return
 		}
-		if err := h.repo.UpsertDailyPost(r.Context(), user.ID, date, cfg.DestChannelID, existing.SlackTS); err != nil {
-			log.Printf("[DayTrack] failed to bump daily post updated_at: %v", err)
-		}
-		dtJSON(w, map[string]interface{}{"ok": true, "updated": true})
-		return
-	}
-
-	ts, err := slackSvc.PostMessage(r.Context(), user.ID, cfg.DestChannelID, "daytrack", text)
-	if err != nil {
 		http.Error(w, "failed to post: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := h.repo.UpsertDailyPost(r.Context(), user.ID, date, cfg.DestChannelID, ts); err != nil {
-		log.Printf("[DayTrack] failed to record daily post: %v", err)
-	}
-	dtJSON(w, map[string]interface{}{"ok": true, "updated": false})
+	dtJSON(w, map[string]interface{}{"ok": true, "updated": updated})
 }
 
 // GetSlackPostStatus reports whether today's (or the given date's) DayTrack update has
@@ -887,4 +913,68 @@ func (h *DayTrackHandler) GetSlackPostStatus(w http.ResponseWriter, r *http.Requ
 		"posted_at":  post.PostedAt,
 		"updated_at": post.UpdatedAt,
 	})
+}
+
+// ── Daily auto-send scheduler ─────────────────────────────────────────────────
+
+// autoSendHour/autoSendMinute are hardcoded (11:50 PM IST) and deliberately not
+// user-configurable — only whether auto-send is on is exposed on the frontend.
+const (
+	autoSendHour   = 23
+	autoSendMinute = 50
+)
+
+// RunDayTrackAutoSendScheduler starts a background goroutine that, once a day at the fixed
+// IST time above, posts each opted-in user's DayTrack update for today (IST) to their
+// configured Slack channel — refreshed against YouTrack first (same prune the page does on
+// load) so the auto-sent update matches what a manual click would send, and always scoped
+// to today's date only, never a leftover previous day or a future one.
+func RunDayTrackAutoSendScheduler(h *DayTrackHandler) {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		lastSentDate := ""
+		for range ticker.C {
+			loc, err := time.LoadLocation("Asia/Kolkata")
+			if err != nil {
+				loc = time.UTC
+			}
+			now := time.Now().In(loc)
+			if now.Hour() != autoSendHour || now.Minute() != autoSendMinute {
+				continue
+			}
+			today := now.Format("2006-01-02")
+			if today == lastSentDate {
+				continue // already ran for this date this minute-window
+			}
+			lastSentDate = today
+			runDayTrackAutoSend(h, today)
+		}
+	}()
+}
+
+func runDayTrackAutoSend(h *DayTrackHandler, date string) {
+	listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	configs, err := h.repo.GetAllAutoSendConfigs(listCtx)
+	listCancel()
+	if err != nil {
+		log.Printf("[DayTrack AutoSend] failed to load configs: %v", err)
+		return
+	}
+
+	for _, cfg := range configs {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		displayName := ""
+		if dbUser, err := h.userRepo.GetByID(ctx, cfg.UserID); err == nil {
+			displayName = dbUser.Name
+		}
+		if _, err := h.postDayTrackUpdate(ctx, cfg.UserID, date, cfg.DestChannelID, displayName); err != nil {
+			if !errors.Is(err, errDayTrackNoEntries) {
+				log.Printf("[DayTrack AutoSend] failed for user %s: %v", cfg.UserID, err)
+			}
+		} else {
+			log.Printf("[DayTrack AutoSend] posted %s update for user %s", date, cfg.UserID)
+		}
+		cancel()
+	}
 }
