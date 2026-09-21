@@ -917,11 +917,12 @@ func (h *DayTrackHandler) GetSlackPostStatus(w http.ResponseWriter, r *http.Requ
 
 // ── Daily auto-send scheduler ─────────────────────────────────────────────────
 
-// autoSendHour/autoSendMinute are hardcoded (11:50 PM IST) and deliberately not
-// user-configurable — only whether auto-send is on is exposed on the frontend.
+// autoSendHour/autoSendMinute are hardcoded (IST) and deliberately not user-configurable —
+// only whether auto-send is on is exposed on the frontend.
+// TEMP: set to 12:26 AM IST for a live production test run — revert to 23:50 after.
 const (
-	autoSendHour   = 23
-	autoSendMinute = 50
+	autoSendHour   = 0
+	autoSendMinute = 26
 )
 
 // RunDayTrackAutoSendScheduler starts a background goroutine that, once a day at the fixed
