@@ -1732,9 +1732,9 @@ ${aiSummaryBlock}
             <span className="dt-autosend-chip-label">Auto Send</span>
           </div>
           {slackPostStatus?.posted && slackPostStatus.updated_at && (
-            <span className="dt-slack-posted-pill" key={slackPostStatus.updated_at} title="Already posted to Slack for this date — clicking the button again edits that same message">
+            <span className="dt-slack-posted-pill" key={slackPostStatus.updated_at} title="Already posted to Slack for this date, clicking the button again edits that same message">
               <span className="dt-slack-posted-dot" />
-              Posted {dtRelativeTime(slackPostStatus.updated_at)}
+              {dtRelativeTime(slackPostStatus.updated_at)}
             </span>
           )}
           <button
