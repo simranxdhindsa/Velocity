@@ -566,6 +566,21 @@
 .dt-icon-btn-rollback { background: rgba(99,102,241,0.12); color: var(--color-primary-light); }
 .dt-icon-btn-rollback:hover { background: rgba(99,102,241,0.25); }
 
+/* ── Report Exclusion Divider ── */
+.dt-report-divider td {
+  padding: 14px 8px 10px;
+  border-top: 1px dashed var(--border-color);
+}
+.dt-report-divider-label {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 /* ── Empty State ── */
 .dt-empty {
   padding: 36px;

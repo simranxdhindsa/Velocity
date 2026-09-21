@@ -15,6 +15,7 @@ import '../styles/pages/daytrack.css'
 
 const PALETTE = ['#6366f1','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ec4899','#f97316','#ef4444','#84cc16','#14b8a6']
 const DEFAULT_CATS = ['Development','Testing','Meetings','Breaks','Review','Research','Sign In','Sign Off']
+const REPORT_EXCLUDED_CATS = new Set(['sign in', 'sign off', 'breaks'])
 
 function catColor(cat: string, cats: string[]): string {
   const fixed: Record<string,string> = {
@@ -1509,6 +1510,10 @@ ${aiSummaryBlock}
 
   // Subtask grouping
   const parentEntries = entries.filter(e => !e.parent_entry_id)
+  // Sign In / Sign Off / Breaks are excluded from the Slack report (see daytracBuildSlackSections
+  // on the backend) — shown in their own group below a divider so it's clear they won't be sent.
+  const reportableEntries = parentEntries.filter(e => !REPORT_EXCLUDED_CATS.has(e.category.toLowerCase()))
+  const excludedEntries = parentEntries.filter(e => REPORT_EXCLUDED_CATS.has(e.category.toLowerCase()))
   const subtaskMap = new Map<string, DayTrackEntry[]>()
   entries.filter(e => e.parent_entry_id).forEach(e => {
     const list = subtaskMap.get(e.parent_entry_id!) ?? []
@@ -2051,7 +2056,16 @@ ${aiSummaryBlock}
                           No tasks recorded yet. Add your first entry!
                         </div>
                       </td></tr>
-                    ) : parentEntries.map(e => {
+                    ) : [...reportableEntries, ...(excludedEntries.length > 0 ? [{ __divider: true } as any] : []), ...excludedEntries].map(e => {
+                      if (e.__divider) {
+                        return (
+                          <tr key="__report-divider" className="dt-report-divider">
+                            <td colSpan={7}>
+                              <span className="dt-report-divider-label">Not included in Slack report</span>
+                            </td>
+                          </tr>
+                        )
+                      }
                       const subs = subtaskMap.get(e.id) ?? []
                       const isExpanded = expandedEntries.has(e.id)
                       const subDurTotal = subs.reduce((a, s) => a + (s.duration_mins ?? 0), 0)
