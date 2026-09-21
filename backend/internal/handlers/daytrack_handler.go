@@ -915,6 +915,39 @@ func (h *DayTrackHandler) GetSlackPostStatus(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// DeleteSlackPost deletes the Slack message posted for a given date (manually or via
+// auto-send) and clears the daily-post record, so a mistaken send can be undone and the
+// next "Post to Slack" starts a fresh message instead of trying to edit the deleted one.
+func (h *DayTrackHandler) DeleteSlackPost(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	date := strings.TrimSpace(r.URL.Query().Get("date"))
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	post, err := h.repo.GetDailyPost(r.Context(), user.ID, date)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if post == nil {
+		http.Error(w, "no post found for "+date, http.StatusBadRequest)
+		return
+	}
+	slackSvc := slacksvc.NewService()
+	if err := slackSvc.DeleteMessage(r.Context(), user.ID, post.ChannelID, post.SlackTS); err != nil {
+		http.Error(w, "failed to delete from Slack: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := h.repo.DeleteDailyPost(r.Context(), user.ID, date); err != nil {
+		log.Printf("[DayTrack] failed to clear daily post record: %v", err)
+	}
+	dtJSON(w, map[string]bool{"ok": true})
+}
+
 // ── Daily auto-send scheduler ─────────────────────────────────────────────────
 
 // autoSendHour/autoSendMinute are hardcoded (11:50 PM IST) and deliberately not

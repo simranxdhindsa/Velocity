@@ -9,6 +9,7 @@ import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { usePasteSplit } from '../hooks/usePasteSplit'
 import { PasteSplitPrompt } from '../components/PasteSplitPrompt'
 import { SmoothToggle } from '../components/SmoothToggle'
+import { ConfirmModal } from '../components/ConfirmModal'
 import { getISTHours, getISTMinutes, getISTDate } from '../utils/istTime'
 import '../styles/pages/daytrack.css'
 
@@ -479,6 +480,8 @@ export function DayTrackPage() {
   const [destChanPos, setDestChanPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const [posting, setPosting] = useState(false)
   const [slackPostStatus, setSlackPostStatus] = useState<{ posted: boolean; updated_at?: string } | null>(null)
+  const [deletingPost, setDeletingPost] = useState(false)
+  const [showDeletePostConfirm, setShowDeletePostConfirm] = useState(false)
   const [openRuleCatIdx, setOpenRuleCatIdx] = useState<number | null>(null)
   const [ruleCatPos, setRuleCatPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const ruleCatRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -1207,6 +1210,21 @@ export function DayTrackPage() {
     }
   }
 
+  async function deleteSlackPost() {
+    setDeletingPost(true)
+    try {
+      await dayTrackApi.deleteSlackPost(date)
+      toast('Deleted from Slack', 'success')
+      setSlackPostStatus({ posted: false })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to delete'
+      toast(msg, 'warn')
+    } finally {
+      setDeletingPost(false)
+      setShowDeletePostConfirm(false)
+    }
+  }
+
   function updateKWRule(idx: number, field: keyof DayTrackKWRule, value: string | string[]) {
     setSlackCfg(c => {
       if (!c) return c
@@ -1732,9 +1750,16 @@ ${aiSummaryBlock}
             <span className="dt-autosend-chip-label">Auto Send</span>
           </div>
           {slackPostStatus?.posted && slackPostStatus.updated_at && (
-            <span className="dt-slack-posted-pill" key={slackPostStatus.updated_at} title="Already posted to Slack for this date, clicking the button again edits that same message">
+            <span className="dt-slack-posted-pill" key={slackPostStatus.updated_at} title="Already posted to Slack for this date, clicking Post again edits that same message">
               <span className="dt-slack-posted-dot" />
               {dtRelativeTime(slackPostStatus.updated_at)}
+              <button
+                className="dt-slack-posted-delete"
+                title="Delete this Slack message"
+                disabled={deletingPost}
+                onClick={() => setShowDeletePostConfirm(true)}>
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+              </button>
             </span>
           )}
           <button
@@ -2401,6 +2426,18 @@ ${aiSummaryBlock}
 
         </div>
       </div>
+
+      {showDeletePostConfirm && (
+        <ConfirmModal
+          title="Delete Slack message?"
+          message="This removes today's Day Track update from Slack. This cannot be undone."
+          detail="Posting again afterward sends a brand new message."
+          confirmLabel={deletingPost ? 'Deleting…' : 'Delete'}
+          variant="danger"
+          onConfirm={deleteSlackPost}
+          onCancel={() => setShowDeletePostConfirm(false)}
+        />
+      )}
 
       {/* Settings Modal — Slack Auto-Log */}
       {settingsOpen && (

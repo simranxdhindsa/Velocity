@@ -521,6 +521,7 @@ func main() {
 	dayTrackRoutes.HandleFunc("/transcribe", dayTrackHandler.Transcribe).Methods("POST")
 	dayTrackRoutes.HandleFunc("/post-to-slack", dayTrackHandler.PostToSlack).Methods("POST")
 	dayTrackRoutes.HandleFunc("/slack-post-status", dayTrackHandler.GetSlackPostStatus).Methods("GET")
+	dayTrackRoutes.HandleFunc("/slack-post", dayTrackHandler.DeleteSlackPost).Methods("DELETE")
 
 	// MCP server — Claude connector endpoint (token auth, not JWT)
 	mcpHandler := handlers.NewMCPHandler()

@@ -3155,6 +3155,8 @@ export const dayTrackApi = {
     dtFetch<{ ok: boolean; updated: boolean }>(`${API_URL}/daytrack/post-to-slack`, { method: 'POST', body: JSON.stringify({ date: date ?? '' }) }),
   getSlackPostStatus: (date?: string) =>
     dtFetch<{ posted: boolean; posted_at?: string; updated_at?: string }>(`${API_URL}/daytrack/slack-post-status${date ? `?date=${date}` : ''}`),
+  deleteSlackPost: (date?: string) =>
+    dtFetch<{ ok: boolean }>(`${API_URL}/daytrack/slack-post${date ? `?date=${date}` : ''}`, { method: 'DELETE' }),
   getEntriesRange: (start: string, end: string) =>
     dtFetch<DayTrackEntry[]>(`${API_URL}/daytrack/entries/range?start=${start}&end=${end}`),
 

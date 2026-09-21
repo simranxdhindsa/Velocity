@@ -611,3 +611,13 @@ func (r *DayTrackRepository) UpsertDailyPost(ctx context.Context, userID, date, 
 		userID, date, channelID, slackTS)
 	return err
 }
+
+// DeleteDailyPost removes the post record for this user+date, so a later "Post to Slack"
+// starts a fresh message instead of trying to edit the one that was just deleted.
+func (r *DayTrackRepository) DeleteDailyPost(ctx context.Context, userID, date string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx,
+		`DELETE FROM daytrack_daily_posts WHERE user_id=$1 AND entry_date=$2::date`,
+		userID, date)
+	return err
+}

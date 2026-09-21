@@ -1619,6 +1619,27 @@
   box-shadow: 0 0 4px var(--color-success);
   flex-shrink: 0;
 }
+.dt-slack-posted-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  padding: 2px;
+  border-radius: 50%;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.dt-slack-posted-delete:hover:not(:disabled) {
+  background: var(--color-danger-muted);
+  color: var(--color-danger);
+}
+.dt-slack-posted-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 @keyframes dtSlackPillIn {
   from { opacity: 0; transform: translateY(-2px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
