@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-21
+
+### Enhancements
+- separate Sign In/Sign Off/Breaks entries in Day Track log with a divider noting they're excluded from the Slack report
+
+
+### Bug Fixes
+- add theme to MEMBER_PAGES so non-admin/PM users aren't redirected away from the Theme tab
+
 ## 2026-09-15
 
 ### Bug Fixes
