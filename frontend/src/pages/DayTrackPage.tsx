@@ -102,6 +102,10 @@ function minsLabel(m: number | null | undefined): string {
   return h > 0 ? `${h}h ${min}m` : `${min}m`
 }
 
+function statusLabel(status: string): string {
+  return status === 'active' ? 'In Progress' : status
+}
+
 function dtRelativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(ms / 60000)
@@ -2146,7 +2150,7 @@ ${aiSummaryBlock}
                       const displayDur = subs.length > 0 && subDurTotal > 0 ? subDurTotal : e.duration_mins
                       return (
                         <>
-                          <tr key={e.id}>
+                          <tr key={e.id} className={e.status === 'active' ? 'dt-row-inprogress' : undefined}>
                             <td className="dt-td-name">
                               <div className="dt-td-name-row">
                                 <button
@@ -2182,7 +2186,10 @@ ${aiSummaryBlock}
                               : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                             </td>
                             <td>
-                              <span className={`dt-status dt-status--${e.status}`}>{e.status}</span>
+                              <span className={`dt-status dt-status--${e.status}`}>
+                                {e.status === 'active' && <span className="dt-status-pulse" />}
+                                {statusLabel(e.status)}
+                              </span>
                             </td>
                             <td>
                               <div className="dt-td-actions">
@@ -2253,7 +2260,7 @@ ${aiSummaryBlock}
                             </tr>
                           )}
                           {isExpanded && subs.map(s => (
-                            <tr key={s.id} className="dt-subtask-row">
+                            <tr key={s.id} className={`dt-subtask-row${s.status === 'active' ? ' dt-row-inprogress' : ''}`}>
                               <td className="dt-td-name">
                                 <div className="dt-subtask-indent">
                                   ↳ {s.name}
@@ -2268,7 +2275,10 @@ ${aiSummaryBlock}
                                 : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                               </td>
                               <td>
-                                <span className={`dt-status dt-status--${s.status}`}>{s.status}</span>
+                                <span className={`dt-status dt-status--${s.status}`}>
+                                  {s.status === 'active' && <span className="dt-status-pulse" />}
+                                  {statusLabel(s.status)}
+                                </span>
                               </td>
                               <td>
                                 <div className="dt-td-actions">

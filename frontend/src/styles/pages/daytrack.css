@@ -685,9 +685,32 @@
   white-space: nowrap;
 }
 .dt-status--done    { background: var(--color-success-muted);  color: var(--color-success); }
-.dt-status--active  { background: rgba(99,102,241,0.12);       color: var(--color-primary-light); }
+.dt-status--active  { background: rgba(99,102,241,0.16);       color: var(--color-primary-light); font-weight: 700; }
 .dt-status--planned { background: var(--bg-active);            color: var(--text-secondary); }
 .dt-status--carry   { background: var(--color-warning-muted);  color: var(--color-warning); }
+
+.dt-status-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary-light);
+  flex-shrink: 0;
+  animation: dtStatusPulse 1.6s ease-in-out infinite;
+}
+@keyframes dtStatusPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(var(--color-primary-rgb), 0.5); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0); }
+}
+
+/* Whole row gets a subtle left accent + tint so in-progress work stands out at a
+   glance in Today's Log, not just via the small status pill. */
+.dt-table tbody tr.dt-row-inprogress {
+  background: rgba(var(--color-primary-rgb), 0.05);
+  box-shadow: inset 3px 0 0 0 var(--color-primary);
+}
+[data-theme="light"] .dt-table tbody tr.dt-row-inprogress {
+  background: rgba(var(--color-primary-rgb), 0.06);
+}
 
 /* ── Categories Manager ── */
 .dt-cats-wrap {
