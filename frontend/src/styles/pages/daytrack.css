@@ -1137,6 +1137,14 @@
 .dt-chip--selected {
   font-weight: 600;
 }
+.dt-chip--disabled,
+.dt-chip--disabled:hover {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: var(--glass-border);
+  color: var(--text-muted);
+  background: transparent;
+}
 .dt-chip-dot {
   width: 7px;
   height: 7px;

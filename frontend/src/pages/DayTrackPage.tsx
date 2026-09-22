@@ -25,6 +25,9 @@ import '../styles/pages/daytrack.css'
 const PALETTE = ['#6366f1','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ec4899','#f97316','#ef4444','#84cc16','#14b8a6']
 const DEFAULT_CATS = ['Development','Testing','Meetings','Breaks','Review','Research','Sign In','Sign Off']
 const REPORT_EXCLUDED_CATS = new Set(['sign in', 'sign off', 'breaks'])
+// Same set, exact-cased against the category list — these are instantaneous or
+// duration-less events (sign in/off, breaks), so "still in progress" doesn't apply.
+const NOT_IN_PROGRESS_CATS = new Set(['Sign In', 'Sign Off', 'Breaks'])
 
 function catColor(cat: string, cats: string[]): string {
   const fixed: Record<string,string> = {
@@ -115,6 +118,19 @@ function truncateChannel(name: string, maxLen = 16): string {
 
 function statusLabel(status: string): string {
   return status === 'active' ? 'In Progress' : status
+}
+
+// Finds the closest category (by list position, searching outward) that isn't in the
+// excluded set — used to bump a category like "Sign In" to something valid when the
+// user checks "still in progress" while one of those was already selected.
+function nearestAllowedCategory(categories: string[], fromIndex: number, excluded: Set<string>): string {
+  for (let dist = 1; dist < categories.length; dist++) {
+    const before = fromIndex - dist
+    const after = fromIndex + dist
+    if (before >= 0 && !excluded.has(categories[before])) return categories[before]
+    if (after < categories.length && !excluded.has(categories[after])) return categories[after]
+  }
+  return categories.find(c => !excluded.has(c)) ?? categories[0] ?? 'General'
 }
 
 function plannedStatusLabel(status: string): string {
@@ -265,10 +281,11 @@ function DroppableTBody({ id, children }: { id: string; children: React.ReactNod
   )
 }
 
-function CategoryChips({ value, onChange, categories }: {
+function CategoryChips({ value, onChange, categories, disabledOptions }: {
   value: string
   onChange: (v: string) => void
   categories: string[]
+  disabledOptions?: Set<string>
 }) {
   return (
     <div className="dt-chip-group">
@@ -284,11 +301,14 @@ function CategoryChips({ value, onChange, categories }: {
           return PALETTE[(idx < 0 ? 0 : idx) % PALETTE.length]
         })()
         const selected = value === c
+        const disabled = disabledOptions?.has(c) ?? false
         return (
           <button
             key={c}
             type="button"
-            className={`dt-chip${selected ? ' dt-chip--selected' : ''}`}
+            disabled={disabled}
+            title={disabled ? "Not available while marked as in progress" : undefined}
+            className={`dt-chip${selected ? ' dt-chip--selected' : ''}${disabled ? ' dt-chip--disabled' : ''}`}
             style={selected ? { background: col + '25', borderColor: col, color: col } : {}}
             onClick={() => onChange(c)}
           >
@@ -2042,10 +2062,19 @@ ${aiSummaryBlock}
                   />
                 )}
               </div>
-              <Checkbox checked={mInProgress} onChange={setMInProgress} label="Still in progress, not done yet" />
+              <Checkbox
+                checked={mInProgress}
+                onChange={v => {
+                  setMInProgress(v)
+                  if (v && NOT_IN_PROGRESS_CATS.has(mCat)) {
+                    setMCat(nearestAllowedCategory(categories, categories.indexOf(mCat), NOT_IN_PROGRESS_CATS))
+                  }
+                }}
+                label="Still in progress, not done yet"
+              />
               <div className="form-group">
                 <label className="form-label">Category</label>
-                <CategoryChips value={mCat} onChange={setMCat} categories={categories} />
+                <CategoryChips value={mCat} onChange={setMCat} categories={categories} disabledOptions={mInProgress ? NOT_IN_PROGRESS_CATS : undefined} />
               </div>
               <div className="dt-row2">
                 <div className="form-group">
