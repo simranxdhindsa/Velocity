@@ -775,7 +775,7 @@ export function DayTrackPage() {
         end_time: endTime,
         duration_mins: dur,
         notes: mNotes,
-        status: mInProgress ? 'active' : (mStart && endTime) ? 'done' : 'active',
+        status: mInProgress ? 'active' : 'done',
       })
       const nextStart = endTime ? addMinute(endTime) : ''
       setMName(''); setMStart(nextStart); setMEnd(''); setMNotes(''); setMInProgress(false)
