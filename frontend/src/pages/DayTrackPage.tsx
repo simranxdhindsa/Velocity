@@ -795,58 +795,95 @@ export function DayTrackPage() {
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
+  // Today's Log only ever holds finished (done) work; anything still in progress
+  // belongs in Planned & Carry Over instead — never both at once, no exceptions.
   async function addManualEntry() {
     if (!mName.trim()) { toast('Enter a task name', 'warn'); return }
-    const endTime = mInProgress ? '' : mEnd
-    const dur = calcDuration(mStart, endTime)
     const name = mName.trim()
+    const category = mCat || categories[0] || 'General'
     try {
-      const created = await dayTrackApi.createEntry({
-        entry_date: date,
-        name,
-        category: mCat || categories[0] || 'General',
-        start_time: mStart,
-        end_time: endTime,
-        duration_mins: dur,
-        notes: mNotes,
-        status: mInProgress ? 'active' : 'done',
-      })
-      const nextStart = endTime ? addMinute(endTime) : ''
+      if (mInProgress) {
+        const createdPlanned = await dayTrackApi.createPlanned({
+          entry_date: date,
+          name,
+          category,
+          scheduled_time: mStart,
+          start_time: mStart,
+          end_time: '',
+          when_type: 'today',
+          notes: mNotes,
+          status: 'in_progress',
+        })
+        setPlanned(prev => [...prev, createdPlanned])
+      } else {
+        const dur = calcDuration(mStart, mEnd)
+        const created = await dayTrackApi.createEntry({
+          entry_date: date,
+          name,
+          category,
+          start_time: mStart,
+          end_time: mEnd,
+          duration_mins: dur,
+          notes: mNotes,
+          status: 'done',
+        })
+        setEntries(prev => [...prev, created])
+      }
+      const nextStart = mEnd ? addMinute(mEnd) : ''
       setMName(''); setMStart(nextStart); setMEnd(''); setMNotes(''); setMInProgress(false)
       clearDraft()
-      setEntries(prev => [...prev, created])
       dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
       toast(`"${name}" logged`)
     } catch { toast('Failed to add entry', 'warn') }
   }
 
   // Creates one entry per pasted line (task-name input's "Split into N" action).
+  // Same done-vs-in-progress split as addManualEntry, applied to every line.
   async function addManualEntriesSplit(names: string[]) {
-    const created: DayTrackEntry[] = []
+    const category = mCat || categories[0] || 'General'
+    const createdEntries: DayTrackEntry[] = []
+    const createdPlanned: DayTrackPlanned[] = []
+    let failed = 0
     for (const raw of names) {
       const name = raw.trim()
       if (!name) continue
       try {
-        created.push(await dayTrackApi.createEntry({
-          entry_date: date,
-          name,
-          category: mCat || categories[0] || 'General',
-          start_time: mStart,
-          end_time: '',
-          duration_mins: null,
-          notes: '',
-          status: 'active',
-        }))
-      } catch { /* keep going — report the partial count below */ }
+        if (mInProgress) {
+          createdPlanned.push(await dayTrackApi.createPlanned({
+            entry_date: date,
+            name,
+            category,
+            scheduled_time: mStart,
+            start_time: mStart,
+            end_time: '',
+            when_type: 'today',
+            notes: '',
+            status: 'in_progress',
+          }))
+        } else {
+          createdEntries.push(await dayTrackApi.createEntry({
+            entry_date: date,
+            name,
+            category,
+            start_time: mStart,
+            end_time: '',
+            duration_mins: null,
+            notes: '',
+            status: 'done',
+          }))
+        }
+      } catch { failed++ }
     }
-    setMName(''); setMEnd(''); setMNotes('')
+    setMName(''); setMEnd(''); setMNotes(''); setMInProgress(false)
     clearDraft()
-    if (created.length > 0) {
-      setEntries(prev => [...prev, ...created])
+    if (createdEntries.length > 0) setEntries(prev => [...prev, ...createdEntries])
+    if (createdPlanned.length > 0) setPlanned(prev => [...prev, ...createdPlanned])
+    if (createdEntries.length > 0 || createdPlanned.length > 0) {
       dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
     }
-    if (created.length === names.filter(n => n.trim()).length) toast(`${created.length} tasks logged`)
-    else toast(`${created.length} of ${names.length} tasks logged — some failed`, 'warn')
+    const total = createdEntries.length + createdPlanned.length
+    if (failed === 0) toast(`${total} tasks logged`)
+    else toast(`${total} of ${total + failed} tasks logged — some failed`, 'warn')
   }
 
   function timerStart() {
@@ -989,7 +1026,7 @@ export function DayTrackPage() {
       end_time: entry.end_time,
       when_type: 'tomorrow',
       notes: entry.notes,
-      status: 'carry',
+      status: 'in_progress',
       entry_source: entry.entry_source,
       external_ref: entry.external_ref,
       youtrack_issue_id: entry.youtrack_issue_id,
@@ -1014,7 +1051,7 @@ export function DayTrackPage() {
           end_time: s.end_time,
           when_type: 'tomorrow',
           notes: s.notes ? `[subtask of ${entry.name}] ${s.notes}` : `[subtask of ${entry.name}]`,
-          status: 'carry',
+          status: 'in_progress',
         })
         await dayTrackApi.deleteEntry(s.id)
       }
@@ -1030,7 +1067,7 @@ export function DayTrackPage() {
         end_time: entry.end_time,
         when_type: 'tomorrow',
         notes: entry.notes,
-        status: 'carry',
+        status: 'in_progress',
         entry_source: entry.entry_source,
         external_ref: entry.external_ref,
         youtrack_issue_id: entry.youtrack_issue_id,
@@ -1055,8 +1092,12 @@ export function DayTrackPage() {
     return col?.state || 'Dev'
   }
 
+  // Moving a planned/in-progress item into Today's Log means "this is done" — Today's
+  // Log only ever holds finished work, so landing there marks it done, not active.
   async function startPlanned(item: DayTrackPlanned) {
     const now = nowHHMM()
+    const startTime = item.start_time || item.scheduled_time || now
+    const dur = calcDuration(startTime, now)
     const isYouTrackDev = item.entry_source === 'youtrack' && item.category === 'Development' && !!item.youtrack_issue_id
     const tempId = `temp-${item.id}`
     const optimisticEntry: DayTrackEntry = {
@@ -1065,11 +1106,11 @@ export function DayTrackPage() {
       entry_date: date,
       name: item.name,
       category: item.category,
-      start_time: now,
-      end_time: '',
-      duration_mins: null,
+      start_time: startTime,
+      end_time: now,
+      duration_mins: dur,
       notes: item.notes,
-      status: 'active',
+      status: 'done',
       parent_entry_id: null,
       entry_source: item.entry_source ?? 'manual',
       external_ref: item.external_ref ?? '',
@@ -1089,11 +1130,11 @@ export function DayTrackPage() {
           entry_date: date,
           name: item.name,
           category: item.category,
-          start_time: now,
-          end_time: '',
-          duration_mins: null,
+          start_time: startTime,
+          end_time: now,
+          duration_mins: dur,
           notes: item.notes,
-          status: 'active',
+          status: 'done',
           entry_source: item.entry_source,
           external_ref: item.external_ref,
           youtrack_issue_id: item.youtrack_issue_id,
@@ -1102,30 +1143,31 @@ export function DayTrackPage() {
       ])
       // Reconcile the placeholder with the real server record.
       setEntries(prev => prev.map(e => e.id === tempId ? created : e))
-      // Resuming a real YouTrack Development ticket also moves it to Dev in YouTrack
+      // Finishing a real YouTrack Development ticket also moves it to Dev in YouTrack
       // itself — a plain manual entry never triggers this.
       if (isYouTrackDev) {
         try {
           await api.updateYouTrackIssueState(item.youtrack_issue_id!, resolveDevState())
-          toast(`Started "${item.name}" and moved it to ${resolveDevState()} in YouTrack`)
+          toast(`"${item.name}" marked done and moved to ${resolveDevState()} in YouTrack`)
         } catch {
-          toast(`Started "${item.name}" (failed to update YouTrack state)`, 'warn')
+          toast(`"${item.name}" marked done (failed to update YouTrack state)`, 'warn')
         }
       } else {
-        toast(`Started "${item.name}"`)
+        toast(`"${item.name}" marked done`)
       }
     } catch {
       // Roll back: drop the placeholder and put the item back in Planned & Carry Over.
       setEntries(prev => prev.filter(e => e.id !== tempId))
       setPlanned(prev => [...prev, item])
       flashRollback(item.id)
-      toast('Failed to start task, moved it back', 'warn')
+      toast('Failed to mark task done, moved it back', 'warn')
     }
   }
 
   async function rollbackPlanned(item: DayTrackPlanned) {
-    const s = item.start_time || item.scheduled_time || ''
-    const e = item.end_time || ''
+    // Rolling back into Today's Log also means "done" — same rule as starting one.
+    const s = item.start_time || item.scheduled_time || nowHHMM()
+    const e = item.end_time || nowHHMM()
     const dur = calcDuration(s, e)
     try {
       const [created] = await Promise.all([
@@ -1137,7 +1179,7 @@ export function DayTrackPage() {
           end_time: e,
           duration_mins: dur,
           notes: item.notes,
-          status: (s && e) ? 'done' : 'active',
+          status: 'done',
         }),
         dayTrackApi.deletePlanned(item.id),
       ])

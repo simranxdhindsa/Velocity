@@ -839,14 +839,15 @@ func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, 
 
 	ownerUpdate := daytracBuildSlackSections(entries, "")
 
-	// YouTrack-sourced "In Progress" tickets live in Planned & Carry Over (not Today's
-	// Log — see the scan in youtrack.go), but they still belong in the report's In
-	// Progress section so a currently-open ticket isn't silently missing from the
-	// update just because nobody has dragged it into Today's Log yet.
+	// In-progress work (manual, via the "still in progress" checkbox, or auto-pulled
+	// from YouTrack) lives in Planned & Carry Over, not Today's Log — Today's Log only
+	// ever holds finished work. It still belongs in the report's In Progress section
+	// so open work isn't silently missing just because nobody's marked it done yet.
+	// Plain "planned"/"carry" items (not yet started) are intentionally excluded.
 	if planned, plErr := h.repo.GetPlanned(ctx, userID, date); plErr == nil {
 		var inProgressItems []string
 		for _, p := range planned {
-			if p.EntrySource != "youtrack" {
+			if p.Status != "in_progress" {
 				continue
 			}
 			item := p.Name
