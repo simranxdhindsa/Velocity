@@ -3,6 +3,7 @@
 ## 2026-09-21
 
 ### Enhancements
+- shorten the "Posted" pill and make the Day Track toolbar scroll instead of wrapping, so it never breaks the bar layout
 - richer Auto Send hover tooltip on Day Track, shows send time, channel, and what happens before sending
 - pull latest YouTrack ticket activity before the Day Track auto-send job posts, matching the manual sync + post flow
 - separate Sign In/Sign Off/Breaks entries in Day Track log with a divider noting they're excluded from the Slack report
