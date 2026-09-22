@@ -233,6 +233,11 @@ func (r *DayTrackRepository) GetEntryByID(ctx context.Context, id, userID string
 
 // ── Planned ───────────────────────────────────────────────────────────────────
 
+// GetPlanned returns planned/carried items for exactly `date`, plus any "in_progress"
+// item whose entry_date is on or before `date` — in-progress work is a current state,
+// not a date-scoped event, so it keeps showing up on every day from when it was opened
+// until it's actually resolved, without needing anything to rewrite its entry_date.
+// (Bounded by entry_date<=date so it doesn't leak backward into days before it existed.)
 func (r *DayTrackRepository) GetPlanned(ctx context.Context, userID, date string) ([]DayTrackPlanned, error) {
 	pool := GetPool()
 	rows, err := pool.Query(ctx,
@@ -241,7 +246,10 @@ func (r *DayTrackRepository) GetPlanned(ctx context.Context, userID, date string
 		        when_type, COALESCE(notes,''), status,
 		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id,
 		        created_at, updated_at
-		 FROM daytrack_planned WHERE user_id=$1 AND entry_date=$2::date ORDER BY created_at DESC`,
+		 FROM daytrack_planned
+		 WHERE user_id=$1
+		   AND (entry_date=$2::date OR (status='in_progress' AND entry_date<=$2::date))
+		 ORDER BY created_at DESC`,
 		userID, date)
 	if err != nil {
 		return nil, err
