@@ -51,19 +51,22 @@ type DayTrackKWRule struct {
 }
 
 type DayTrackPlanned struct {
-	ID            string    `json:"id"`
-	UserID        string    `json:"user_id"`
-	EntryDate     string    `json:"entry_date"`
-	Name          string    `json:"name"`
-	Category      string    `json:"category"`
-	ScheduledTime string    `json:"scheduled_time"`
-	StartTime     string    `json:"start_time"`
-	EndTime       string    `json:"end_time"`
-	WhenType      string    `json:"when_type"` // today | tomorrow
-	Notes         string    `json:"notes"`
-	Status        string    `json:"status"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID              string    `json:"id"`
+	UserID          string    `json:"user_id"`
+	EntryDate       string    `json:"entry_date"`
+	Name            string    `json:"name"`
+	Category        string    `json:"category"`
+	ScheduledTime   string    `json:"scheduled_time"`
+	StartTime       string    `json:"start_time"`
+	EndTime         string    `json:"end_time"`
+	WhenType        string    `json:"when_type"` // today | tomorrow
+	Notes           string    `json:"notes"`
+	Status          string    `json:"status"`
+	EntrySource     string    `json:"entry_source"`                // manual | youtrack — preserved across carry-forward
+	ExternalRef     string    `json:"external_ref"`                // preserved so a re-started item still dedupes against its origin
+	YoutrackIssueID *string   `json:"youtrack_issue_id,omitempty"` // set when carried from a youtrack-sourced entry
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type DayTrackRepository struct{}
@@ -235,7 +238,9 @@ func (r *DayTrackRepository) GetPlanned(ctx context.Context, userID, date string
 	rows, err := pool.Query(ctx,
 		`SELECT id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
 		        COALESCE(start_time,''), COALESCE(end_time,''),
-		        when_type, COALESCE(notes,''), status, created_at, updated_at
+		        when_type, COALESCE(notes,''), status,
+		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id,
+		        created_at, updated_at
 		 FROM daytrack_planned WHERE user_id=$1 AND entry_date=$2::date ORDER BY created_at DESC`,
 		userID, date)
 	if err != nil {
@@ -246,7 +251,9 @@ func (r *DayTrackRepository) GetPlanned(ctx context.Context, userID, date string
 	for rows.Next() {
 		var p DayTrackPlanned
 		if err := rows.Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
-			&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
+			&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID,
+			&p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, p)
@@ -257,17 +264,23 @@ func (r *DayTrackRepository) GetPlanned(ctx context.Context, userID, date string
 	return items, nil
 }
 
-func (r *DayTrackRepository) CreatePlanned(ctx context.Context, userID, date, name, category, scheduledTime, startTime, endTime, whenType, notes, status string) (*DayTrackPlanned, error) {
+func (r *DayTrackRepository) CreatePlanned(ctx context.Context, userID, date, name, category, scheduledTime, startTime, endTime, whenType, notes, status, entrySource, externalRef string, youtrackIssueID *string) (*DayTrackPlanned, error) {
 	pool := GetPool()
+	if entrySource == "" {
+		entrySource = "manual"
+	}
 	var p DayTrackPlanned
 	err := pool.QueryRow(ctx,
-		`INSERT INTO daytrack_planned (user_id, entry_date, name, category, scheduled_time, start_time, end_time, when_type, notes, status)
-		 VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO daytrack_planned (user_id, entry_date, name, category, scheduled_time, start_time, end_time, when_type, notes, status, entry_source, external_ref, youtrack_issue_id)
+		 VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		 RETURNING id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
-		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status, created_at, updated_at`,
+		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status,
+		           COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id, created_at, updated_at`,
 		userID, date, name, category, nullStr(scheduledTime), nullStr(startTime), nullStr(endTime), whenType, notes, status,
+		entrySource, nullStr(externalRef), youtrackIssueID,
 	).Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
-		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
+		&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID, &p.CreatedAt, &p.UpdatedAt)
 	return &p, err
 }
 
@@ -278,10 +291,12 @@ func (r *DayTrackRepository) UpdatePlanned(ctx context.Context, id, userID, name
 		`UPDATE daytrack_planned SET name=$3, category=$4, scheduled_time=$5, start_time=$6, end_time=$7, when_type=$8, notes=$9, status=$10, updated_at=NOW()
 		 WHERE id=$1 AND user_id=$2
 		 RETURNING id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
-		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status, created_at, updated_at`,
+		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status,
+		           COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id, created_at, updated_at`,
 		id, userID, name, category, nullStr(scheduledTime), nullStr(startTime), nullStr(endTime), whenType, notes, status,
 	).Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
-		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
+		&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID, &p.CreatedAt, &p.UpdatedAt)
 	return &p, err
 }
 

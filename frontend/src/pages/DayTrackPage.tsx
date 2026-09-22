@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
+import {
+  DndContext, DragOverlay, useDraggable, useDroppable, closestCenter,
+  PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import { dayTrackApi, api, type DayTrackEntry, type DayTrackPlanned, type DayTrackSlackConfig, type DayTrackKWRule, DEFAULT_KEYWORD_RULES } from '../services/api'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { useYouTrackEvents } from '../services/useYouTrackEvents'
@@ -11,6 +16,7 @@ import { PasteSplitPrompt } from '../components/PasteSplitPrompt'
 import { SmoothToggle } from '../components/SmoothToggle'
 import { ConfirmModal } from '../components/ConfirmModal'
 import { getISTHours, getISTMinutes, getISTDate } from '../utils/istTime'
+import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import '../styles/pages/daytrack.css'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -217,6 +223,37 @@ function MonthPicker({ value, onChange }: { value: string; onChange: (m: string)
 }
 
 // CalendarPicker is imported from src/components/CalendarPicker.tsx
+
+// ── Drag and drop: Today's Log <-> Planned & Carry Over ─────────────────────────
+// Row-level draggable wrapper. Whole-row drag handle (like the Kanban board's task
+// cards) — dnd-kit's PointerSensor activation distance means ordinary clicks on the
+// row's own Edit/Carry/Delete buttons still register as clicks, not drags.
+function DraggableRow({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id })
+  const style: React.CSSProperties = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    opacity: isDragging ? 0.35 : 1,
+    cursor: 'grab',
+    touchAction: 'none',
+    position: isDragging ? 'relative' : undefined,
+    zIndex: isDragging ? 10 : undefined,
+  }
+  return (
+    <tr ref={setNodeRef} style={style} className={className} {...attributes} {...listeners}>
+      {children}
+    </tr>
+  )
+}
+
+// Droppable target wrapping a table body — highlights while something is dragged over it.
+function DroppableTBody({ id, children }: { id: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id })
+  return (
+    <tbody ref={setNodeRef} className={isOver ? 'dt-drop-target-active' : undefined}>
+      {children}
+    </tbody>
+  )
+}
 
 function CategoryChips({ value, onChange, categories }: {
   value: string
@@ -458,6 +495,7 @@ const ClockDisplay = memo(function ClockDisplay() {
 })
 
 export function DayTrackPage() {
+  const { config: wfConfig } = useWorkflowConfig('youtrack')
   const [date, setDate] = useState<string>(toDateStr(new Date()))
   const [entries, setEntries] = useState<DayTrackEntry[]>([])
   const [planned, setPlanned] = useState<DayTrackPlanned[]>([])
@@ -863,6 +901,39 @@ export function DayTrackPage() {
     } catch { toast('Failed to delete', 'warn') }
   }
 
+  // ── Drag and drop: Today's Log <-> Planned & Carry Over ───────────────────────
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const [draggedLabel, setDraggedLabel] = useState<string | null>(null)
+
+  function handleDragStart(event: DragStartEvent) {
+    const id = String(event.active.id)
+    if (id.startsWith('entry-')) {
+      const found = parentEntries.find(e => e.id === id.slice('entry-'.length))
+      setDraggedLabel(found?.name ?? null)
+    } else if (id.startsWith('planned-')) {
+      const found = planned.find(p => p.id === id.slice('planned-'.length))
+      setDraggedLabel(found?.name ?? null)
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setDraggedLabel(null)
+    const { active, over } = event
+    if (!over) return
+    const activeId = String(active.id)
+    const overZone = String(over.id)
+
+    if (activeId.startsWith('entry-') && overZone === 'planned-zone') {
+      const entryId = activeId.slice('entry-'.length)
+      const entry = parentEntries.find(e => e.id === entryId)
+      if (entry) carryEntry(entry)
+    } else if (activeId.startsWith('planned-') && overZone === 'today-zone') {
+      const plannedId = activeId.slice('planned-'.length)
+      const item = planned.find(p => p.id === plannedId)
+      if (item) startPlanned(item)
+    }
+  }
+
   async function carryEntry(entry: DayTrackEntry) {
     try {
       const subs = subtaskMap.get(entry.id) ?? []
@@ -881,7 +952,9 @@ export function DayTrackPage() {
         })
         await dayTrackApi.deleteEntry(s.id)
       }
-      // Now carry parent (no subtasks remain to cascade-delete)
+      // Now carry parent (no subtasks remain to cascade-delete). Preserve YouTrack
+      // lineage so resuming it later (drag back into Today's Log) is still recognized
+      // as a YouTrack-sourced item, not a plain manual one.
       await dayTrackApi.createPlanned({
         entry_date: date,
         name: entry.name,
@@ -892,6 +965,9 @@ export function DayTrackPage() {
         when_type: 'tomorrow',
         notes: entry.notes,
         status: 'carry',
+        entry_source: entry.entry_source,
+        external_ref: entry.external_ref,
+        youtrack_issue_id: entry.youtrack_issue_id,
       })
       await dayTrackApi.deleteEntry(entry.id)
       await loadAll()
@@ -899,8 +975,16 @@ export function DayTrackPage() {
     } catch { toast('Failed to carry entry', 'warn') }
   }
 
+  // Resolves the workflow state name for the dev_done role (e.g. "Dev"), falling back
+  // to the literal "Dev" when no workflow config is set up yet.
+  function resolveDevState(): string {
+    const col = wfConfig?.column_hierarchy.find(c => c.role === 'dev_done')
+    return col?.state || 'Dev'
+  }
+
   async function startPlanned(item: DayTrackPlanned) {
     const now = nowHHMM()
+    const isYouTrackDev = item.entry_source === 'youtrack' && item.category === 'Development' && !!item.youtrack_issue_id
     try {
       const [created] = await Promise.all([
         dayTrackApi.createEntry({
@@ -912,12 +996,26 @@ export function DayTrackPage() {
           duration_mins: null,
           notes: item.notes,
           status: 'active',
+          entry_source: item.entry_source,
+          external_ref: item.external_ref,
+          youtrack_issue_id: item.youtrack_issue_id,
         }),
         dayTrackApi.deletePlanned(item.id),
       ])
       setEntries(prev => [...prev, created])
       setPlanned(prev => prev.filter(p => p.id !== item.id))
-      toast(`Started "${item.name}"`)
+      // Resuming a real YouTrack Development ticket also moves it to Dev in YouTrack
+      // itself — a plain manual entry never triggers this.
+      if (isYouTrackDev) {
+        try {
+          await api.updateYouTrackIssueState(item.youtrack_issue_id!, resolveDevState())
+          toast(`Started "${item.name}" and moved it to ${resolveDevState()} in YouTrack`)
+        } catch {
+          toast(`Started "${item.name}" (failed to update YouTrack state)`, 'warn')
+        }
+      } else {
+        toast(`Started "${item.name}"`)
+      }
     } catch { toast('Failed to start task', 'warn') }
   }
 
@@ -1817,6 +1915,7 @@ ${aiSummaryBlock}
       </div>
 
       {/* Main Grid */}
+      <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="dt-grid">
 
         {/* LEFT COLUMN */}
@@ -2121,7 +2220,7 @@ ${aiSummaryBlock}
                       <th>Duration</th><th>Status</th><th>Actions</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <DroppableTBody id="today-zone">
                     {parentEntries.length === 0 ? (
                       <tr><td colSpan={7}>
                         <div className="dt-empty">
@@ -2150,7 +2249,7 @@ ${aiSummaryBlock}
                       const displayDur = subs.length > 0 && subDurTotal > 0 ? subDurTotal : e.duration_mins
                       return (
                         <>
-                          <tr key={e.id} className={e.status === 'active' ? 'dt-row-inprogress' : undefined}>
+                          <DraggableRow key={e.id} id={`entry-${e.id}`} className={e.status === 'active' ? 'dt-row-inprogress' : undefined}>
                             <td className="dt-td-name">
                               <div className="dt-td-name-row">
                                 <button
@@ -2209,7 +2308,7 @@ ${aiSummaryBlock}
                                 </button>
                               </div>
                             </td>
-                          </tr>
+                          </DraggableRow>
                           {subtaskParent?.id === e.id && (
                             <tr className="dt-subtask-row dt-subtask-inline-row">
                               <td className="dt-td-name" colSpan={2}>
@@ -2297,7 +2396,7 @@ ${aiSummaryBlock}
                         </>
                       )
                     })}
-                  </tbody>
+                  </DroppableTBody>
                 </table>
               </div>
             )}
@@ -2325,7 +2424,7 @@ ${aiSummaryBlock}
                     <th>Task</th><th>Category</th><th>Scheduled</th><th>For</th><th>Status</th><th>Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <DroppableTBody id="planned-zone">
                   {planned.length === 0 ? (
                     <tr><td colSpan={6}>
                       <div className="dt-empty">
@@ -2342,7 +2441,7 @@ ${aiSummaryBlock}
                     const whenColor = p.when_type === 'tomorrow' ? 'var(--color-warning)' : 'var(--color-primary-light)'
                     const whenLabel = p.when_type === 'tomorrow' ? 'Tomorrow' : 'Today'
                     return (
-                      <tr key={p.id}>
+                      <DraggableRow key={p.id} id={`planned-${p.id}`}>
                         <td className="dt-td-name">
                           {p.name}
                           {p.notes && <span className="dt-td-note">{p.notes}</span>}
@@ -2368,10 +2467,10 @@ ${aiSummaryBlock}
                             </button>
                           </div>
                         </td>
-                      </tr>
+                      </DraggableRow>
                     )
                   })}
-                </tbody>
+                </DroppableTBody>
               </table>
             </div>
           </div>
@@ -2449,6 +2548,10 @@ ${aiSummaryBlock}
 
         </div>
       </div>
+      <DragOverlay>
+        {draggedLabel ? <div className="dt-drag-overlay-chip">{draggedLabel}</div> : null}
+      </DragOverlay>
+      </DndContext>
 
       {showDeletePostConfirm && (
         <ConfirmModal

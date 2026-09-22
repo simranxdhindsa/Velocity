@@ -485,15 +485,18 @@ func (h *DayTrackHandler) GetEntries(w http.ResponseWriter, r *http.Request) {
 func (h *DayTrackHandler) CreateEntry(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var body struct {
-		Date          string  `json:"entry_date"`
-		Name          string  `json:"name"`
-		Category      string  `json:"category"`
-		StartTime     string  `json:"start_time"`
-		EndTime       string  `json:"end_time"`
-		DurationMins  *int    `json:"duration_mins"`
-		Notes         string  `json:"notes"`
-		Status        string  `json:"status"`
-		ParentEntryID *string `json:"parent_entry_id"`
+		Date            string  `json:"entry_date"`
+		Name            string  `json:"name"`
+		Category        string  `json:"category"`
+		StartTime       string  `json:"start_time"`
+		EndTime         string  `json:"end_time"`
+		DurationMins    *int    `json:"duration_mins"`
+		Notes           string  `json:"notes"`
+		Status          string  `json:"status"`
+		ParentEntryID   *string `json:"parent_entry_id"`
+		EntrySource     string  `json:"entry_source"`
+		ExternalRef     string  `json:"external_ref"`
+		YoutrackIssueID *string `json:"youtrack_issue_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -519,10 +522,21 @@ func (h *DayTrackHandler) CreateEntry(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	entry, err := h.repo.CreateEntry(r.Context(), userID, body.Date, body.Name, body.Category, body.StartTime, body.EndTime, body.DurationMins, body.Notes, body.Status, body.ParentEntryID)
+	// Preserves YouTrack lineage when a planned/carried item is resumed (started) back
+	// into Today's Log, so a second carry-forward still recognizes it as YouTrack-sourced.
+	entry, err := h.repo.CreateEntrySourced(r.Context(), userID, body.Date, body.Name, body.Category,
+		body.StartTime, body.EndTime, body.DurationMins, body.Notes, body.Status, body.ParentEntryID,
+		body.EntrySource, body.ExternalRef)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if entry != nil && body.YoutrackIssueID != nil && *body.YoutrackIssueID != "" {
+		if err := h.repo.SetYoutrackIssueID(r.Context(), entry.ID, *body.YoutrackIssueID); err != nil {
+			log.Printf("[DayTrack] failed to stamp youtrack_issue_id on resumed entry: %v", err)
+		} else {
+			entry.YoutrackIssueID = body.YoutrackIssueID
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -600,15 +614,18 @@ func (h *DayTrackHandler) GetPlanned(w http.ResponseWriter, r *http.Request) {
 func (h *DayTrackHandler) CreatePlanned(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var body struct {
-		Date          string `json:"entry_date"`
-		Name          string `json:"name"`
-		Category      string `json:"category"`
-		ScheduledTime string `json:"scheduled_time"`
-		StartTime     string `json:"start_time"`
-		EndTime       string `json:"end_time"`
-		WhenType      string `json:"when_type"`
-		Notes         string `json:"notes"`
-		Status        string `json:"status"`
+		Date            string  `json:"entry_date"`
+		Name            string  `json:"name"`
+		Category        string  `json:"category"`
+		ScheduledTime   string  `json:"scheduled_time"`
+		StartTime       string  `json:"start_time"`
+		EndTime         string  `json:"end_time"`
+		WhenType        string  `json:"when_type"`
+		Notes           string  `json:"notes"`
+		Status          string  `json:"status"`
+		EntrySource     string  `json:"entry_source"`
+		ExternalRef     string  `json:"external_ref"`
+		YoutrackIssueID *string `json:"youtrack_issue_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -627,7 +644,7 @@ func (h *DayTrackHandler) CreatePlanned(w http.ResponseWriter, r *http.Request) 
 	if body.Status == "" {
 		body.Status = "planned"
 	}
-	item, err := h.repo.CreatePlanned(r.Context(), userID, body.Date, body.Name, body.Category, body.ScheduledTime, body.StartTime, body.EndTime, body.WhenType, body.Notes, body.Status)
+	item, err := h.repo.CreatePlanned(r.Context(), userID, body.Date, body.Name, body.Category, body.ScheduledTime, body.StartTime, body.EndTime, body.WhenType, body.Notes, body.Status, body.EntrySource, body.ExternalRef, body.YoutrackIssueID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

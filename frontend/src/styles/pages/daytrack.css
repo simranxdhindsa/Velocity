@@ -546,6 +546,26 @@
 .dt-table thead tr {
   background: var(--bg-elevated);
 }
+.dt-drop-target-active {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+  background: rgba(var(--color-primary-rgb), 0.04);
+}
+.dt-drag-overlay-chip {
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .dt-table th {
   padding: 9px 12px;
   text-align: left;

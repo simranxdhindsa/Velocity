@@ -3090,6 +3090,9 @@ export interface DayTrackPlanned {
   when_type: string
   notes: string
   status: string
+  entry_source?: string
+  external_ref?: string
+  youtrack_issue_id?: string | null
   created_at: string
   updated_at: string
 }

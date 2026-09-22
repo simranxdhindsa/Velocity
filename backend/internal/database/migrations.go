@@ -1641,6 +1641,14 @@ STRICT RULES
 		// ── DayTrack: daily auto-send toggle ─────────────────────────────────────
 		// Time itself (11:50 PM IST) is hardcoded in the scheduler, not stored per-user.
 		`ALTER TABLE daytrack_slack_config ADD COLUMN IF NOT EXISTS auto_send_enabled BOOLEAN NOT NULL DEFAULT false`,
+
+		// ── DayTrack: preserve YouTrack lineage through carry-forward ────────────
+		// So a task dragged from Today's Log into Planned & Carry Over, then dragged
+		// back in later, is still recognized as YouTrack-sourced (used to move the
+		// real ticket to Dev when a Development-category item is resumed).
+		`ALTER TABLE daytrack_planned ADD COLUMN IF NOT EXISTS entry_source VARCHAR(50) NOT NULL DEFAULT 'manual'`,
+		`ALTER TABLE daytrack_planned ADD COLUMN IF NOT EXISTS external_ref VARCHAR(255)`,
+		`ALTER TABLE daytrack_planned ADD COLUMN IF NOT EXISTS youtrack_issue_id VARCHAR(50)`,
 	}
 
 	for i, migration := range migrations {
