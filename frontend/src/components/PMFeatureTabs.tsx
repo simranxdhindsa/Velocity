@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import api from '../services/api'
 import { SprintScanLoader } from './brand/VelocityLoaders'
+import { Checkbox } from './Checkbox'
 import type {
   CapacityRow, DependencyLink, BlockerSLAItem, EscalationConfig,
   YouTrackSprint,
@@ -618,11 +619,11 @@ export function BlockerEscalationTab() {
               onChange={e => setCfg(c => ({ ...c, notify_slack_channel: e.target.value }))} />
           </div>
           <div className="pmf-cfg-row">
-            <label className="pmf-cfg-label">
-              <input type="checkbox" checked={cfg.auto_notify}
-                onChange={e => setCfg(c => ({ ...c, auto_notify: e.target.checked }))} />
-              {' '}Auto-notify on breach
-            </label>
+            <Checkbox
+              checked={cfg.auto_notify}
+              onChange={v => setCfg(c => ({ ...c, auto_notify: v }))}
+              label="Auto-notify on breach"
+            />
           </div>
           <button className="btn btn-sm btn-primary" onClick={saveCfg} disabled={cfgSaving}>
             {cfgSaving ? <RefreshCw size={13} className="spin" /> : <Save size={13} />}

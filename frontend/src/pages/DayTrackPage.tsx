@@ -15,6 +15,7 @@ import { usePasteSplit } from '../hooks/usePasteSplit'
 import { PasteSplitPrompt } from '../components/PasteSplitPrompt'
 import { SmoothToggle } from '../components/SmoothToggle'
 import { ConfirmModal } from '../components/ConfirmModal'
+import { Checkbox } from '../components/Checkbox'
 import { getISTHours, getISTMinutes, getISTDate } from '../utils/istTime'
 import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import '../styles/pages/daytrack.css'
@@ -904,6 +905,12 @@ export function DayTrackPage() {
   // ── Drag and drop: Today's Log <-> Planned & Carry Over ───────────────────────
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const [draggedLabel, setDraggedLabel] = useState<string | null>(null)
+  // Row ids currently playing the "bounced back after a failed move" animation.
+  const [rollbackIds, setRollbackIds] = useState<Set<string>>(new Set())
+  function flashRollback(id: string) {
+    setRollbackIds(prev => new Set(prev).add(id))
+    setTimeout(() => setRollbackIds(prev => { const n = new Set(prev); n.delete(id); return n }), 650)
+  }
 
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id)
@@ -935,8 +942,33 @@ export function DayTrackPage() {
   }
 
   async function carryEntry(entry: DayTrackEntry) {
+    const subs = subtaskMap.get(entry.id) ?? []
+    const tempId = `temp-${entry.id}`
+    const optimisticPlanned: DayTrackPlanned = {
+      id: tempId,
+      user_id: entry.user_id,
+      entry_date: date,
+      name: entry.name,
+      category: entry.category,
+      scheduled_time: entry.start_time || '',
+      start_time: entry.start_time,
+      end_time: entry.end_time,
+      when_type: 'tomorrow',
+      notes: entry.notes,
+      status: 'carry',
+      entry_source: entry.entry_source,
+      external_ref: entry.external_ref,
+      youtrack_issue_id: entry.youtrack_issue_id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    // Instant move: pull the row (and any subtasks) out of Today's Log and drop a
+    // placeholder into Planned & Carry Over right away, before the network round trip.
+    setEntries(prev => prev.filter(e => e.id !== entry.id && e.parent_entry_id !== entry.id))
+    setPlanned(prev => [...prev, optimisticPlanned])
+
     try {
-      const subs = subtaskMap.get(entry.id) ?? []
       // Carry subtasks first (as separate planned items), then delete them individually
       for (const s of subs) {
         await dayTrackApi.createPlanned({
@@ -955,7 +987,7 @@ export function DayTrackPage() {
       // Now carry parent (no subtasks remain to cascade-delete). Preserve YouTrack
       // lineage so resuming it later (drag back into Today's Log) is still recognized
       // as a YouTrack-sourced item, not a plain manual one.
-      await dayTrackApi.createPlanned({
+      const real = await dayTrackApi.createPlanned({
         entry_date: date,
         name: entry.name,
         category: entry.category,
@@ -970,9 +1002,16 @@ export function DayTrackPage() {
         youtrack_issue_id: entry.youtrack_issue_id,
       })
       await dayTrackApi.deleteEntry(entry.id)
-      await loadAll()
+      // Reconcile the placeholder with the real server record (real id, timestamps).
+      setPlanned(prev => prev.map(p => p.id === tempId ? real : p))
       toast(`"${entry.name}" carried to tomorrow${subs.length > 0 ? ` (+${subs.length} subtask${subs.length > 1 ? 's' : ''})` : ''}`)
-    } catch { toast('Failed to carry entry', 'warn') }
+    } catch {
+      // Roll back: drop the placeholder and put the entry (+ subtasks) back in Today's Log.
+      setPlanned(prev => prev.filter(p => p.id !== tempId))
+      setEntries(prev => [...prev, entry, ...subs])
+      flashRollback(entry.id)
+      toast('Failed to carry entry, moved it back', 'warn')
+    }
   }
 
   // Resolves the workflow state name for the dev_done role (e.g. "Dev"), falling back
@@ -985,6 +1024,31 @@ export function DayTrackPage() {
   async function startPlanned(item: DayTrackPlanned) {
     const now = nowHHMM()
     const isYouTrackDev = item.entry_source === 'youtrack' && item.category === 'Development' && !!item.youtrack_issue_id
+    const tempId = `temp-${item.id}`
+    const optimisticEntry: DayTrackEntry = {
+      id: tempId,
+      user_id: item.user_id,
+      entry_date: date,
+      name: item.name,
+      category: item.category,
+      start_time: now,
+      end_time: '',
+      duration_mins: null,
+      notes: item.notes,
+      status: 'active',
+      parent_entry_id: null,
+      entry_source: item.entry_source ?? 'manual',
+      external_ref: item.external_ref ?? '',
+      youtrack_issue_id: item.youtrack_issue_id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    // Instant move: pull it out of Planned & Carry Over and drop a placeholder into
+    // Today's Log right away, before the network round trip.
+    setPlanned(prev => prev.filter(p => p.id !== item.id))
+    setEntries(prev => [...prev, optimisticEntry])
+
     try {
       const [created] = await Promise.all([
         dayTrackApi.createEntry({
@@ -1002,8 +1066,8 @@ export function DayTrackPage() {
         }),
         dayTrackApi.deletePlanned(item.id),
       ])
-      setEntries(prev => [...prev, created])
-      setPlanned(prev => prev.filter(p => p.id !== item.id))
+      // Reconcile the placeholder with the real server record.
+      setEntries(prev => prev.map(e => e.id === tempId ? created : e))
       // Resuming a real YouTrack Development ticket also moves it to Dev in YouTrack
       // itself — a plain manual entry never triggers this.
       if (isYouTrackDev) {
@@ -1016,7 +1080,13 @@ export function DayTrackPage() {
       } else {
         toast(`Started "${item.name}"`)
       }
-    } catch { toast('Failed to start task', 'warn') }
+    } catch {
+      // Roll back: drop the placeholder and put the item back in Planned & Carry Over.
+      setEntries(prev => prev.filter(e => e.id !== tempId))
+      setPlanned(prev => [...prev, item])
+      flashRollback(item.id)
+      toast('Failed to start task, moved it back', 'warn')
+    }
   }
 
   async function rollbackPlanned(item: DayTrackPlanned) {
@@ -1964,13 +2034,7 @@ ${aiSummaryBlock}
                   />
                 )}
               </div>
-              <label className="dt-inprogress-check">
-                <input type="checkbox" className="dt-inprogress-check-input" checked={mInProgress} onChange={e => setMInProgress(e.target.checked)} />
-                <span className="dt-inprogress-check-box">
-                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                </span>
-                Still in progress, not done yet
-              </label>
+              <Checkbox checked={mInProgress} onChange={setMInProgress} label="Still in progress, not done yet" />
               <div className="form-group">
                 <label className="form-label">Category</label>
                 <CategoryChips value={mCat} onChange={setMCat} categories={categories} />
@@ -2249,7 +2313,7 @@ ${aiSummaryBlock}
                       const displayDur = subs.length > 0 && subDurTotal > 0 ? subDurTotal : e.duration_mins
                       return (
                         <>
-                          <DraggableRow key={e.id} id={`entry-${e.id}`} className={e.status === 'active' ? 'dt-row-inprogress' : undefined}>
+                          <DraggableRow key={e.id} id={`entry-${e.id}`} className={[e.status === 'active' ? 'dt-row-inprogress' : '', rollbackIds.has(e.id) ? 'dt-row-rollback' : '', e.id.startsWith('temp-') ? 'dt-row-syncing' : ''].filter(Boolean).join(' ') || undefined}>
                             <td className="dt-td-name">
                               <div className="dt-td-name-row">
                                 <button
@@ -2441,7 +2505,7 @@ ${aiSummaryBlock}
                     const whenColor = p.when_type === 'tomorrow' ? 'var(--color-warning)' : 'var(--color-primary-light)'
                     const whenLabel = p.when_type === 'tomorrow' ? 'Tomorrow' : 'Today'
                     return (
-                      <DraggableRow key={p.id} id={`planned-${p.id}`}>
+                      <DraggableRow key={p.id} id={`planned-${p.id}`} className={[rollbackIds.has(p.id) ? 'dt-row-rollback' : '', p.id.startsWith('temp-') ? 'dt-row-syncing' : ''].filter(Boolean).join(' ') || undefined}>
                         <td className="dt-td-name">
                           {p.name}
                           {p.notes && <span className="dt-td-note">{p.notes}</span>}
@@ -2823,14 +2887,16 @@ ${aiSummaryBlock}
 
             {/* Export options */}
             <div className="dt-export-options">
-              <label className="dt-export-toggle">
-                <input type="checkbox" checked={exportBreaks} onChange={e => { setExportBreaks(e.target.checked); setExportAISummary(null) }} />
-                <span>Include Breaks</span>
-              </label>
-              <label className="dt-export-toggle">
-                <input type="checkbox" checked={exportSummarise} onChange={e => { setExportSummarise(e.target.checked); setExportAISummary(null) }} />
-                <span>Summarise with AI <span className="dt-export-toggle-hint">(Groq · skips tickets)</span></span>
-              </label>
+              <Checkbox
+                checked={exportBreaks}
+                onChange={v => { setExportBreaks(v); setExportAISummary(null) }}
+                label="Include Breaks"
+              />
+              <Checkbox
+                checked={exportSummarise}
+                onChange={v => { setExportSummarise(v); setExportAISummary(null) }}
+                label={<>Summarise with AI <span className="dt-export-toggle-hint">(Groq · skips tickets)</span></>}
+              />
             </div>
 
             {/* AI summary preview — shown after first generation, reused by all buttons */}

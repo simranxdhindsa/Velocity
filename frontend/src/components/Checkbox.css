@@ -1,0 +1,59 @@
+.vl-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.vl-checkbox--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.vl-checkbox-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+.vl-checkbox-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-elevated);
+  color: #fff;
+  transition: background-color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.vl-checkbox-box svg {
+  transform: scale(0);
+  opacity: 0;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.12s ease;
+}
+.vl-checkbox-input:checked + .vl-checkbox-box {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.vl-checkbox-input:checked + .vl-checkbox-box svg {
+  transform: scale(1);
+  opacity: 1;
+}
+.vl-checkbox-input:focus-visible + .vl-checkbox-box {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.vl-checkbox:not(.vl-checkbox--disabled):hover .vl-checkbox-box {
+  border-color: var(--color-primary);
+}
+.vl-checkbox-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
