@@ -1861,6 +1861,10 @@ ${aiSummaryBlock}
                   />
                 )}
               </div>
+              <label className="dt-inprogress-check">
+                <input type="checkbox" checked={mInProgress} onChange={e => setMInProgress(e.target.checked)} />
+                Still in progress, not done yet
+              </label>
               <div className="form-group">
                 <label className="form-label">Category</label>
                 <CategoryChips value={mCat} onChange={setMCat} categories={categories} />
@@ -1881,10 +1885,6 @@ ${aiSummaryBlock}
                   </div>
                 </div>
               </div>
-              <label className="dt-inprogress-check">
-                <input type="checkbox" checked={mInProgress} onChange={e => setMInProgress(e.target.checked)} />
-                Still in progress, not done yet
-              </label>
               <div className="form-group">
                 <label className="form-label">Notes (optional)</label>
                 <div className="dt-input-with-mic dt-input-with-mic--textarea">
