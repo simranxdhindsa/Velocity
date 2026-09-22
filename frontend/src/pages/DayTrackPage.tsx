@@ -16,12 +16,12 @@ import '../styles/pages/daytrack.css'
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const PALETTE = ['#6366f1','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ec4899','#f97316','#ef4444','#84cc16','#14b8a6']
-const DEFAULT_CATS = ['Development','Testing','Meetings','Breaks','Review','Research','Sign In','Sign Off']
+const DEFAULT_CATS = ['Development','In Progress','Testing','Meetings','Breaks','Review','Research','Sign In','Sign Off']
 const REPORT_EXCLUDED_CATS = new Set(['sign in', 'sign off', 'breaks'])
 
 function catColor(cat: string, cats: string[]): string {
   const fixed: Record<string,string> = {
-    Development: '#6366f1', Testing: '#10b981', Meetings: '#8b5cf6',
+    Development: '#6366f1', 'In Progress': '#3b82f6', Testing: '#10b981', Meetings: '#8b5cf6',
     Breaks: '#f59e0b', Review: '#06b6d4', Research: '#ec4899',
     'Sign In': '#22c55e', 'Sign Off': '#94a3b8',
   }
@@ -224,7 +224,7 @@ function CategoryChips({ value, onChange, categories }: {
       {categories.map(c => {
         const col = (() => {
           const fixed: Record<string,string> = {
-            Development: '#6366f1', Testing: '#10b981', Meetings: '#8b5cf6',
+            Development: '#6366f1', 'In Progress': '#3b82f6', Testing: '#10b981', Meetings: '#8b5cf6',
             Breaks: '#f59e0b', Review: '#06b6d4', Research: '#ec4899',
           }
           if (fixed[c]) return fixed[c]

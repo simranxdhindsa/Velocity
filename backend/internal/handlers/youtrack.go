@@ -4327,7 +4327,7 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 		scanDate = time.Now().Format("2006-01-02")
 	}
 
-	added, skipped, testedAdded, devAdded, err := h.scanYouTrackTicketsForUser(ctx, userID, scanDate)
+	added, skipped, testedAdded, devAdded, inProgressAdded, err := h.scanYouTrackTicketsForUser(ctx, userID, scanDate)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, errYTScanInvalidDate) || errors.Is(err, errYTScanNotConfigured) {
@@ -4338,7 +4338,7 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "added": added, "skipped": skipped, "tested": testedAdded, "developed": devAdded})
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "added": added, "skipped": skipped, "tested": testedAdded, "developed": devAdded, "in_progress": inProgressAdded})
 }
 
 var (
@@ -4350,29 +4350,29 @@ var (
 // from YouTrack and logs any new ones to DayTrack. Shared by the manual sync button (via
 // ScanYouTrackTickets above) and the DayTrack daily auto-send job, so an auto-sent update
 // reflects the same fresh YouTrack state a manual click would have pulled in first.
-func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID, scanDate string) (added, skipped, testedAdded, devAdded int, err error) {
+func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID, scanDate string) (added, skipped, testedAdded, devAdded, inProgressAdded int, err error) {
 	// Validate format
 	scanDay, parseErr := time.ParseInLocation("2006-01-02", scanDate, time.Local)
 	if parseErr != nil {
-		return 0, 0, 0, 0, errYTScanInvalidDate
+		return 0, 0, 0, 0, 0, errYTScanInvalidDate
 	}
 
 	ytClient, err := h.getYouTrackClientForUser(ctx, userID)
 	if err != nil || ytClient == nil {
 		log.Printf("[ScanYTTickets] YouTrack client unavailable: %v", err)
-		return 0, 0, 0, 0, errYTScanNotConfigured
+		return 0, 0, 0, 0, 0, errYTScanNotConfigured
 	}
 
 	// Identify this user in YouTrack by calling /api/users/me with their token
 	ytMe, err := ytClient.GetCurrentUser(ctx)
 	if err != nil || ytMe == nil {
 		log.Printf("[ScanYTTickets] GetCurrentUser failed: %v", err)
-		return 0, 0, 0, 0, fmt.Errorf("could not identify YouTrack user: %w", err)
+		return 0, 0, 0, 0, 0, fmt.Errorf("could not identify YouTrack user: %w", err)
 	}
 	issues, err := ytClient.GetIssuesCreatedToday(ctx, scanDate, "")
 	if err != nil {
 		log.Printf("[ScanYTTickets] GetIssuesCreatedToday error: %v", err)
-		return 0, 0, 0, 0, fmt.Errorf("YouTrack query failed: %w", err)
+		return 0, 0, 0, 0, 0, fmt.Errorf("YouTrack query failed: %w", err)
 	}
 
 	added = 0
@@ -4579,7 +4579,53 @@ func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID
 		}
 	}
 
-	return added, skipped, testedAdded, devAdded, nil
+	// ── "In Progress" snapshot ──────────────────────────────────────────────
+	// Unlike the created/tested/dev passes above (one-time events, deduped forever by
+	// external_ref), this is a live snapshot: whatever is sitting in the user's "In
+	// Progress"-role column right now, re-pulled fresh on every scan. The external_ref
+	// is scanDate-qualified so today's snapshot doesn't collide with yesterday's — a
+	// ticket still in progress tomorrow gets its own fresh entry tomorrow instead of
+	// silently vanishing from the report after day one.
+	if h.configRepo != nil {
+		var hierarchy []models.ColumnState
+		if wfCfg, cfgErr := h.configRepo.GetEffective(ctx, userID, "youtrack"); cfgErr == nil && wfCfg != nil {
+			hierarchy = wfCfg.ColumnHierarchy
+		}
+		activeStates := getStatesByRole("active", hierarchy)
+		if len(activeStates) == 0 {
+			activeStates = []string{"In Progress"} // fallback when no workflow config is set up yet
+		}
+		inProgressIssues, ipErr := ytClient.GetIssuesByAssigneeAndState(ctx, ytMe.Login, activeStates)
+		if ipErr != nil {
+			log.Printf("[ScanYTTickets] GetIssuesByAssigneeAndState error: %v", ipErr)
+		} else {
+			nowStr := time.Now().Format("3:04 PM")
+			for _, issue := range inProgressIssues {
+				issueID := issue.IDReadable
+				if issueID == "" {
+					issueID = issue.ID
+				}
+				entryName := issueID + ": " + issue.Summary
+				if len(entryName) > 120 {
+					entryName = entryName[:117] + "..."
+				}
+				extRef := "yt-inprogress-" + issueID + "-" + scanDate
+				entry, createErr := h.dayTrackRepo.CreateEntrySourced(ctx, userID, scanDate,
+					entryName, "In Progress",
+					nowStr, "", nil, "", "active", nil,
+					"youtrack", extRef)
+				if createErr != nil {
+					log.Printf("[ScanYTTickets] in-progress entry failed for %s: %v", issueID, createErr)
+					continue
+				}
+				if entry != nil {
+					inProgressAdded++
+				}
+			}
+		}
+	}
+
+	return added, skipped, testedAdded, devAdded, inProgressAdded, nil
 }
 
 // notifyBlocked fires a notification when a ticket moves to Blocked state.

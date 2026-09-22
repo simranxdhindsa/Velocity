@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-"mime/multipart"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"sort"
@@ -16,16 +16,16 @@ import (
 
 // Client is the YouTrack API client
 type Client struct {
-	baseURL            string
-	token              string
-	projectID          string
-	boardID            string
-	resolvedBoardID    string // auto-detected board, cached after first resolution
-	resolvedProjectID  string // internal DB id (e.g. "0-2"), resolved from shortName on first use
+	baseURL           string
+	token             string
+	projectID         string
+	boardID           string
+	resolvedBoardID   string // auto-detected board, cached after first resolution
+	resolvedProjectID string // internal DB id (e.g. "0-2"), resolved from shortName on first use
 	// issueFieldAnchor caches a single issue ID + field-name→field-ID map used
 	// by the possibleValues fallback (no admin rights needed).
-	issueFieldAnchor   *issueFieldAnchor
-	httpClient         *http.Client
+	issueFieldAnchor *issueFieldAnchor
+	httpClient       *http.Client
 }
 
 type issueFieldAnchor struct {
@@ -346,14 +346,14 @@ func (c *Client) GetToken() string {
 
 // Issue represents a YouTrack issue
 type Issue struct {
-	ID           string        `json:"id"`           // internal id e.g. "3-671"
-	IDReadable   string        `json:"idReadable"`   // human-readable e.g. "ARD-628" (Cloud format)
-	Summary      string        `json:"summary"`      // Issue title
-	Description  string        `json:"description"`  // Issue description
-	Created      int64         `json:"created"`      // Unix timestamp ms
-	Updated      int64         `json:"updated"`      // Unix timestamp ms
+	ID           string        `json:"id"`                 // internal id e.g. "3-671"
+	IDReadable   string        `json:"idReadable"`         // human-readable e.g. "ARD-628" (Cloud format)
+	Summary      string        `json:"summary"`            // Issue title
+	Description  string        `json:"description"`        // Issue description
+	Created      int64         `json:"created"`            // Unix timestamp ms
+	Updated      int64         `json:"updated"`            // Unix timestamp ms
 	Reporter     *User         `json:"reporter,omitempty"` // who created the issue
-	CustomFields []CustomField `json:"customFields"` // State, Subsystem, Priority, etc.
+	CustomFields []CustomField `json:"customFields"`       // State, Subsystem, Priority, etc.
 	Attachments  []Attachment  `json:"attachments,omitempty"`
 	Project      *Project      `json:"project,omitempty"`
 }
@@ -392,12 +392,12 @@ type Board struct {
 
 // Sprint represents a YouTrack agile sprint
 type Sprint struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Start       int64   `json:"start"`
-	Finish      int64   `json:"finish"`
-	IsCompleted bool    `json:"isCompleted"`
-	Agile       *Board  `json:"agile,omitempty"` // Board (agile) this sprint belongs to
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Start       int64  `json:"start"`
+	Finish      int64  `json:"finish"`
+	IsCompleted bool   `json:"isCompleted"`
+	Agile       *Board `json:"agile,omitempty"` // Board (agile) this sprint belongs to
 }
 
 // State represents a workflow state
@@ -1077,7 +1077,9 @@ func (c *Client) CountActiveIssuesByAssigneeInSprint(ctx context.Context, login,
 	if err != nil {
 		return 0, err
 	}
-	var issues []struct{ ID string `json:"id"` }
+	var issues []struct {
+		ID string `json:"id"`
+	}
 	if err := json.Unmarshal(body, &issues); err != nil {
 		return 0, err
 	}
@@ -1123,8 +1125,8 @@ func (c *Client) UpdateIssueState(ctx context.Context, issueID, newState string)
 	req := UpdateIssueRequest{
 		CustomFields: []CustomField{
 			{
-				Name:  "State",
-				Type:  "StateIssueCustomField",
+				Name: "State",
+				Type: "StateIssueCustomField",
 				Value: map[string]string{
 					"name":  newState,
 					"$type": "StateBundleElement",
@@ -1480,6 +1482,33 @@ func (c *Client) GetIssuesByState(ctx context.Context, states []string) ([]Issue
 	return issues, nil
 }
 
+// GetIssuesByAssigneeAndState returns issues currently assigned to a login whose current
+// state matches one of the given state names. Unlike GetIssuesCreatedToday/
+// GetIssuesUpdatedByUserToday, this is not date-scoped — it's a live snapshot of "what's
+// sitting in this column right now" (used for pulling a user's current In Progress tickets).
+func (c *Client) GetIssuesByAssigneeAndState(ctx context.Context, login string, states []string) ([]Issue, error) {
+	if login == "" || len(states) == 0 {
+		return nil, nil
+	}
+	stateFilters := make([]string, len(states))
+	for i, s := range states {
+		stateFilters[i] = "{" + s + "}"
+	}
+	query := fmt.Sprintf("project: %s Assignee: %s State: %s", c.projectID, login, strings.Join(stateFilters, ", "))
+	fields := "id,idReadable,summary,updated,customFields(name,value(name))"
+	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=200", fields, url.QueryEscape(query))
+
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetIssuesByAssigneeAndState: %w", err)
+	}
+	var issues []Issue
+	if err := json.Unmarshal(body, &issues); err != nil {
+		return nil, fmt.Errorf("GetIssuesByAssigneeAndState unmarshal: %w", err)
+	}
+	return issues, nil
+}
+
 // GetIssuesByStateForSprint returns issues in a sprint filtered by state using YouTrack's query API.
 // Uses sprint name in the query (e.g. "project: ARD sprint: {Sprint 1} State: {To Do}, {In Progress}").
 // This is more reliable than the agile endpoint when the board ID is uncertain.
@@ -1547,8 +1576,9 @@ func (c *Client) GetIssuesCreatedToday(ctx context.Context, date, reporterLogin 
 
 // WebhookEvent represents a YouTrack webhook event payload.
 // Supports two formats:
-//   Format A (YouTrack Cloud): {"author":{...}, "issue":{...}, "changes":[{"field":{"name":"State"},"from":"X","to":"Y"}]}
-//   Format B (self-hosted/older): {"type":"IssueEvent", "issue":{...}, "updater":{...}, "fieldChanges":[{"name":"State","oldValue":...,"newValue":...}]}
+//
+//	Format A (YouTrack Cloud): {"author":{...}, "issue":{...}, "changes":[{"field":{"name":"State"},"from":"X","to":"Y"}]}
+//	Format B (self-hosted/older): {"type":"IssueEvent", "issue":{...}, "updater":{...}, "fieldChanges":[{"name":"State","oldValue":...,"newValue":...}]}
 type WebhookEvent struct {
 	// Format A (YouTrack Cloud)
 	Author  *User           `json:"author"`
@@ -1567,11 +1597,11 @@ type WebhookEvent struct {
 
 // WebhookChange is the YouTrack Cloud webhook change format
 type WebhookChange struct {
-	Field    WebhookChangeField `json:"field"`
-	From     interface{}        `json:"from"` // string or object with "name"
-	To       interface{}        `json:"to"`   // string or object with "name"
-	Added    interface{}        `json:"added"`
-	Removed  interface{}        `json:"removed"`
+	Field   WebhookChangeField `json:"field"`
+	From    interface{}        `json:"from"` // string or object with "name"
+	To      interface{}        `json:"to"`   // string or object with "name"
+	Added   interface{}        `json:"added"`
+	Removed interface{}        `json:"removed"`
 }
 
 // WebhookChangeField identifies the changed field
@@ -1954,11 +1984,11 @@ type IssueLink struct {
 	Summary      string `json:"summary"`
 	State        string `json:"state"`
 	Resolved     bool   `json:"resolved"`
-	LinkType     string `json:"link_type,omitempty"`      // raw YT name e.g. "Relate"
-	Direction    string `json:"direction,omitempty"`       // "outward" | "inward"
-	DisplayLabel string `json:"display_label,omitempty"`  // e.g. "Relates to", "Depends on"
-	CommandKey   string `json:"command_key,omitempty"`    // command string for add/remove e.g. "relates to"
-	LinkID       string `json:"link_id,omitempty"`        // YT link-group ID
+	LinkType     string `json:"link_type,omitempty"`     // raw YT name e.g. "Relate"
+	Direction    string `json:"direction,omitempty"`     // "outward" | "inward"
+	DisplayLabel string `json:"display_label,omitempty"` // e.g. "Relates to", "Depends on"
+	CommandKey   string `json:"command_key,omitempty"`   // command string for add/remove e.g. "relates to"
+	LinkID       string `json:"link_id,omitempty"`       // YT link-group ID
 }
 
 // GetIssueLinks fetches YouTrack native "Relates To" links for an issue.
@@ -1981,8 +2011,8 @@ func (c *Client) GetIssueLinks(ctx context.Context, issueID string) ([]IssueLink
 			Summary    string   `json:"summary"`
 			Resolved   flexBool `json:"resolved"`
 			Fields     []struct {
-				Type  string          `json:"$type"`
-				Value json.RawMessage `json:"value"`
+				Type               string          `json:"$type"`
+				Value              json.RawMessage `json:"value"`
 				ProjectCustomField struct {
 					Field struct {
 						Name string `json:"name"`
@@ -2046,8 +2076,8 @@ func (c *Client) GetAllIssueLinks(ctx context.Context, issueID string) ([]IssueL
 			Summary    string   `json:"summary"`
 			Resolved   flexBool `json:"resolved"`
 			Fields     []struct {
-				Type  string          `json:"$type"`
-				Value json.RawMessage `json:"value"`
+				Type               string          `json:"$type"`
+				Value              json.RawMessage `json:"value"`
 				ProjectCustomField struct {
 					Field struct {
 						Name string `json:"name"`
@@ -2096,7 +2126,9 @@ func (c *Client) GetAllIssueLinks(ctx context.Context, issueID string) ([]IssueL
 			state := ""
 			for _, f := range issue.Fields {
 				if f.Type == "StateIssueCustomField" {
-					var v struct{ Name string `json:"name"` }
+					var v struct {
+						Name string `json:"name"`
+					}
 					if json.Unmarshal(f.Value, &v) == nil {
 						state = v.Name
 					}
