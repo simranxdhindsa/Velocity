@@ -1745,7 +1745,10 @@ ${aiSummaryBlock}
 
   const totalMins = entries.reduce((a, e) => a + (e.duration_mins ?? 0), 0)
   const completedCount = entries.filter(e => e.status === 'done').length
-  const pendingCount = planned.filter(p => p.when_type === 'today').length
+  // Pending = still-open work: in-progress entries already in Today's Log, plus
+  // anything planned for today that hasn't been started yet.
+  const pendingCount = entries.filter(e => e.status === 'active').length
+    + planned.filter(p => p.when_type === 'today').length
   const focusMins = entries
     .filter(e => !['Meetings','Breaks'].includes(e.category))
     .reduce((a, e) => a + (e.duration_mins ?? 0), 0)
