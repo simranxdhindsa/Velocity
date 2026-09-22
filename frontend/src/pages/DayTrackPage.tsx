@@ -1862,7 +1862,10 @@ ${aiSummaryBlock}
                 )}
               </div>
               <label className="dt-inprogress-check">
-                <input type="checkbox" checked={mInProgress} onChange={e => setMInProgress(e.target.checked)} />
+                <input type="checkbox" className="dt-inprogress-check-input" checked={mInProgress} onChange={e => setMInProgress(e.target.checked)} />
+                <span className="dt-inprogress-check-box">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
                 Still in progress, not done yet
               </label>
               <div className="form-group">

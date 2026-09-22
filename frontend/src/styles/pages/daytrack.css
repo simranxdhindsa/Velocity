@@ -300,18 +300,56 @@
 .dt-inprogress-check {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   margin: 4px 0 12px;
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
 }
-.dt-inprogress-check input[type="checkbox"] {
-  accent-color: var(--color-primary);
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
+.dt-inprogress-check-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+.dt-inprogress-check-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-elevated);
+  color: #fff;
+  transition: background-color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dt-inprogress-check-box svg {
+  transform: scale(0);
+  opacity: 0;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.12s ease;
+}
+.dt-inprogress-check-input:checked + .dt-inprogress-check-box {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.dt-inprogress-check-input:checked + .dt-inprogress-check-box svg {
+  transform: scale(1);
+  opacity: 1;
+}
+.dt-inprogress-check-input:focus-visible + .dt-inprogress-check-box {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.dt-inprogress-check:hover .dt-inprogress-check-box {
+  border-color: var(--color-primary);
 }
 .dt-time-wrap .form-input {
   padding-right: 56px;
