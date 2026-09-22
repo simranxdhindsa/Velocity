@@ -550,6 +550,10 @@ export function DayTrackPage() {
   const [destChanOpen, setDestChanOpen] = useState(false)
   const destChanRef = useRef<HTMLButtonElement>(null)
   const [destChanPos, setDestChanPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const autoSendChipRef = useRef<HTMLDivElement>(null)
+  const autoSendHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [autoSendHoverPos, setAutoSendHoverPos] = useState<{ top: number; left: number } | null>(null)
+  useEffect(() => () => { if (autoSendHoverTimer.current) clearTimeout(autoSendHoverTimer.current) }, [])
   const [posting, setPosting] = useState(false)
   const [slackPostStatus, setSlackPostStatus] = useState<{ posted: boolean; updated_at?: string } | null>(null)
   const [deletingPost, setDeletingPost] = useState(false)
@@ -1311,18 +1315,19 @@ export function DayTrackPage() {
     }
   }
 
-  function autoSendTooltip(): string {
+  function autoSendTooltipLines(): string[] {
     if (!slackCfg?.dest_channel_id) {
-      return 'Set a Destination Channel in settings first to turn on Auto Send.'
+      return ['Set a Destination Channel in settings first to turn on Auto Send.']
     }
     const channel = slackCfg.dest_channel_name ? `#${slackCfg.dest_channel_name}` : slackCfg.dest_channel_id
-    const lines = slackCfg.auto_send_enabled
-      ? [`Auto Send is on: today's update posts to ${channel} every day at 11:50 PM IST.`]
-      : [`Turn on to post today's update to ${channel} every day at 11:50 PM IST.`]
-    lines.push('Pulls the latest YouTrack tickets first, so it is always in sync.')
-    lines.push('Only sends today\'s entries, never a previous or future day.')
-    lines.push('The time is fixed and cannot be changed.')
-    return lines.join('\n')
+    return [
+      slackCfg.auto_send_enabled
+        ? `Auto Send is on, today's update posts to ${channel} every day at 11:50 PM IST.`
+        : `Turn on to post today's update to ${channel} every day at 11:50 PM IST.`,
+      'Pulls the latest YouTrack tickets first, so it is always in sync.',
+      'Only sends today\'s entries, never a previous or future day.',
+      'The time is fixed and cannot be changed.',
+    ]
   }
 
   async function toggleAutoSend(checked: boolean) {
@@ -1944,7 +1949,23 @@ ${aiSummaryBlock}
             style={{ marginRight: 4 }}>
             <YouTrackSyncIcon size={18} scanning={ytScanning} />
           </button>
-          <div className="dt-autosend-chip" title={autoSendTooltip()}>
+          <div
+            className="dt-autosend-chip"
+            ref={autoSendChipRef}
+            onMouseEnter={() => {
+              if (autoSendHoverTimer.current) clearTimeout(autoSendHoverTimer.current)
+              autoSendHoverTimer.current = setTimeout(() => {
+                if (autoSendChipRef.current) {
+                  const r = autoSendChipRef.current.getBoundingClientRect()
+                  setAutoSendHoverPos({ top: r.bottom + 6, left: r.left })
+                }
+              }, 150)
+            }}
+            onMouseLeave={() => {
+              if (autoSendHoverTimer.current) clearTimeout(autoSendHoverTimer.current)
+              setAutoSendHoverPos(null)
+            }}
+          >
             <SmoothToggle
               checked={!!slackCfg?.auto_send_enabled}
               disabled={!slackCfg || !slackCfg.dest_channel_id}
@@ -1952,6 +1973,14 @@ ${aiSummaryBlock}
             />
             <span className="dt-autosend-chip-label">Auto Send</span>
           </div>
+          {autoSendHoverPos && createPortal(
+            <div className="hc-card hc-card--below" style={{ position: 'fixed', top: autoSendHoverPos.top, left: autoSendHoverPos.left, maxWidth: 300, zIndex: 10000 }}>
+              <ul className="hc-bullet-list">
+                {autoSendTooltipLines().map((line, i) => <li key={i}>{line}</li>)}
+              </ul>
+            </div>,
+            document.body
+          )}
           {slackPostStatus?.posted && slackPostStatus.updated_at && (
             <button
               className="dt-slack-posted-delete"

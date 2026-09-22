@@ -51,6 +51,18 @@
   margin-bottom: 8px;
 }
 
+.hc-bullet-list {
+  margin: 0;
+  padding-left: 16px;
+  list-style: disc;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.hc-bullet-list li {
+  line-height: 1.4;
+}
+
 /* ── Row ── */
 .hc-row {
   display: flex;
