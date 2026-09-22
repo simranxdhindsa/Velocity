@@ -3,12 +3,20 @@
 ## 2026-09-22
 
 ### Features
+- drag tasks between Today's Log and Planned & Carry Over, same drag pattern as the Kanban board
 - pull each user's current In Progress YouTrack tickets into Day Track automatically, and add In Progress as a manual entry category
 - add a delete button on the Day Track Slack post pill to undo a mistaken send
 
 
 ### Enhancements
+- instant optimistic UI for Day Track drag/carry/start, with rollback animation on failure
+- make in-progress rows in Today's Log clearly stand out, pulsing dot, "In Progress" label instead of "active", left-accent row tint
+- replace native "Still in progress" checkbox with a custom animated one that matches both themes
+- move the "Still in progress" checkbox above Category, right below Task Name
 - refine Day Track delete-post UI (bigger, clearer bin icon, no wrap) and handle already-deleted Slack messages gracefully
+
+### Bug Fixes
+- make "In Progress" a status, not a category, so finishing a task or carrying it forward no longer needs a manual category change
 
 ## 2026-09-21
 
