@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-22
+
+### Features
+- pull each user's current In Progress YouTrack tickets into Day Track automatically, and add In Progress as a manual entry category
+- add a delete button on the Day Track Slack post pill to undo a mistaken send
+
+
+### Enhancements
+- refine Day Track delete-post UI (bigger, clearer bin icon, no wrap) and handle already-deleted Slack messages gracefully
+
 ## 2026-09-21
 
 ### Enhancements
