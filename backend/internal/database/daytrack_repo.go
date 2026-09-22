@@ -291,6 +291,45 @@ func (r *DayTrackRepository) CreatePlanned(ctx context.Context, userID, date, na
 	return &p, err
 }
 
+// UpsertInProgressPlanned refreshes the single Planned & Carry Over row that tracks a
+// YouTrack ticket currently in progress — one row per ticket, not one per day. Unlike
+// CreatePlanned's DO NOTHING dedup, this bumps entry_date to today on every scan so a
+// ticket that's been open for a week still shows as "today's" open work, without piling
+// up a duplicate row per day. Pair with PruneStaleInProgressPlanned so a ticket that's
+// moved on gets removed instead of lingering forever.
+func (r *DayTrackRepository) UpsertInProgressPlanned(ctx context.Context, userID, date, name, category, scheduledTime, startTime, externalRef, youtrackIssueID string) (*DayTrackPlanned, error) {
+	pool := GetPool()
+	var p DayTrackPlanned
+	err := pool.QueryRow(ctx,
+		`INSERT INTO daytrack_planned (user_id, entry_date, name, category, scheduled_time, start_time, when_type, status, entry_source, external_ref, youtrack_issue_id)
+		 VALUES ($1, $2::date, $3, $4, $5, $6, 'today', 'in_progress', 'youtrack', $7, $8)
+		 ON CONFLICT (user_id, external_ref) WHERE external_ref IS NOT NULL AND external_ref != ''
+		 DO UPDATE SET entry_date=$2::date, name=$3, category=$4, scheduled_time=$5, start_time=$6, updated_at=NOW()
+		 RETURNING id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
+		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status,
+		           COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id, created_at, updated_at`,
+		userID, date, name, category, nullStr(scheduledTime), nullStr(startTime), externalRef, youtrackIssueID,
+	).Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
+		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
+		&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID, &p.CreatedAt, &p.UpdatedAt)
+	return &p, err
+}
+
+// PruneStaleInProgressPlanned deletes Planned & Carry Over rows for YouTrack tickets that
+// are no longer in an in-progress state — e.g. the user moved the ticket to Dev directly
+// in YouTrack, bypassing the drag-to-Today's-Log flow that would normally clean this up.
+// stillOpenIssueIDs is the current, live "still in progress" list from this scan; anything
+// tracked as in_progress whose issue ID isn't in that list gets removed.
+func (r *DayTrackRepository) PruneStaleInProgressPlanned(ctx context.Context, userID string, stillOpenIssueIDs []string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx,
+		`DELETE FROM daytrack_planned
+		 WHERE user_id=$1 AND entry_source='youtrack' AND status='in_progress'
+		   AND (youtrack_issue_id IS NULL OR NOT (youtrack_issue_id = ANY($2)))`,
+		userID, stillOpenIssueIDs)
+	return err
+}
+
 func (r *DayTrackRepository) UpdatePlanned(ctx context.Context, id, userID, name, category, scheduledTime, startTime, endTime, whenType, notes, status string) (*DayTrackPlanned, error) {
 	pool := GetPool()
 	var p DayTrackPlanned

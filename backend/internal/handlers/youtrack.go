@@ -4585,12 +4585,15 @@ func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID
 	// Progress"-role column right now, re-pulled fresh on every scan. It goes into
 	// Planned & Carry Over (not Today's Log) since it isn't finished work yet — the
 	// user drags it into Today's Log to actually resume it (see startPlanned on the
-	// frontend, which also moves the ticket to Dev in YouTrack at that point). The
-	// external_ref is scanDate-qualified so today's snapshot doesn't collide with
-	// yesterday's — a ticket still in progress tomorrow gets its own fresh planned
-	// item tomorrow instead of silently vanishing after day one. It still reaches the
-	// Slack report because postDayTrackUpdate also pulls youtrack-sourced Planned
-	// items into the report's "In Progress" section (see daytrack_handler.go).
+	// frontend, which also moves the ticket to Dev in YouTrack at that point). One row
+	// per ticket (external_ref is NOT date-qualified) — each scan just bumps its
+	// entry_date to today via UpsertInProgressPlanned, so a ticket open for a week
+	// shows as current without piling up a duplicate row per day, and a ticket that's
+	// moved on (including the user moving it in YouTrack directly, bypassing the drag
+	// flow entirely) gets removed by PruneStaleInProgressPlanned below instead of
+	// lingering forever. It still reaches the Slack report because postDayTrackUpdate
+	// also pulls youtrack-sourced Planned items into the report's "In Progress"
+	// section (see daytrack_handler.go).
 	if h.configRepo != nil {
 		var hierarchy []models.ColumnState
 		if wfCfg, cfgErr := h.configRepo.GetEffective(ctx, userID, "youtrack"); cfgErr == nil && wfCfg != nil {
@@ -4605,27 +4608,30 @@ func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID
 			log.Printf("[ScanYTTickets] GetIssuesByAssigneeAndState error: %v", ipErr)
 		} else {
 			nowStr := time.Now().Format("3:04 PM")
+			openIssueIDs := make([]string, 0, len(inProgressIssues))
 			for _, issue := range inProgressIssues {
 				issueID := issue.IDReadable
 				if issueID == "" {
 					issueID = issue.ID
 				}
+				openIssueIDs = append(openIssueIDs, issueID)
 				entryName := issueID + ": " + issue.Summary
 				if len(entryName) > 120 {
 					entryName = entryName[:117] + "..."
 				}
-				extRef := "yt-inprogress-" + issueID + "-" + scanDate
-				issueIDCopy := issueID
-				planned, createErr := h.dayTrackRepo.CreatePlanned(ctx, userID, scanDate,
-					entryName, "Development", nowStr, nowStr, "", "today", "", "in_progress",
-					"youtrack", extRef, &issueIDCopy)
-				if createErr != nil {
-					log.Printf("[ScanYTTickets] in-progress planned item failed for %s: %v", issueID, createErr)
+				extRef := "yt-inprogress-" + issueID
+				planned, upsertErr := h.dayTrackRepo.UpsertInProgressPlanned(ctx, userID, scanDate,
+					entryName, "Development", nowStr, nowStr, extRef, issueID)
+				if upsertErr != nil {
+					log.Printf("[ScanYTTickets] in-progress planned item failed for %s: %v", issueID, upsertErr)
 					continue
 				}
 				if planned != nil {
 					inProgressAdded++
 				}
+			}
+			if pruneErr := h.dayTrackRepo.PruneStaleInProgressPlanned(ctx, userID, openIssueIDs); pruneErr != nil {
+				log.Printf("[ScanYTTickets] failed to prune stale in-progress planned items: %v", pruneErr)
 			}
 		}
 	}
