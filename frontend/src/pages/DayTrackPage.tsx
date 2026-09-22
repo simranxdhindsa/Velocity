@@ -5,6 +5,7 @@ import {
   PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { dayTrackApi, api, type DayTrackEntry, type DayTrackPlanned, type DayTrackSlackConfig, type DayTrackKWRule, DEFAULT_KEYWORD_RULES } from '../services/api'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { useYouTrackEvents } from '../services/useYouTrackEvents'
@@ -2045,7 +2046,7 @@ ${aiSummaryBlock}
       </div>
 
       {/* Main Grid */}
-      <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext sensors={dndSensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="dt-grid">
 
         {/* LEFT COLUMN */}
