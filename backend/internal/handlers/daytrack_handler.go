@@ -762,9 +762,15 @@ func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName str
 			continue
 		}
 
-		// yt-tested entries live in Testing category in DB; separate them here
+		// Grouped by status, not category: an unfinished (active) item belongs in
+		// "In Progress" regardless of what category it's tagged with, and it moves
+		// itself into that category's normal section the moment it's actually marked
+		// done — no manual re-tagging needed, and carrying it to another day doesn't
+		// leave it stuck looking like a permanent "In Progress" category.
 		sec := e.Category
-		if strings.HasPrefix(e.ExternalRef, "yt-tested-") {
+		if e.Status == "active" {
+			sec = "In Progress"
+		} else if strings.HasPrefix(e.ExternalRef, "yt-tested-") {
 			sec = "Tickets Tested"
 		} else if sec == "Tickets" {
 			sec = "Tickets Created" // legacy category name from older YouTrack sync

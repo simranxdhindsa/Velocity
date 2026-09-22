@@ -16,12 +16,12 @@ import '../styles/pages/daytrack.css'
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const PALETTE = ['#6366f1','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ec4899','#f97316','#ef4444','#84cc16','#14b8a6']
-const DEFAULT_CATS = ['Development','In Progress','Testing','Meetings','Breaks','Review','Research','Sign In','Sign Off']
+const DEFAULT_CATS = ['Development','Testing','Meetings','Breaks','Review','Research','Sign In','Sign Off']
 const REPORT_EXCLUDED_CATS = new Set(['sign in', 'sign off', 'breaks'])
 
 function catColor(cat: string, cats: string[]): string {
   const fixed: Record<string,string> = {
-    Development: '#6366f1', 'In Progress': '#3b82f6', Testing: '#10b981', Meetings: '#8b5cf6',
+    Development: '#6366f1', Testing: '#10b981', Meetings: '#8b5cf6',
     Breaks: '#f59e0b', Review: '#06b6d4', Research: '#ec4899',
     'Sign In': '#22c55e', 'Sign Off': '#94a3b8',
   }
@@ -224,7 +224,7 @@ function CategoryChips({ value, onChange, categories }: {
       {categories.map(c => {
         const col = (() => {
           const fixed: Record<string,string> = {
-            Development: '#6366f1', 'In Progress': '#3b82f6', Testing: '#10b981', Meetings: '#8b5cf6',
+            Development: '#6366f1', Testing: '#10b981', Meetings: '#8b5cf6',
             Breaks: '#f59e0b', Review: '#06b6d4', Research: '#ec4899',
           }
           if (fixed[c]) return fixed[c]
@@ -507,6 +507,7 @@ export function DayTrackPage() {
   const [mStart, setMStart] = useState(_draft?.mStart ?? '')
   const [mEnd, setMEnd] = useState(_draft?.mEnd ?? '')
   const [mNotes, setMNotes] = useState(_draft?.mNotes ?? '')
+  const [mInProgress, setMInProgress] = useState(false)
 
   // Paste-to-split: pasting 2+ lines into the task-name or subtask-name input
   // prompts to create one entry per line instead of collapsing them into one.
@@ -719,7 +720,8 @@ export function DayTrackPage() {
 
   async function addManualEntry() {
     if (!mName.trim()) { toast('Enter a task name', 'warn'); return }
-    const dur = calcDuration(mStart, mEnd)
+    const endTime = mInProgress ? '' : mEnd
+    const dur = calcDuration(mStart, endTime)
     const name = mName.trim()
     try {
       const created = await dayTrackApi.createEntry({
@@ -727,13 +729,13 @@ export function DayTrackPage() {
         name,
         category: mCat || categories[0] || 'General',
         start_time: mStart,
-        end_time: mEnd,
+        end_time: endTime,
         duration_mins: dur,
         notes: mNotes,
-        status: (mStart && mEnd) ? 'done' : 'active',
+        status: mInProgress ? 'active' : (mStart && endTime) ? 'done' : 'active',
       })
-      const nextStart = mEnd ? addMinute(mEnd) : ''
-      setMName(''); setMStart(nextStart); setMEnd(''); setMNotes('')
+      const nextStart = endTime ? addMinute(endTime) : ''
+      setMName(''); setMStart(nextStart); setMEnd(''); setMNotes(''); setMInProgress(false)
       clearDraft()
       setEntries(prev => [...prev, created])
       dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
@@ -1874,11 +1876,15 @@ ${aiSummaryBlock}
                 <div className="form-group">
                   <label className="form-label">End Time</label>
                   <div className="dt-time-wrap">
-                    <input className="form-input" type="time" value={to24h(mEnd)} onChange={e => setMEnd(to12h(e.target.value))} />
-                    <button className="dt-now-btn" onClick={() => setMEnd(nowHHMM())}>Now</button>
+                    <input className="form-input" type="time" value={to24h(mEnd)} onChange={e => setMEnd(to12h(e.target.value))} disabled={mInProgress} />
+                    <button className="dt-now-btn" onClick={() => setMEnd(nowHHMM())} disabled={mInProgress}>Now</button>
                   </div>
                 </div>
               </div>
+              <label className="dt-inprogress-check">
+                <input type="checkbox" checked={mInProgress} onChange={e => setMInProgress(e.target.checked)} />
+                Still in progress, not done yet
+              </label>
               <div className="form-group">
                 <label className="form-label">Notes (optional)</label>
                 <div className="dt-input-with-mic dt-input-with-mic--textarea">

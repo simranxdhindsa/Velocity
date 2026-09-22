@@ -4610,8 +4610,12 @@ func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID
 					entryName = entryName[:117] + "..."
 				}
 				extRef := "yt-inprogress-" + issueID + "-" + scanDate
+				// Category is "Development" (its real classification) — status "active" is
+				// what puts it in the report's "In Progress" section (see
+				// daytracBuildSlackSections), so it falls into its normal section on its own
+				// once the ticket is actually finished, with no manual re-tagging needed.
 				entry, createErr := h.dayTrackRepo.CreateEntrySourced(ctx, userID, scanDate,
-					entryName, "In Progress",
+					entryName, "Development",
 					nowStr, "", nil, "", "active", nil,
 					"youtrack", extRef)
 				if createErr != nil {
