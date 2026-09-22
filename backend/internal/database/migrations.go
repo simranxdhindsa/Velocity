@@ -1649,6 +1649,11 @@ STRICT RULES
 		`ALTER TABLE daytrack_planned ADD COLUMN IF NOT EXISTS entry_source VARCHAR(50) NOT NULL DEFAULT 'manual'`,
 		`ALTER TABLE daytrack_planned ADD COLUMN IF NOT EXISTS external_ref VARCHAR(255)`,
 		`ALTER TABLE daytrack_planned ADD COLUMN IF NOT EXISTS youtrack_issue_id VARCHAR(50)`,
+		// Dedup YouTrack-sourced planned items the same way daytrack_entries does, so
+		// re-running the "In Progress" scan doesn't create a duplicate row per day.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_daytrack_planned_external_ref_unique
+		 ON daytrack_planned(user_id, external_ref)
+		 WHERE external_ref IS NOT NULL AND external_ref != ''`,
 	}
 
 	for i, migration := range migrations {

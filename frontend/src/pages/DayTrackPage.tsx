@@ -109,8 +109,17 @@ function minsLabel(m: number | null | undefined): string {
   return h > 0 ? `${h}h ${min}m` : `${min}m`
 }
 
+function truncateChannel(name: string, maxLen = 16): string {
+  return name.length > maxLen ? name.slice(0, maxLen) + '…' : name
+}
+
 function statusLabel(status: string): string {
   return status === 'active' ? 'In Progress' : status
+}
+
+function plannedStatusLabel(status: string): string {
+  const map: Record<string, string> = { in_progress: 'In Progress', carry: 'Carried Over', planned: 'Planned' }
+  return map[status] ?? status
 }
 
 function dtRelativeTime(iso: string): string {
@@ -1964,10 +1973,10 @@ ${aiSummaryBlock}
               ? 'Posting…'
               : slackPostStatus?.posted
               ? slackCfg?.dest_channel_id
-                ? `Update in #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}`
+                ? `Update in #${truncateChannel(slackCfg.dest_channel_name || slackCfg.dest_channel_id)}`
                 : 'Update in Slack'
               : slackCfg?.dest_channel_id
-              ? `Post to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}`
+              ? `Post to #${truncateChannel(slackCfg.dest_channel_name || slackCfg.dest_channel_id)}`
               : 'Post to Slack'}
           </button>
           <button className="dt-header-settings-btn" title="Slack auto-log settings"
@@ -2516,7 +2525,7 @@ ${aiSummaryBlock}
                             {whenLabel}
                           </span>
                         </td>
-                        <td><span className="dt-status dt-status--planned">{p.status}</span></td>
+                        <td><span className="dt-status dt-status--planned">{plannedStatusLabel(p.status)}</span></td>
                         <td>
                           <div className="dt-td-actions">
                             <button className="dt-icon-btn dt-icon-btn-start" onClick={() => startPlanned(p)} title="Start this task now">

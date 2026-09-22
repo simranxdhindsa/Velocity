@@ -4582,10 +4582,15 @@ func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID
 	// ── "In Progress" snapshot ──────────────────────────────────────────────
 	// Unlike the created/tested/dev passes above (one-time events, deduped forever by
 	// external_ref), this is a live snapshot: whatever is sitting in the user's "In
-	// Progress"-role column right now, re-pulled fresh on every scan. The external_ref
-	// is scanDate-qualified so today's snapshot doesn't collide with yesterday's — a
-	// ticket still in progress tomorrow gets its own fresh entry tomorrow instead of
-	// silently vanishing from the report after day one.
+	// Progress"-role column right now, re-pulled fresh on every scan. It goes into
+	// Planned & Carry Over (not Today's Log) since it isn't finished work yet — the
+	// user drags it into Today's Log to actually resume it (see startPlanned on the
+	// frontend, which also moves the ticket to Dev in YouTrack at that point). The
+	// external_ref is scanDate-qualified so today's snapshot doesn't collide with
+	// yesterday's — a ticket still in progress tomorrow gets its own fresh planned
+	// item tomorrow instead of silently vanishing after day one. It still reaches the
+	// Slack report because postDayTrackUpdate also pulls youtrack-sourced Planned
+	// items into the report's "In Progress" section (see daytrack_handler.go).
 	if h.configRepo != nil {
 		var hierarchy []models.ColumnState
 		if wfCfg, cfgErr := h.configRepo.GetEffective(ctx, userID, "youtrack"); cfgErr == nil && wfCfg != nil {
@@ -4610,19 +4615,15 @@ func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID
 					entryName = entryName[:117] + "..."
 				}
 				extRef := "yt-inprogress-" + issueID + "-" + scanDate
-				// Category is "Development" (its real classification) — status "active" is
-				// what puts it in the report's "In Progress" section (see
-				// daytracBuildSlackSections), so it falls into its normal section on its own
-				// once the ticket is actually finished, with no manual re-tagging needed.
-				entry, createErr := h.dayTrackRepo.CreateEntrySourced(ctx, userID, scanDate,
-					entryName, "Development",
-					nowStr, "", nil, "", "active", nil,
-					"youtrack", extRef)
+				issueIDCopy := issueID
+				planned, createErr := h.dayTrackRepo.CreatePlanned(ctx, userID, scanDate,
+					entryName, "Development", nowStr, nowStr, "", "today", "", "in_progress",
+					"youtrack", extRef, &issueIDCopy)
 				if createErr != nil {
-					log.Printf("[ScanYTTickets] in-progress entry failed for %s: %v", issueID, createErr)
+					log.Printf("[ScanYTTickets] in-progress planned item failed for %s: %v", issueID, createErr)
 					continue
 				}
-				if entry != nil {
+				if planned != nil {
 					inProgressAdded++
 				}
 			}

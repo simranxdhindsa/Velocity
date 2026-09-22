@@ -838,6 +838,38 @@ func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, 
 	entries = h.pruneDeletedYouTrackEntries(ctx, userID, entries)
 
 	ownerUpdate := daytracBuildSlackSections(entries, "")
+
+	// YouTrack-sourced "In Progress" tickets live in Planned & Carry Over (not Today's
+	// Log — see the scan in youtrack.go), but they still belong in the report's In
+	// Progress section so a currently-open ticket isn't silently missing from the
+	// update just because nobody has dragged it into Today's Log yet.
+	if planned, plErr := h.repo.GetPlanned(ctx, userID, date); plErr == nil {
+		var inProgressItems []string
+		for _, p := range planned {
+			if p.EntrySource != "youtrack" {
+				continue
+			}
+			item := p.Name
+			if p.Notes != "" {
+				item += " — " + p.Notes
+			}
+			inProgressItems = append(inProgressItems, item)
+		}
+		if len(inProgressItems) > 0 {
+			merged := false
+			for i, sec := range ownerUpdate.Sections {
+				if sec.Label == "In Progress" {
+					ownerUpdate.Sections[i].Items = append(ownerUpdate.Sections[i].Items, inProgressItems...)
+					merged = true
+					break
+				}
+			}
+			if !merged {
+				ownerUpdate.Sections = append([]UpdateSection{{Label: "In Progress", Items: inProgressItems}}, ownerUpdate.Sections...)
+			}
+		}
+	}
+
 	ownerUpdate.IsOwner = true
 	if len(ownerUpdate.Sections) == 0 {
 		return false, errDayTrackNoEntries

@@ -273,6 +273,8 @@ func (r *DayTrackRepository) CreatePlanned(ctx context.Context, userID, date, na
 	err := pool.QueryRow(ctx,
 		`INSERT INTO daytrack_planned (user_id, entry_date, name, category, scheduled_time, start_time, end_time, when_type, notes, status, entry_source, external_ref, youtrack_issue_id)
 		 VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		 ON CONFLICT (user_id, external_ref) WHERE external_ref IS NOT NULL AND external_ref != ''
+		 DO NOTHING
 		 RETURNING id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
 		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status,
 		           COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id, created_at, updated_at`,
@@ -281,6 +283,11 @@ func (r *DayTrackRepository) CreatePlanned(ctx context.Context, userID, date, na
 	).Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
 		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
 		&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID, &p.CreatedAt, &p.UpdatedAt)
+	// pgx returns "no rows in result set" when DO NOTHING skips the insert (a dedup
+	// hit, e.g. the same YouTrack ticket already pulled in today) — treat as success.
+	if err != nil && err.Error() == "no rows in result set" {
+		return nil, nil
+	}
 	return &p, err
 }
 
