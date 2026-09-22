@@ -16,6 +16,7 @@
 - refine Day Track delete-post UI (bigger, clearer bin icon, no wrap) and handle already-deleted Slack messages gracefully
 
 ### Bug Fixes
+- manual entries with no end time were always marked In Progress even with the "Still in progress" checkbox left unchecked
 - make "In Progress" a status, not a category, so finishing a task or carrying it forward no longer needs a manual category change
 
 ## 2026-09-21
