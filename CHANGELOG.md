@@ -9,6 +9,9 @@
 
 
 ### Enhancements
+- replace native title tooltip on Auto Send chip with a fast, bulleted hover card anchored to the chip
+- disable Sign In/Sign Off/Breaks categories when "Still in progress" is checked
+- keep the Day Track header bar on one line, force nowrap and trim the posted-status indicator down to a single icon button instead of a separate pill+dot; shorten the subtitle to "Daily Time Log"
 - instant optimistic UI for Day Track drag/carry/start, with rollback animation on failure
 - make in-progress rows in Today's Log clearly stand out, pulsing dot, "In Progress" label instead of "active", left-accent row tint
 - replace native "Still in progress" checkbox with a custom animated one that matches both themes
@@ -16,6 +19,7 @@
 - refine Day Track delete-post UI (bigger, clearer bin icon, no wrap) and handle already-deleted Slack messages gracefully
 
 ### Bug Fixes
+- auto-pulled YouTrack "In Progress" tickets now land in Planned & Carry Over, not Today's Log
 - manual entries with no end time were always marked In Progress even with the "Still in progress" checkbox left unchecked
 - make "In Progress" a status, not a category, so finishing a task or carrying it forward no longer needs a manual category change
 
