@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-23
+
+### Bug Fixes
+- manually-created and carried-over in-progress items disappeared from Planned & Carry Over the next day
+- stale In Progress tickets never left Planned & Carry Over when moved to Dev directly in YouTrack
+- enforce a strict invariant, Today's Log is done-only, Planned & Carry Over is not-done-only
+- Day Track drag was free-floating horizontally too, restrict it to vertical movement only
+- Pending stat pill ignored in-progress entries already sitting in Today's Log
+
+
 ## 2026-09-22
 
 ### Features
