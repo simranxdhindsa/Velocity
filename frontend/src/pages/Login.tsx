@@ -172,7 +172,7 @@ export default function Login() {
             Welcome Back
           </h2>
           <p className="login-card-description">
-            Sign in with your organization Google account
+            Sign in with your organization's Google account
           </p>
 
           <div className="login-button-container">
