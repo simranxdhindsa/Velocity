@@ -187,8 +187,8 @@
 
 /* ── Theme toggle button ─────────────────────────────────── */
 .login-theme-toggle {
-  position: absolute;
-  bottom: 1.25rem;
+  position: fixed;
+  top: 1.25rem;
   right: 1.25rem;
   z-index: 20;
   width: 40px;
