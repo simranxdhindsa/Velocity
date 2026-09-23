@@ -3,12 +3,19 @@
 ## 2026-09-23
 
 ### Bug Fixes
+- login page theme toggle sat at the bottom and scrolled away with the page, pin it to the top-right corner
+- dragging in Day Track hijacked scroll on mobile, disable drag below 769px and rely on the Carry/Start buttons there
 - manually-created and carried-over in-progress items disappeared from Planned & Carry Over the next day
 - stale In Progress tickets never left Planned & Carry Over when moved to Dev directly in YouTrack
 - enforce a strict invariant, Today's Log is done-only, Planned & Carry Over is not-done-only
 - Day Track drag was free-floating horizontally too, restrict it to vertical movement only
 - Pending stat pill ignored in-progress entries already sitting in Today's Log
 
+
+### Enhancements
+- fix apostrophe, "organization's Google account"
+- change login copy "company Google account" to "organization Google account"
+- contain Day Track page width on mobile so it can't force the whole page to zoom out
 
 ## 2026-09-22
 
