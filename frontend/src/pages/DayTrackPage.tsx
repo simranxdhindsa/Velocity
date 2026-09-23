@@ -252,29 +252,51 @@ function MonthPicker({ value, onChange }: { value: string; onChange: (m: string)
 // CalendarPicker is imported from src/components/CalendarPicker.tsx
 
 // ── Drag and drop: Today's Log <-> Planned & Carry Over ─────────────────────────
+// Desktop/tablet only (see useIsDesktopWidth below) — on touch devices, a vertical
+// swipe to scroll the table is indistinguishable from a drag gesture, and disabling
+// drag there costs nothing since the Carry/Start action buttons already do the exact
+// same move. Below the breakpoint these render as inert, ordinary rows/tbody: the
+// underlying useDraggable/useDroppable calls stay (Rules of Hooks), just disabled.
+function useIsDesktopWidth(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 769px)').matches : true
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 769px)')
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return isDesktop
+}
+
 // Row-level draggable wrapper. Whole-row drag handle (like the Kanban board's task
 // cards) — dnd-kit's PointerSensor activation distance means ordinary clicks on the
 // row's own Edit/Carry/Delete buttons still register as clicks, not drags.
-function DraggableRow({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id })
+function DraggableRow({ id, className, children, dragEnabled }: { id: string; className?: string; children: React.ReactNode; dragEnabled: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id, disabled: !dragEnabled })
   const style: React.CSSProperties = {
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     opacity: isDragging ? 0.35 : 1,
-    cursor: 'grab',
-    touchAction: 'none',
+    cursor: dragEnabled ? 'grab' : undefined,
+    // touch-action: none tells the browser to stop handling touch gestures on this
+    // element at all (including scroll) so dnd-kit can take over — only safe to set
+    // while drag is actually enabled; leaving it on unconditionally is what broke
+    // scrolling on mobile.
+    touchAction: dragEnabled ? 'none' : undefined,
     position: isDragging ? 'relative' : undefined,
     zIndex: isDragging ? 10 : undefined,
   }
   return (
-    <tr ref={setNodeRef} style={style} className={className} {...attributes} {...listeners}>
+    <tr ref={setNodeRef} style={style} className={className} {...(dragEnabled ? { ...attributes, ...listeners } : {})}>
       {children}
     </tr>
   )
 }
 
 // Droppable target wrapping a table body — highlights while something is dragged over it.
-function DroppableTBody({ id, children }: { id: string; children: React.ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id })
+function DroppableTBody({ id, children, dropEnabled }: { id: string; children: React.ReactNode; dropEnabled: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id, disabled: !dropEnabled })
   return (
     <tbody ref={setNodeRef} className={isOver ? 'dt-drop-target-active' : undefined}>
       {children}
@@ -975,6 +997,7 @@ export function DayTrackPage() {
 
   // ── Drag and drop: Today's Log <-> Planned & Carry Over ───────────────────────
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const isDesktopDrag = useIsDesktopWidth()
   const [draggedLabel, setDraggedLabel] = useState<string | null>(null)
   // Row ids currently playing the "bounced back after a failed move" animation.
   const [rollbackIds, setRollbackIds] = useState<Set<string>>(new Set())
@@ -2396,7 +2419,7 @@ ${aiSummaryBlock}
                       <th>Duration</th><th>Status</th><th>Actions</th>
                     </tr>
                   </thead>
-                  <DroppableTBody id="today-zone">
+                  <DroppableTBody id="today-zone" dropEnabled={isDesktopDrag}>
                     {parentEntries.length === 0 ? (
                       <tr><td colSpan={7}>
                         <div className="dt-empty">
@@ -2425,7 +2448,7 @@ ${aiSummaryBlock}
                       const displayDur = subs.length > 0 && subDurTotal > 0 ? subDurTotal : e.duration_mins
                       return (
                         <>
-                          <DraggableRow key={e.id} id={`entry-${e.id}`} className={[e.status === 'active' ? 'dt-row-inprogress' : '', rollbackIds.has(e.id) ? 'dt-row-rollback' : '', e.id.startsWith('temp-') ? 'dt-row-syncing' : ''].filter(Boolean).join(' ') || undefined}>
+                          <DraggableRow key={e.id} id={`entry-${e.id}`} dragEnabled={isDesktopDrag} className={[e.status === 'active' ? 'dt-row-inprogress' : '', rollbackIds.has(e.id) ? 'dt-row-rollback' : '', e.id.startsWith('temp-') ? 'dt-row-syncing' : ''].filter(Boolean).join(' ') || undefined}>
                             <td className="dt-td-name">
                               <div className="dt-td-name-row">
                                 <button
@@ -2600,7 +2623,7 @@ ${aiSummaryBlock}
                     <th>Task</th><th>Category</th><th>Scheduled</th><th>For</th><th>Status</th><th>Actions</th>
                   </tr>
                 </thead>
-                <DroppableTBody id="planned-zone">
+                <DroppableTBody id="planned-zone" dropEnabled={isDesktopDrag}>
                   {planned.length === 0 ? (
                     <tr><td colSpan={6}>
                       <div className="dt-empty">
@@ -2617,7 +2640,7 @@ ${aiSummaryBlock}
                     const whenColor = p.when_type === 'tomorrow' ? 'var(--color-warning)' : 'var(--color-primary-light)'
                     const whenLabel = p.when_type === 'tomorrow' ? 'Tomorrow' : 'Today'
                     return (
-                      <DraggableRow key={p.id} id={`planned-${p.id}`} className={[rollbackIds.has(p.id) ? 'dt-row-rollback' : '', p.id.startsWith('temp-') ? 'dt-row-syncing' : ''].filter(Boolean).join(' ') || undefined}>
+                      <DraggableRow key={p.id} id={`planned-${p.id}`} dragEnabled={isDesktopDrag} className={[rollbackIds.has(p.id) ? 'dt-row-rollback' : '', p.id.startsWith('temp-') ? 'dt-row-syncing' : ''].filter(Boolean).join(' ') || undefined}>
                         <td className="dt-td-name">
                           {p.name}
                           {p.notes && <span className="dt-td-note">{p.notes}</span>}
