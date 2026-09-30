@@ -163,10 +163,6 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
     }
   }, [paused])
 
-  const handleDotClick = useCallback((i: number) => {
-    setIndex(i)
-  }, [])
-
   const handlePillClick = useCallback(() => {
     if (!data) return
     const targets = ['dashboard', 'pm-reports', 'pm-reports', 'sprint-dashboard', 'daily-ops']
@@ -217,8 +213,6 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
       main: `${Math.round(data.completionPct)}%`,
       sub: `${data.doneIssues} of ${data.totalIssues} done`,
       target: 'pm-reports',
-      showProgress: true,
-      progressPct: data.totalIssues > 0 ? (data.doneIssues / data.totalIssues) * 100 : 0,
     },
     {
       key: 'sprint',
@@ -267,28 +261,6 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
           </span>
         </div>
 
-        {/* Segmented progress bar — always at bottom, replaces external dots */}
-        <div className="sc-seg-bar">
-          {slides.map((s, i) => (
-            <button
-              key={s.key}
-              className={`sc-seg${i === index ? ' sc-seg--active' : ''}`}
-              style={i === index ? { '--sc-accent': slide.accent } as React.CSSProperties : undefined}
-              onClick={e => { e.stopPropagation(); handleDotClick(i) }}
-              aria-label={`Slide ${i + 1}`}
-            />
-          ))}
-        </div>
-
-        {/* Completion progress fill — only on completion slide, above seg bar */}
-        {slide.showProgress && (
-          <div className="sc-progress-track">
-            <div
-              className="sc-progress-fill"
-              style={{ '--sc-progress-pct': `${slide.progressPct}%` } as React.CSSProperties}
-            />
-          </div>
-        )}
       </div>
     </div>
   )

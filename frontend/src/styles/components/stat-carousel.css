@@ -11,10 +11,6 @@
   }
 }
 
-@keyframes scProgressGrow {
-  from { width: 0; }
-}
-
 @keyframes scPulseHalo {
   0%, 100% { transform: scale(1);    opacity: 0.22; }
   50%      { transform: scale(1.7);  opacity: 0.02; }
@@ -144,75 +140,6 @@
 .sc-pill:hover .sc-arrow {
   color: var(--sc-accent, var(--color-primary));
   transform: translateX(2px);
-}
-
-/* ── Segmented progress — thin dot row along the bottom edge ── */
-.sc-seg-bar {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 6px;
-  top: auto;
-  height: 3px;
-  display: flex;
-  flex-direction: row;
-  gap: 3px;
-  padding: 0;
-}
-
-.sc-seg {
-  flex: 1;
-  height: 100%;
-  width: auto;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.1);
-  transition: background 0.25s ease, transform 0.15s ease;
-}
-
-.sc-seg:hover {
-  transform: scaleY(1.6);
-}
-
-.sc-seg--active {
-  background: var(--sc-accent, var(--color-primary));
-  box-shadow: 0 0 6px var(--sc-accent, var(--color-primary));
-}
-
-[data-theme="light"] .sc-seg {
-  background: rgba(var(--color-primary-rgb), 0.15);
-}
-
-[data-theme="light"] .sc-seg--active {
-  background: var(--color-primary);
-  box-shadow: 0 0 6px rgba(var(--color-primary-rgb), 0.4);
-}
-
-/* ── Completion progress bar (slide 3 only) — thin rail along the top edge ── */
-.sc-progress-track {
-  position: absolute;
-  top: 0;
-  left: 12px;
-  right: 12px;
-  bottom: auto;
-  height: 2px;
-  border-radius: var(--radius-full);
-  background: var(--glass-border);
-  overflow: hidden;
-}
-
-.sc-progress-fill {
-  height: 100%;
-  width: var(--sc-progress-pct, 0%);
-  border-radius: var(--radius-full);
-  background: linear-gradient(
-    90deg,
-    var(--color-primary),
-    var(--color-primary-light)
-  );
-  animation: scProgressGrow 700ms ease-out both;
 }
 
 /* ── Loading skeleton ── */
