@@ -363,6 +363,22 @@
   transform: translateY(-1px);
   box-shadow: var(--shadow-glow-sm);
 }
+/* Copy DayTrack — chip-style "Copied!" swap (enter/exit handled by framer-motion in JSX) */
+.dt-copy-btn {
+  position: relative;
+  min-width: 128px;
+  justify-content: center;
+  transition: var(--transition-fast), background 0.25s ease;
+}
+.dt-copy-btn-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.dt-btn-primary.dt-copy-btn--flash {
+  background: var(--color-primary-hover);
+}
 .dt-btn-success {
   background: var(--color-success);
   color: #fff;
@@ -822,6 +838,12 @@
   letter-spacing: 0.05em;
   margin-bottom: 8px;
 }
+.dt-standup-hint {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin: 8px 0 0;
+  font-style: italic;
+}
 .dt-standup-box pre {
   font-size: var(--text-xs);
   color: var(--text-secondary);
@@ -1150,6 +1172,11 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  flex-shrink: 0;
+}
+.dt-chip-emoji {
+  font-size: 0.9rem;
+  line-height: 1;
   flex-shrink: 0;
 }
 

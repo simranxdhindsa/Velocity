@@ -1,0 +1,99 @@
+/* EmojiPicker — trigger button + portal grid popover */
+
+.emj-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.emj-trigger:hover {
+  border-color: var(--color-primary);
+  background: var(--bg-hover);
+}
+
+.emj-trigger--filled {
+  border-color: rgba(var(--color-primary-rgb), 0.4);
+}
+
+.emj-trigger-placeholder {
+  opacity: 0.45;
+  font-size: 0.95rem;
+}
+
+.emj-popover {
+  position: fixed;
+  z-index: 4000;
+  width: 260px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.5);
+  padding: 10px 6px 10px 10px;
+}
+
+.emj-popover-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 4px 8px 0;
+}
+
+/* Separate scroll container from the popover's own padding, with its own
+   right-side gutter, so the scrollbar never sits on top of the last column
+   of emoji cells. */
+.emj-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--color-primary-rgb), 0.5) transparent;
+}
+.emj-scroll::-webkit-scrollbar { width: 6px; }
+.emj-scroll::-webkit-scrollbar-thumb { background: rgba(var(--color-primary-rgb), 0.5); border-radius: 3px; }
+.emj-scroll::-webkit-scrollbar-thumb:hover { background: rgba(var(--color-primary-rgb), 0.75); }
+.emj-scroll::-webkit-scrollbar-track { background: transparent; }
+
+.emj-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.emj-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.emj-cell:hover {
+  background: var(--bg-hover);
+}
+
+.emj-cell--selected {
+  border-color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.14);
+}
+
+@media (max-width: 480px) {
+  .emj-popover { width: 220px; }
+  .emj-grid { grid-template-columns: repeat(6, 1fr); }
+}

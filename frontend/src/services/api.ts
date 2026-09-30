@@ -3097,6 +3097,11 @@ export interface DayTrackPlanned {
   updated_at: string
 }
 
+export interface DayTrackCategory {
+  name: string
+  icon: string
+}
+
 function dtHeaders(): Record<string, string> {
   const token = localStorage.getItem('token')
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -3134,11 +3139,15 @@ export const dayTrackApi = {
   getSuggestions: () =>
     dtFetch<string[]>(`${API_URL}/daytrack/suggestions`),
   getCategories: () =>
-    dtFetch<string[]>(`${API_URL}/daytrack/categories`),
-  addCategory: (name: string) =>
-    dtFetch<{ name: string }>(`${API_URL}/daytrack/categories`, { method: 'POST', body: JSON.stringify({ name }) }),
+    dtFetch<DayTrackCategory[]>(`${API_URL}/daytrack/categories`),
+  addCategory: (name: string, icon: string) =>
+    dtFetch<DayTrackCategory>(`${API_URL}/daytrack/categories`, { method: 'POST', body: JSON.stringify({ name, icon }) }),
   deleteCategory: (name: string) =>
     dtFetch<void>(`${API_URL}/daytrack/categories/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  getAllowedCategoryEmoji: () =>
+    dtFetch<string[]>(`${API_URL}/daytrack/category-emoji`),
+  getSlackPreview: (date?: string) =>
+    dtFetch<{ text: string; empty: boolean }>(`${API_URL}/daytrack/slack-preview${date ? `?date=${date}` : ''}`),
 
   getSlackConfig: () =>
     dtFetch<DayTrackSlackConfig>(`${API_URL}/daytrack/slack-config`),

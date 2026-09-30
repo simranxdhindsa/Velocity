@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   DndContext, DragOverlay, useDraggable, useDroppable, closestCenter,
   PointerSensor, useSensor, useSensors,
@@ -17,6 +18,7 @@ import { PasteSplitPrompt } from '../components/PasteSplitPrompt'
 import { SmoothToggle } from '../components/SmoothToggle'
 import { ConfirmModal } from '../components/ConfirmModal'
 import { Checkbox } from '../components/Checkbox'
+import { EmojiPicker } from '../components/EmojiPicker'
 import { getISTHours, getISTMinutes, getISTDate } from '../utils/istTime'
 import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import '../styles/pages/daytrack.css'
@@ -39,6 +41,20 @@ function catColor(cat: string, cats: string[]): string {
   if (fixed[cat]) return fixed[cat]
   const idx = cats.indexOf(cat)
   return PALETTE[((idx < 0 ? 0 : idx)) % PALETTE.length]
+}
+
+// Fixed icon for every built-in category — mirrors backend's defaultCategoryEmoji
+// (daytrack_emoji.go) so the UI and the Slack report always show the same icon.
+const DEFAULT_CATEGORY_EMOJI: Record<string, string> = {
+  'development': '🐛', 'testing': '🧪', 'meetings': '👥', 'breaks': '☕',
+  'review': '🔍', 'research': '🔬', 'sign in': '🟢', 'sign off': '🔴',
+  'project management': '📌', 'tickets created': '📆', 'tickets tested': '🧪', 'in progress': '🔄',
+}
+
+/** Resolves a category's icon: fixed default first, then the user's custom map, else a plain bullet. */
+function categoryEmoji(cat: string, customIcons: Record<string, string>): string {
+  const key = cat.trim().toLowerCase()
+  return DEFAULT_CATEGORY_EMOJI[key] || customIcons[key] || '▪️'
 }
 
 function toDateStr(d: Date): string {
@@ -553,6 +569,13 @@ export function DayTrackPage() {
   const [entries, setEntries] = useState<DayTrackEntry[]>([])
   const [planned, setPlanned] = useState<DayTrackPlanned[]>([])
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATS)
+  const [customCategoryIcons, setCustomCategoryIcons] = useState<Record<string, string>>({})
+  const [allowedEmojis, setAllowedEmojis] = useState<string[]>([])
+  // The exact text "Post to Slack" would send for `date` — single source of truth shared by
+  // the on-screen summary preview and the "Copy DayTrack" button, so neither can drift from
+  // what's actually posted.
+  const [slackPreviewText, setSlackPreviewText] = useState('')
+  const [copyFlash, setCopyFlash] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Active tab in left card: manual | timer | plan
@@ -651,6 +674,7 @@ export function DayTrackPage() {
 
   // Category manager
   const [newCat, setNewCat] = useState('')
+  const [newCatIcon, setNewCatIcon] = useState('')
   const [catMgrOpen, setCatMgrOpen] = useState(false)
 
   // Edit modal
@@ -744,8 +768,11 @@ export function DayTrackPage() {
       setEntries(e)
       setPlanned(p)
       // Always show defaults + any custom categories from DB (deduped)
-      const custom = c.filter(cat => !DEFAULT_CATS.includes(cat))
-      setCategories([...DEFAULT_CATS, ...custom])
+      const custom = c.filter(cat => !DEFAULT_CATS.includes(cat.name))
+      setCategories([...DEFAULT_CATS, ...custom.map(cat => cat.name)])
+      const iconMap: Record<string, string> = {}
+      custom.forEach(cat => { if (cat.icon) iconMap[cat.name.toLowerCase()] = cat.icon })
+      setCustomCategoryIcons(iconMap)
     } catch {
       // silently ignore — show empty state
     } finally {
@@ -754,6 +781,24 @@ export function DayTrackPage() {
   }, [date])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  // Keep the Slack preview in sync with whatever's currently on the page — refetches
+  // whenever entries/planned change (i.e. after any add/edit/delete/drag mutation) or the
+  // viewed date changes.
+  useEffect(() => {
+    let cancelled = false
+    dayTrackApi.getSlackPreview(date)
+      .then(res => { if (!cancelled) setSlackPreviewText(res.empty ? '' : res.text) })
+      .catch(() => { if (!cancelled) setSlackPreviewText('') })
+    return () => { cancelled = true }
+  }, [date, entries, planned])
+
+  // Curated emoji allow-list for custom categories — fetched once, served from the
+  // same list the backend validates against so the picker can never offer something
+  // the server would reject.
+  useEffect(() => {
+    dayTrackApi.getAllowedCategoryEmoji().then(setAllowedEmojis).catch(() => {})
+  }, [])
 
   // Auto-sync YouTrack once per page open, only when viewing today — silent (no toasts),
   // deliberately runs once on mount only (not on every date change / not on an interval).
@@ -1341,11 +1386,14 @@ export function DayTrackPage() {
   async function addCategory() {
     const v = newCat.trim()
     if (!v) return
+    if (!newCatIcon) { toast('Pick an icon for this category first', 'warn'); return }
     if (categories.includes(v)) { toast('Category already exists', 'warn'); return }
     try {
-      await dayTrackApi.addCategory(v)
+      await dayTrackApi.addCategory(v, newCatIcon)
       setNewCat('')
       setCategories(prev => [...prev, v])
+      setCustomCategoryIcons(prev => ({ ...prev, [v.toLowerCase()]: newCatIcon }))
+      setNewCatIcon('')
       toast(`Category "${v}" added`)
     } catch { toast('Failed to add category', 'warn') }
   }
@@ -1354,6 +1402,11 @@ export function DayTrackPage() {
     try {
       await dayTrackApi.deleteCategory(name)
       setCategories(prev => prev.filter(c => c !== name))
+      setCustomCategoryIcons(prev => {
+        const next = { ...prev }
+        delete next[name.toLowerCase()]
+        return next
+      })
     } catch { toast('Failed to remove category', 'warn') }
   }
 
@@ -1520,9 +1573,19 @@ export function DayTrackPage() {
   }
 
   async function copyStandup() {
-    // Use • for Slack compatibility (- renders as literal text in Slack)
-    const text = buildStandup().replace(/^- /gm, '• ')
-    navigator.clipboard.writeText(text).then(() => toast('DayTrack report copied!'))
+    // Copies the exact same text the "Post to Slack" button sends. Uses the already-loaded
+    // slackPreviewText (kept in sync by the effect above on every entries/planned/date change)
+    // instead of refetching on click, so the click feels instant rather than waiting on a
+    // network round trip.
+    if (!slackPreviewText) { toast('Nothing to copy for this day yet', 'warn'); return }
+    try {
+      await navigator.clipboard.writeText(slackPreviewText)
+      toast('DayTrack report copied!')
+      setCopyFlash(true)
+      setTimeout(() => setCopyFlash(false), 1600)
+    } catch {
+      toast('Failed to copy report', 'warn')
+    }
   }
 
   // Parse AI output into a map of entryId → rephrased name, matched positionally
@@ -1795,18 +1858,6 @@ ${aiSummaryBlock}
     finally { setExportCopyLoading(false) }
   }
 
-  function exportCSV() {
-    const rows = [['Task','Category','Start','End','Duration (min)','Status','Notes','Date']]
-    entries.forEach(e => rows.push([
-      e.name, e.category, e.start_time, e.end_time,
-      String(e.duration_mins ?? ''), e.status, e.notes, e.entry_date
-    ]))
-    const csv = rows.map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-    a.download = `daytrack-${date}.csv`; a.click()
-  }
-
   // ── Computed stats ────────────────────────────────────────────────────────────
 
   const totalMins = entries.reduce((a, e) => a + (e.duration_mins ?? 0), 0)
@@ -1844,72 +1895,6 @@ ${aiSummaryBlock}
     subtaskMap.set(e.parent_entry_id!, list)
   })
 
-  function buildStandup(): string {
-    const today = fmtDate(new Date(date))
-    const parents = entries.filter(e => !e.parent_entry_id)
-
-    const catHeading = (cat: string): string => {
-      const map: Record<string, string> = {
-        'Tickets':            'Tickets Created',
-        'Testing':            'Testing',
-        'Project Management': 'Project Management',
-        'Meetings':           'Meetings',
-        'Breaks':             'Breaks',
-        'Sign In':            'Sign In',
-        'Sign Off':           'Sign Off',
-      }
-      return map[cat] ?? cat
-    }
-
-    const isDoneInReport = (e: DayTrackEntry) =>
-      e.status === 'done' || (e.status === 'active' && !e.start_time && !e.end_time)
-
-    // Separate tickets-tested entries (yt-tested-*) from the rest
-    const testedEntries = parents.filter(e => e.external_ref?.startsWith('yt-tested-'))
-    const testedIDs = new Set(testedEntries.map(e => e.id))
-
-    // Group done entries by category, preserving insertion order (exclude tested entries — shown separately)
-    const doneByCategory = new Map<string, DayTrackEntry[]>()
-    parents.filter(e => isDoneInReport(e) && !testedIDs.has(e.id)).forEach(e => {
-      const list = doneByCategory.get(e.category) ?? []
-      list.push(e)
-      doneByCategory.set(e.category, list)
-    })
-
-    let doneBlock = ''
-    doneByCategory.forEach((items, cat) => {
-      doneBlock += `*${catHeading(cat)}:*\n`
-      items.forEach(e => {
-        doneBlock += `- ${e.name}${e.duration_mins != null ? ` (${minsLabel(e.duration_mins)})` : ''}\n`
-        const subs = subtaskMap.get(e.id) ?? []
-        subs.forEach(s => {
-          doneBlock += `  - ${s.name}${s.duration_mins != null ? ` (${minsLabel(s.duration_mins)})` : ''}\n`
-        })
-      })
-      doneBlock += '\n'
-    })
-
-    const activeList = parents
-      .filter(e => e.status === 'active' && (e.start_time || e.end_time))
-      .map(e => `- ${e.name} (${e.category})`)
-      .join('\n')
-    const planList = planned.filter(p => p.when_type === 'today')
-      .map(p => `- ${p.name} (${p.category})`)
-      .join('\n')
-
-    const testedBlock = testedEntries.length > 0
-      ? testedEntries.map(e => `- ${e.name}`).join('\n') + '\n'
-      : '- (none)\n'
-
-    let text = `📋 DayTrack Report – ${today}\n`
-    text += `⏱ Total: ${totalMins ? minsLabel(totalMins) : '—'} | Focus Rate: ${focusRate != null ? focusRate + '%' : '—'}\n\n`
-    text += `✅ *Done Today:*\n\n${doneBlock || '- (none)\n\n'}`
-    text += `🧪 *Tickets Tested:*\n${testedBlock}\n`
-    if (activeList) text += `🔄 In Progress:\n${activeList}\n\n`
-    text += `📌 Planned / Upcoming:\n${planList || '- (none)'}\n\n`
-    text += `🚧 Blockers:\n- None`
-    return text
-  }
 
   // ── Category pill renderer ────────────────────────────────────────────────────
 
@@ -2364,6 +2349,7 @@ ${aiSummaryBlock}
                     const isDefault = DEFAULT_CATS.includes(c)
                     return (
                       <span key={c} className="dt-cat-tag" style={{ background: col + '20', color: col }}>
+                        <span className="dt-chip-emoji">{categoryEmoji(c, customCategoryIcons)}</span>
                         {c}
                         {!isDefault && (
                           <button className="dt-cat-tag-remove" onClick={() => removeCategory(c)} title="Remove">
@@ -2377,10 +2363,11 @@ ${aiSummaryBlock}
                   })}
                 </div>
                 <div className="dt-add-cat-row">
+                  <EmojiPicker emojis={allowedEmojis} value={newCatIcon} onChange={setNewCatIcon} placeholder="Category icon" />
                   <input className="form-input" value={newCat} onChange={e => setNewCat(e.target.value)}
                     placeholder="Add custom category…" autoComplete="off"
                     onKeyDown={e => e.key === 'Enter' && addCategory()} />
-                  <button className="dt-btn dt-btn-primary dt-btn-sm" onClick={addCategory}>
+                  <button className="dt-btn dt-btn-primary dt-btn-sm" onClick={addCategory} disabled={!newCatIcon || !newCat.trim()}>
                     <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
                     Add
                   </button>
@@ -2722,7 +2709,8 @@ ${aiSummaryBlock}
 
             <div className="dt-standup-box">
               <h4>DayTrack Summary</h4>
-              <pre>{buildStandup()}</pre>
+              <pre>{slackPreviewText || 'Nothing tracked yet for this day.'}</pre>
+              <p className="dt-standup-hint">This is the exact message "Post to Slack" sends.</p>
             </div>
 
             <div className="dt-summary-actions">
@@ -2730,17 +2718,39 @@ ${aiSummaryBlock}
                 <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                 Export Report
               </button>
-              <button className="dt-btn dt-btn-primary dt-btn-sm" onClick={copyStandup}>
-                <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-                Copy DayTrack
-              </button>
-              <button className="dt-btn dt-btn-ghost dt-btn-sm" onClick={exportCSV}>
-                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-                Export CSV
+              <button
+                className={`dt-btn dt-btn-primary dt-btn-sm dt-copy-btn${copyFlash ? ' dt-copy-btn--flash' : ''}`}
+                onClick={copyStandup}
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  {copyFlash ? (
+                    <motion.span
+                      key="copied"
+                      className="dt-copy-btn-face"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                      Copied!
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key="default"
+                      className="dt-copy-btn-face"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                    >
+                      <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
+                      Copy DayTrack
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </button>
             </div>
           </div>

@@ -735,6 +735,7 @@ sprint_id: ID of the most recent non-completed sprint from the sprints list. Oth
 			position INT NOT NULL DEFAULT 0,
 			PRIMARY KEY (user_id, name)
 		)`,
+		`ALTER TABLE daytrack_categories ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE daytrack_entries ALTER COLUMN start_time TYPE VARCHAR(10)`,
 		`ALTER TABLE daytrack_entries ALTER COLUMN end_time TYPE VARCHAR(10)`,
 		`ALTER TABLE daytrack_planned ALTER COLUMN scheduled_time TYPE VARCHAR(10)`,

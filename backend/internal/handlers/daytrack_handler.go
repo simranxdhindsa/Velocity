@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -711,7 +712,7 @@ func (h *DayTrackHandler) GetCategories(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if cats == nil {
-		cats = []string{}
+		cats = []database.DayTrackCategory{}
 	}
 	dtJSON(w, cats)
 }
@@ -720,23 +721,29 @@ func (h *DayTrackHandler) AddCategory(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var body struct {
 		Name string `json:"name"`
+		Icon string `json:"icon"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	name := strings.TrimSpace(body.Name)
+	icon := strings.TrimSpace(body.Icon)
 	if name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
-	if err := h.repo.AddCategory(r.Context(), userID, name); err != nil {
+	if icon == "" || !isAllowedCategoryEmoji(icon) {
+		http.Error(w, "a valid icon is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.AddCategory(r.Context(), userID, name, icon); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"name": name})
+	json.NewEncoder(w).Encode(database.DayTrackCategory{Name: name, Icon: icon})
 }
 
 func (h *DayTrackHandler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
@@ -751,8 +758,10 @@ func (h *DayTrackHandler) DeleteCategory(w http.ResponseWriter, r *http.Request)
 
 // daytracBuildSlackSections builds structured sections from DayTrack entries for Slack posting.
 // Uses original category names as-is and correctly separates yt-tested entries into "Tickets Tested".
-// Subtasks are rendered as indented nested bullets (◦) under their parent.
-func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName string) PersonUpdate {
+// Subtasks are rendered as indented nested bullets (◦) under their parent. customIcons maps a
+// custom category's lowercased name to its user-chosen emoji, so every section header carries an
+// icon — the built-in categories the same way regardless of who's viewing (defaultCategoryEmoji).
+func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName string, customIcons map[string]string) PersonUpdate {
 	skipCat := map[string]bool{
 		"sign in": true, "sign off": true, "signing in": true, "signing off": true,
 		"time on": true, "time off": true, "time on/off": true,
@@ -815,7 +824,8 @@ func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName str
 	var sections []UpdateSection
 	for _, label := range order {
 		if len(sectionMap[label]) > 0 {
-			sections = append(sections, UpdateSection{Label: label, Items: sectionMap[label]})
+			icon := categoryEmoji(label, customIcons)
+			sections = append(sections, UpdateSection{Label: icon + " " + label, Items: sectionMap[label]})
 		}
 	}
 	return PersonUpdate{DisplayName: displayName, Sections: sections}
@@ -825,19 +835,24 @@ func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName str
 // just nothing to send (e.g. the auto-send job hits a day with no entries yet).
 var errDayTrackNoEntries = errors.New("no entries for date")
 
-// postDayTrackUpdate refreshes entries against YouTrack (same prune the page does on load,
-// so a ticket deleted after the page was last viewed doesn't get sent), builds the Slack
-// report for userID+date, and posts it — or edits the existing post for that date in place.
-// Shared by the manual "Post to Slack" button and the daily auto-send scheduler so both
-// paths always send the exact same thing.
-func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, destChannelID, displayName string) (updated bool, err error) {
+// buildDayTrackReportText assembles the exact text that gets posted to Slack for userID+date —
+// used both by postDayTrackUpdate (the real send) and the read-only preview endpoint, so the two
+// can never drift: whatever the preview/copy button shows is guaranteed to be what gets sent.
+func (h *DayTrackHandler) buildDayTrackReportText(ctx context.Context, userID, date, displayName string) (string, error) {
 	entries, err := h.repo.GetEntries(ctx, userID, date)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	entries = h.pruneDeletedYouTrackEntries(ctx, userID, entries)
 
-	ownerUpdate := daytracBuildSlackSections(entries, "")
+	customIcons := map[string]string{}
+	if cats, cErr := h.repo.GetCategories(ctx, userID); cErr == nil {
+		for _, c := range cats {
+			customIcons[strings.ToLower(strings.TrimSpace(c.Name))] = c.Icon
+		}
+	}
+
+	ownerUpdate := daytracBuildSlackSections(entries, "", customIcons)
 
 	// In-progress work (manual, via the "still in progress" checkbox, or auto-pulled
 	// from YouTrack) lives in Planned & Carry Over, not Today's Log — Today's Log only
@@ -857,28 +872,39 @@ func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, 
 			inProgressItems = append(inProgressItems, item)
 		}
 		if len(inProgressItems) > 0 {
+			inProgressLabel := categoryEmoji("in progress", customIcons) + " In Progress"
 			merged := false
 			for i, sec := range ownerUpdate.Sections {
-				if sec.Label == "In Progress" {
+				if sec.Label == inProgressLabel {
 					ownerUpdate.Sections[i].Items = append(ownerUpdate.Sections[i].Items, inProgressItems...)
 					merged = true
 					break
 				}
 			}
 			if !merged {
-				ownerUpdate.Sections = append([]UpdateSection{{Label: "In Progress", Items: inProgressItems}}, ownerUpdate.Sections...)
+				ownerUpdate.Sections = append([]UpdateSection{{Label: inProgressLabel, Items: inProgressItems}}, ownerUpdate.Sections...)
 			}
 		}
 	}
 
 	ownerUpdate.IsOwner = true
 	if len(ownerUpdate.Sections) == 0 {
-		return false, errDayTrackNoEntries
+		return "", errDayTrackNoEntries
 	}
 
 	dateParsed, _ := time.Parse("2006-01-02", date)
 	header := fmt.Sprintf("*%s*\n%s\n\n", displayName, dateParsed.Format("Mon, Jan 2"))
-	text := header + standupFormatMrkdwn([]PersonUpdate{ownerUpdate})
+	return header + standupFormatMrkdwn([]PersonUpdate{ownerUpdate}), nil
+}
+
+// postDayTrackUpdate builds the Slack report for userID+date and posts it — or edits the
+// existing post for that date in place. Shared by the manual "Post to Slack" button and the
+// daily auto-send scheduler so both paths always send the exact same thing.
+func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, destChannelID, displayName string) (updated bool, err error) {
+	text, err := h.buildDayTrackReportText(ctx, userID, date, displayName)
+	if err != nil {
+		return false, err
+	}
 	slackSvc := slacksvc.NewService()
 
 	// Post once per (user, date); every later send for the same date edits that same
@@ -940,6 +966,47 @@ func (h *DayTrackHandler) PostToSlack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dtJSON(w, map[string]interface{}{"ok": true, "updated": updated})
+}
+
+// GetSlackPreview returns the exact text that "Post to Slack" would send for a given date,
+// without posting it — the single source of truth the frontend uses for the Copy DayTrack
+// button and the on-screen summary, so what's shown/copied always matches what's actually sent.
+func (h *DayTrackHandler) GetSlackPreview(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	date := strings.TrimSpace(r.URL.Query().Get("date"))
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	displayName := user.Name
+	if dbUser, err2 := h.userRepo.GetByID(r.Context(), user.ID); err2 == nil && dbUser.Name != "" {
+		displayName = dbUser.Name
+	}
+
+	text, err := h.buildDayTrackReportText(r.Context(), user.ID, date, displayName)
+	if err != nil {
+		if errors.Is(err, errDayTrackNoEntries) {
+			dtJSON(w, map[string]interface{}{"text": "", "empty": true})
+			return
+		}
+		http.Error(w, "failed to build preview: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dtJSON(w, map[string]interface{}{"text": text, "empty": false})
+}
+
+// GetAllowedCategoryEmoji returns the curated emoji allow-list for custom categories, so the
+// frontend picker and the backend validation are always driven by the same single list.
+func (h *DayTrackHandler) GetAllowedCategoryEmoji(w http.ResponseWriter, r *http.Request) {
+	icons := make([]string, 0, len(allowedCustomCategoryEmoji))
+	for icon := range allowedCustomCategoryEmoji {
+		icons = append(icons, icon)
+	}
+	sort.Strings(icons)
+	dtJSON(w, icons)
 }
 
 // GetSlackPostStatus reports whether today's (or the given date's) DayTrack update has

@@ -420,26 +420,32 @@ func (r *DayTrackRepository) GetSuggestions(ctx context.Context, userID string) 
 
 // ── Categories ────────────────────────────────────────────────────────────────
 
-func (r *DayTrackRepository) GetCategories(ctx context.Context, userID string) ([]string, error) {
+// DayTrackCategory is a custom category a user has added, with its required emoji icon.
+type DayTrackCategory struct {
+	Name string `json:"name"`
+	Icon string `json:"icon"`
+}
+
+func (r *DayTrackRepository) GetCategories(ctx context.Context, userID string) ([]DayTrackCategory, error) {
 	pool := GetPool()
 	rows, err := pool.Query(ctx,
-		`SELECT name FROM daytrack_categories WHERE user_id=$1 ORDER BY position, name`, userID)
+		`SELECT name, icon FROM daytrack_categories WHERE user_id=$1 ORDER BY position, name`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var cats []string
+	var cats []DayTrackCategory
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var c DayTrackCategory
+		if err := rows.Scan(&c.Name, &c.Icon); err != nil {
 			return nil, err
 		}
-		cats = append(cats, name)
+		cats = append(cats, c)
 	}
 	return cats, nil
 }
 
-func (r *DayTrackRepository) AddCategory(ctx context.Context, userID, name string) error {
+func (r *DayTrackRepository) AddCategory(ctx context.Context, userID, name, icon string) error {
 	pool := GetPool()
 	// Get next position first to avoid $1 type ambiguity in a single query
 	var pos int
@@ -449,8 +455,8 @@ func (r *DayTrackRepository) AddCategory(ctx context.Context, userID, name strin
 		return err
 	}
 	_, err = pool.Exec(ctx,
-		`INSERT INTO daytrack_categories (user_id, name, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-		userID, name, pos)
+		`INSERT INTO daytrack_categories (user_id, name, position, icon) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+		userID, name, pos, icon)
 	return err
 }
 

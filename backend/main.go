@@ -510,6 +510,8 @@ func main() {
 	dayTrackRoutes.HandleFunc("/categories", dayTrackHandler.GetCategories).Methods("GET")
 	dayTrackRoutes.HandleFunc("/categories", dayTrackHandler.AddCategory).Methods("POST")
 	dayTrackRoutes.HandleFunc("/categories/{name}", dayTrackHandler.DeleteCategory).Methods("DELETE")
+	dayTrackRoutes.HandleFunc("/category-emoji", dayTrackHandler.GetAllowedCategoryEmoji).Methods("GET")
+	dayTrackRoutes.HandleFunc("/slack-preview", dayTrackHandler.GetSlackPreview).Methods("GET")
 	// Slack auto-logging config
 	dayTrackRoutes.HandleFunc("/slack-config", dayTrackHandler.GetSlackConfig).Methods("GET")
 	dayTrackRoutes.HandleFunc("/slack-config", dayTrackHandler.UpsertSlackConfig).Methods("PUT")
