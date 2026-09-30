@@ -7,6 +7,7 @@
 
 
 ### Features
+- instant send + delete MCP tools for Slack
 - Day Track category emojis, Slack-exact report
 
 ### Refactors
