@@ -6,6 +6,15 @@
 - truncate long Slack messages
 
 
+### Features
+- Day Track category emojis, Slack-exact report
+
+### Refactors
+- split DayTrackPage, shrink emojis, log session
+
+### Enhancements
+- render DayTrack Summary as formatted mrkdwn
+
 ## 2026-09-23
 
 ### Bug Fixes
