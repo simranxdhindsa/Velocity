@@ -13,6 +13,7 @@
 - split DayTrackPage, shrink emojis, log session
 
 ### Enhancements
+- remove navbar chip progress bars
 - render DayTrack Summary as formatted mrkdwn
 
 ## 2026-09-23
