@@ -10,7 +10,7 @@
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   border: 1px solid var(--border-color);
-  font-size: 1.05rem;
+  font-size: 0.75rem;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -26,7 +26,7 @@
 
 .emj-trigger-placeholder {
   opacity: 0.45;
-  font-size: 0.95rem;
+  font-size: 0.7rem;
 }
 
 .emj-popover {

@@ -437,3 +437,22 @@ Detailed descriptions of each feature/tab live in `docs/features/`. Read the rel
 | [`docs/features/mcp-server.md`](docs/features/mcp-server.md) | `/api/mcp` server — one-file-per-tool convention, how to add a new tool, current tool list |
 | [`docs/features/uat-testing.md`](docs/features/uat-testing.md) | **Read before any Playwright QA pass** — UAT lessons learned, real bugs that passed DOM-only checks, process checklist |
 
+---
+
+## Session Log
+
+Brief, dated record of what was worked on per day, in the `Velocity: <summary>` format — for quickly answering "what did we do today/recently." Append a new dated entry each session; don't rewrite history. This is a human-readable activity log, separate from the auto-generated `CHANGELOG.md` (which is commit-driven and never hand-edited).
+
+### 2026-09-30
+- Velocity: Sprint Dashboard widget grid (built, then reverted per correction)
+- Velocity: Navbar stat chip restyle + glow dot animation
+- Velocity: Eye Tracking navbar experiment (built, then reverted per request)
+- Velocity: fix Slack `msg_too_long` crash on long Day Track reports
+- Velocity: Day Track category emojis, pre-assigned for built-in categories
+- Velocity: Day Track custom category emoji picker, curated safe allow-list
+- Velocity: Day Track Copy/Summary now shows the exact Slack-posted text
+- Velocity: remove Day Track Export CSV button
+- Velocity: Copy DayTrack instant "Copied!" chip animation (framer-motion), themed flash color
+- Velocity: fix emoji picker closing on its own scrollbar (scroll-bubble bug)
+- Velocity: split DayTrackPage.tsx into helpers + shared components (file-size fix)
+
