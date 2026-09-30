@@ -15,54 +15,79 @@
   from { width: 0; }
 }
 
+@keyframes scPulseHalo {
+  0%, 100% { transform: scale(1);    opacity: 0.22; }
+  50%      { transform: scale(1.7);  opacity: 0.02; }
+}
+
 .sc-wrapper {
   position: relative;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   height: 100%;
+  padding: 8px 0;
 }
 
-/* ── Pill — fills full header height, no top/bottom gaps ── */
+/* ── Pill — floating rounded chip, not flush with the header ── */
 .sc-pill {
   position: relative;
   display: flex;
   align-items: center;
-  width: 260px;
+  width: 264px;
   height: 100%;
-  border-radius: 0;
-  background: var(--glass-bg);
-  border-left: 1px solid var(--glass-border);
-  border-right: 1px solid var(--glass-border);
-  border-top: none;
-  border-bottom: none;
+  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0.02) 100%), var(--bg-elevated);
+  border: 1px solid var(--glass-border);
   overflow: hidden;
   cursor: pointer;
   user-select: none;
-  transition: box-shadow 0.2s ease;
+  transition: box-shadow 0.22s ease, border-color 0.22s ease, transform 0.22s ease;
   flex-shrink: 0;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 8px 20px -12px rgba(0, 0, 0, 0.55);
 }
 
 .sc-pill:hover,
 .sc-pill:focus-visible {
-  background: var(--glass-bg-hover);
+  border-color: rgba(var(--color-primary-rgb), 0.35);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.07) inset,
+    0 14px 28px -12px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(var(--color-primary-rgb), 0.12);
+  transform: translateY(-1px);
   outline: none;
 }
 
-/* ── Left accent bar ── */
+/* ── Live glow dot (replaces the old flat accent bar) ── */
 .sc-accent-bar {
-  width: 2px;
-  height: 100%;
+  position: relative;
+  align-self: center;
   flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-left: 14px;
+  border-radius: 50%;
   background: var(--sc-accent, var(--color-primary));
-  box-shadow: 0 0 6px var(--sc-accent, var(--color-primary));
+  box-shadow: 0 0 8px var(--sc-accent, var(--color-primary));
+}
+
+.sc-accent-bar::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: var(--sc-accent, var(--color-primary));
+  opacity: 0.2;
+  animation: scPulseHalo 2.4s ease-in-out infinite;
 }
 
 /* ── Content row ── */
 .sc-content {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 14px 0 7px; /* 14px right = 4px seg bar + 10px breathing room */
+  gap: 6px;
+  padding: 0 16px 0 9px;
   flex: 1;
   min-width: 0;
   animation: scSlideEnter 400ms ease both;
@@ -71,13 +96,19 @@
 .sc-icon {
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  background: rgba(var(--color-primary-rgb), 0.12);
   color: var(--sc-accent, var(--color-primary));
 }
 
 .sc-main {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -87,12 +118,13 @@
 
 .sc-dot-sep {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-faint);
   flex-shrink: 0;
 }
 
 .sc-sub {
   font-size: 11px;
+  font-weight: 500;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -104,32 +136,44 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  color: var(--text-muted);
+  color: var(--text-faint);
   margin-left: 2px;
+  transition: transform 0.2s ease, color 0.2s ease;
 }
 
-/* ── Segmented bar — vertical stack on right edge ── */
+.sc-pill:hover .sc-arrow {
+  color: var(--sc-accent, var(--color-primary));
+  transform: translateX(2px);
+}
+
+/* ── Segmented progress — thin dot row along the bottom edge ── */
 .sc-seg-bar {
   position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  top: auto;
+  height: 3px;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 0;
+  flex-direction: row;
+  gap: 3px;
+  padding: 0;
 }
 
 .sc-seg {
   flex: 1;
-  width: 100%;
+  height: 100%;
+  width: auto;
   border: none;
   padding: 0;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: var(--radius-full);
   background: rgba(255, 255, 255, 0.1);
-  transition: background 0.25s ease;
+  transition: background 0.25s ease, transform 0.15s ease;
+}
+
+.sc-seg:hover {
+  transform: scaleY(1.6);
 }
 
 .sc-seg--active {
@@ -146,19 +190,23 @@
   box-shadow: 0 0 6px rgba(var(--color-primary-rgb), 0.4);
 }
 
-/* ── Completion progress bar (slide 3, bottom edge) ── */
+/* ── Completion progress bar (slide 3 only) — thin rail along the top edge ── */
 .sc-progress-track {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 4px;          /* don't overlap the seg bar */
+  top: 0;
+  left: 12px;
+  right: 12px;
+  bottom: auto;
   height: 2px;
+  border-radius: var(--radius-full);
   background: var(--glass-border);
+  overflow: hidden;
 }
 
 .sc-progress-fill {
   height: 100%;
   width: var(--sc-progress-pct, 0%);
+  border-radius: var(--radius-full);
   background: linear-gradient(
     90deg,
     var(--color-primary),
@@ -172,8 +220,8 @@
   cursor: default;
   pointer-events: none;
   gap: 8px;
-  padding: 0 14px;
-  width: 260px;
+  padding: 0 16px;
+  width: 264px;
   height: 100%;
 }
 
@@ -201,6 +249,17 @@
 
 /* ── Light mode overrides ── */
 [data-theme="light"] .sc-pill {
-  background: var(--glass-bg);
+  background: linear-gradient(180deg, #ffffff 0%, var(--bg-elevated) 100%);
   border-color: var(--glass-border);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 6px 16px -12px rgba(15, 23, 42, 0.25);
+}
+
+[data-theme="light"] .sc-pill:hover,
+[data-theme="light"] .sc-pill:focus-visible {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.8) inset,
+    0 12px 24px -12px rgba(15, 23, 42, 0.28),
+    0 0 0 1px rgba(var(--color-primary-rgb), 0.12);
 }

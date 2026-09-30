@@ -8,12 +8,38 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
 const (
 	BaseURL = "https://slack.com/api"
+
+	// slackTextLimit is kept below Slack's hard 4000-char cap on the plain-text
+	// `text` field (chat.postMessage/chat.update) — sending anything longer fails
+	// the whole request with "slack API error: msg_too_long" instead of posting
+	// a truncated-but-visible message.
+	slackTextLimit = 3800
 )
+
+// truncateForSlack trims text to Slack's text-field limit, cutting on a
+// newline boundary when possible so a message is shortened cleanly rather
+// than mid-word, and appends a note that content was cut.
+func truncateForSlack(text string) string {
+	if len(text) <= slackTextLimit {
+		return text
+	}
+	notice := "\n\n_(message truncated — too long for Slack, view full details in the app)_"
+	budget := slackTextLimit - len(notice)
+	if budget < 0 {
+		budget = 0
+	}
+	cut := text[:budget]
+	if idx := strings.LastIndex(cut, "\n"); idx > budget/2 {
+		cut = cut[:idx]
+	}
+	return cut + notice
+}
 
 // Client is the Slack API client
 type Client struct {
@@ -392,7 +418,7 @@ func (c *Client) GetThreadReplies(ctx context.Context, channelID, threadTS strin
 func (c *Client) PostMessage(ctx context.Context, channelID, text string) (string, error) {
 	payload := map[string]interface{}{
 		"channel":  channelID,
-		"text":     text,
+		"text":     truncateForSlack(text),
 		"username": "Velocity",
 	}
 
@@ -596,7 +622,7 @@ func (c *Client) UpdateMessage(ctx context.Context, channelID, ts, text string) 
 	payload := map[string]interface{}{
 		"channel":  channelID,
 		"ts":       ts,
-		"text":     text,
+		"text":     truncateForSlack(text),
 		"username": "Velocity",
 	}
 	body, err := c.doRequest(ctx, "POST", "/chat.update", payload)
