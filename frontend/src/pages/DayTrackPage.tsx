@@ -19,6 +19,7 @@ import { SmoothToggle } from '../components/SmoothToggle'
 import { ConfirmModal } from '../components/ConfirmModal'
 import { Checkbox } from '../components/Checkbox'
 import { EmojiPicker } from '../components/EmojiPicker'
+import { MrkdwnText } from './SlackMessagesShared'
 import { getISTHours, getISTMinutes, getISTDate } from '../utils/istTime'
 import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import '../styles/pages/daytrack.css'
@@ -2180,7 +2181,15 @@ ${aiSummaryBlock}
 
             <div className="dt-standup-box">
               <h4>DayTrack Summary</h4>
-              <pre>{slackPreviewText || 'Nothing tracked yet for this day.'}</pre>
+              <div className="dt-standup-preview">
+                {slackPreviewText
+                  ? slackPreviewText.split('\n').map((line, i) => (
+                    <div key={i} className="dt-standup-line">
+                      {line ? <MrkdwnText text={line} /> : ' '}
+                    </div>
+                  ))
+                  : 'Nothing tracked yet for this day.'}
+              </div>
               <p className="dt-standup-hint">This is the exact message "Post to Slack" sends.</p>
             </div>
 

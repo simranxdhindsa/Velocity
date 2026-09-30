@@ -840,16 +840,23 @@
 }
 .dt-standup-hint {
   font-size: 10.5px;
-  color: var(--text-faint);
+  color: var(--color-primary-light, var(--color-primary));
   margin: 8px 0 0;
   font-style: italic;
 }
-.dt-standup-box pre {
+.dt-standup-preview {
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  white-space: pre-wrap;
   line-height: 1.7;
   font-family: var(--font-sans);
+}
+.dt-standup-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.dt-standup-line strong {
+  color: var(--text-primary);
+  font-weight: 700;
 }
 .dt-divider {
   height: 1px;
