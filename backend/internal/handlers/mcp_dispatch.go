@@ -32,6 +32,8 @@ var mcpToolHandlers = map[string]mcpToolFunc{
 	"upload_youtrack_attachment":   mcpUploadYoutrackAttachment,
 	"link_youtrack_tickets":        mcpLinkYoutrackTickets,
 	"queue_slack_message":          mcpQueueSlackMessage,
+	"send_slack_message_now":       mcpSendSlackMessageNow,
+	"delete_slack_message":         mcpDeleteSlackMessage,
 }
 
 // mcpToolActionLabels gives each tool a plain-language action name for the

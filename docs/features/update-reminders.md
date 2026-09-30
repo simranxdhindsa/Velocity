@@ -68,6 +68,7 @@ KPI data comes from `api.listQueuedMessages()` fetched on mount of `UpdateRemind
 
 ### Claude Queue
 - Receives messages staged by Claude via the MCP `queue_slack_message` tool
+- Also receives messages sent instantly via the MCP `send_slack_message_now` tool — these land in the same table already marked `sent` with `slack_ts` set, so they show up in the KPI counts and "Recent" list immediately and get the same "Delete from Slack" button as any other sent message. The MCP `delete_slack_message` tool deletes both the Slack message and this queue row together.
 - Managed via `ClaudeQueueCard` component (`frontend/src/pages/ClaudeQueueCard.tsx`)
 - Each queued message: channel (optional — user can pick inline), scheduled time, message text
 - **Scheduled time priority**: if `scheduled_at` is set (by Claude or by the user's inline TimePicker), that time is used. If `scheduled_at IS NULL`, the backend scheduler picks it up when the user's `default_send_time` in `mcp_tokens` has passed for today.

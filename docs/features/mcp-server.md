@@ -29,7 +29,21 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`.
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`.
+
+### `send_slack_message_now` notes
+
+- Sends immediately by calling `updatesvc.Service.QuickSend` directly (the same service the Quick Send UI tab uses) — no waiting for the scheduler's next tick.
+- Requires `channel` or `dm_user` to resolve to a real Slack destination; unlike `queue_slack_message`, it does not fall back to "user picks a destination in Velocity" — resolution failures return a tool error instead.
+- No `send_time` param — this tool is for "send right now" requests only. Anything scheduled/reviewed first still goes through `queue_slack_message`.
+- Still writes a row to `pending_slack_messages` (via `msgRepo.Create` + `MarkSent`/`MarkFailed`), same table `queue_slack_message` uses, just created already-sent instead of pending. This is what makes an instant send show up in Update Reminders → Claude Queue (KPI counts, "Recent" list, and the existing "Delete from Slack" button) instead of only existing in Slack with no trace in the app.
+
+### `delete_slack_message` notes
+
+- Only ever deletes messages Velocity itself posted — cross-references `slacksvc.Service.GetLiveChannelMessages`'s `IsVelocity` flag (backed by the separate `sent_slack_messages` hub-log table, not `pending_slack_messages`) before allowing a delete. Slack's API wouldn't allow deleting another user's message with a bot token anyway, but this also stops Claude from trying.
+- Without `contains`, deletes the most recent Velocity message in that channel/DM (`GetLiveChannelMessages` returns newest-first). Pass `contains` to target an older one by a text snippet.
+- After deleting from Slack, separately looks up and removes the matching `pending_slack_messages` row by `slack_ts` (a second lookup — `GetLiveChannelMessages`'s own `ID` field belongs to the hub-log table, not the queue table, so it can't be reused for this) so the Claude Queue "Recent" list doesn't keep a dangling card pointing at a deleted message.
+- DM destinations open the DM channel via a fresh `slacksvc.Client.OpenDirectMessageChannel` call rather than through `Service`, since `Service` doesn't expose that resolution itself.
 
 ### `search_youtrack_tickets` notes
 
