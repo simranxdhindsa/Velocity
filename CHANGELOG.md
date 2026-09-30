@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-30
+
+### Bug Fixes
+- truncate long Slack messages
+
+
 ## 2026-09-23
 
 ### Bug Fixes
