@@ -442,6 +442,41 @@ func (c *Client) PostMessage(ctx context.Context, channelID, text string) (strin
 	return resp.TS, nil
 }
 
+// PostMessageBlocks posts a Block Kit message (chat.postMessage with `blocks`).
+// fallbackText is the notification/accessibility text Slack shows in previews
+// and for clients that don't render blocks — it is NOT re-truncated for the
+// 4000-char text limit since callers are expected to pass a short summary,
+// not the full report (the report content itself lives in blocks).
+func (c *Client) PostMessageBlocks(ctx context.Context, channelID, fallbackText string, blocks []map[string]interface{}) (string, error) {
+	payload := map[string]interface{}{
+		"channel":  channelID,
+		"username": "Velocity",
+		"blocks":   blocks,
+	}
+	if fallbackText != "" {
+		payload["text"] = fallbackText
+	}
+
+	body, err := c.doRequest(ctx, "POST", "/chat.postMessage", payload)
+	if err != nil {
+		return "", err
+	}
+
+	var resp struct {
+		Response
+		TS string `json:"ts"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if !resp.OK {
+		return "", fmt.Errorf("slack API error: %s", resp.Error)
+	}
+
+	return resp.TS, nil
+}
+
 // SavedItem represents a starred/saved Slack item
 type SavedItem struct {
 	Type      string  `json:"type"`

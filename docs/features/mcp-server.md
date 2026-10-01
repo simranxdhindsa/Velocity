@@ -31,6 +31,17 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 `get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`.
 
+### Markdown tables and long messages (`queue_slack_message`, `send_slack_message_now`, Quick Send)
+
+All three paths send through `updatesvc.Service.QuickSend`, which now calls `slacksvc.BuildSendParts(message)` before posting. Slack's classic mrkdwn `text` field has no concept of a Markdown table — posting `| col | col |` rows as plain text just shows the raw pipe characters — so:
+
+- A message containing a GFM pipe-table (header row + `|:---|:---|` separator, the format the Ardoise daily-update report uses) is converted to real Block Kit blocks: non-table text becomes `markdown`-type blocks (which, unlike classic mrkdwn, correctly parse GFM `**bold**`/`*italic*`), and the table itself becomes a native `table` block with actual bordered rows — the same rendering the official Slack MCP connector produces. See `backend/internal/services/slack/blocks.go`.
+- Table cells are parsed into real rich_text elements (`parseInline`): `**bold**`, `*italic*`/`_italic_`, and `<@UID>` mentions become real mention chips, not literal angle-bracket text.
+- A row of all-blank/invisible-char cells (`| ㅤ | ㅤ |`, used in the Ardoise template to separate people) is treated as a safe split point (`maxTableRowsPerBlock`) if a table needs to span multiple `table` blocks — the header row repeats in each one.
+- Plain messages with no table are sent completely unchanged — no behavior change there.
+- Long content (with or without a table) is split across multiple messages sent in sequence, each labeled "— continued", instead of being truncated with a cutoff notice. `QuickSend` returns the first part's `ts` for edit/delete tracking; later parts are additional posts in the same destination.
+- This only affects the Claude Queue / Quick Send send path. DayTrack's Slack posting (`client.PostMessage`/`UpdateMessage`, its own `truncateForSlack`) and reminder-rule roster DMs are untouched — they don't go through `QuickSend`.
+
 ### `send_slack_message_now` notes
 
 - Sends immediately by calling `updatesvc.Service.QuickSend` directly (the same service the Quick Send UI tab uses) — no waiting for the scheduler's next tick.

@@ -409,6 +409,12 @@ func (s *Service) ExecuteScheduled(ctx context.Context, rule *models.UpdateRemin
 
 // QuickSend posts a one-off message to a channel or DM using the user's Slack token.
 // source tags who's calling ("quick_send" or "claude_queue") for the Slack Messages hub log.
+//
+// Markdown pipe-tables in message (Slack mrkdwn has no native table syntax)
+// are converted to Block Kit section/divider blocks via slacksvc.BuildSendParts,
+// and content too long for one message is split across several sent in
+// sequence instead of being truncated. The first part's ts is returned for
+// edit/delete tracking; later parts are additional posts in the same channel.
 func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmUserID, source string) (slackTS, resolvedChannelID string, err error) {
 	integration, ferr := s.integrationRepo.GetSlackIntegration(ctx, userID)
 	if ferr != nil || !integration.Connected {
@@ -416,16 +422,41 @@ func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmU
 	}
 	client := slacksvc.NewClient(integration.BotToken)
 
+	targetChannel := channelID
 	if dmUserID != "" {
-		ch, ts, e := client.PostDirectMessage(ctx, dmUserID, message)
-		// DMs aren't shown in the channel-scoped Slack Messages hub — not logged.
-		return ts, ch, e
+		ch, e := client.OpenDirectMessageChannel(ctx, dmUserID)
+		if e != nil {
+			return "", "", fmt.Errorf("open DM channel: %w", e)
+		}
+		targetChannel = ch
 	}
-	ts, e := client.PostMessage(ctx, channelID, message)
-	if e == nil {
-		s.logSent(ctx, userID, source, channelID, message, ts)
+
+	parts := slacksvc.BuildSendParts(message)
+	var firstTS string
+	for i, part := range parts {
+		var ts string
+		var e error
+		if len(part.Blocks) > 0 {
+			ts, e = client.PostMessageBlocks(ctx, targetChannel, part.Text, part.Blocks)
+		} else {
+			ts, e = client.PostMessage(ctx, targetChannel, part.Text)
+		}
+		if e != nil {
+			if i == 0 {
+				return "", targetChannel, e
+			}
+			return firstTS, targetChannel, fmt.Errorf("sent %d/%d parts, then failed: %w", i, len(parts), e)
+		}
+		if i == 0 {
+			firstTS = ts
+		}
 	}
-	return ts, channelID, e
+
+	// DMs aren't shown in the channel-scoped Slack Messages hub — not logged.
+	if dmUserID == "" {
+		s.logSent(ctx, userID, source, targetChannel, message, firstTS)
+	}
+	return firstTS, targetChannel, nil
 }
 
 func (s *Service) DeleteSlackMessage(ctx context.Context, userID, channelID, ts string) error {
