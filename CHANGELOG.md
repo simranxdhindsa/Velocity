@@ -6,6 +6,9 @@
 - render Slack tables natively, split long messages
 
 
+### Enhancements
+- Slack tools accept raw conversation IDs
+
 ## 2026-09-30
 
 ### Bug Fixes
