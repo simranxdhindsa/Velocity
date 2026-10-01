@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-01
+
+### Features
+- render Slack tables natively, split long messages
+
+
 ## 2026-09-30
 
 ### Bug Fixes
