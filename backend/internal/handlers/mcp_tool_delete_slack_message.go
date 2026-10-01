@@ -19,8 +19,9 @@ var deleteSlackMessageToolSchema = map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
 			"channel": map[string]string{
-				"type":        "string",
-				"description": "Channel name as the user mentioned it, e.g. 'ardoise-pm', '#general'. Omit if it was a DM.",
+				"type": "string",
+				"description": "Channel name as the user mentioned it, e.g. 'ardoise-pm', '#general'. Also accepts a raw Slack " +
+					"conversation ID (e.g. 'C0B30MXMDHQ') for destinations with no name, such as a group DM. Omit if it was a 1:1 DM.",
 			},
 			"dm_user": map[string]string{
 				"type":        "string",

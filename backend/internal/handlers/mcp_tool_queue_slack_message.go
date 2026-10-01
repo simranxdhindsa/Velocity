@@ -23,8 +23,10 @@ var queueSlackMessageToolSchema = map[string]interface{}{
 				"description": "The message text. Use @DisplayName for mentions (e.g. @Suryansh).",
 			},
 			"channel": map[string]string{
-				"type":        "string",
-				"description": "Optional. Channel name as the user mentioned it, e.g. 'ardoise-pm', '#general'. Omit if sending a DM or if not specified.",
+				"type": "string",
+				"description": "Optional. Channel name as the user mentioned it, e.g. 'ardoise-pm', '#general'. Also accepts a raw Slack " +
+					"conversation ID (e.g. 'C0B30MXMDHQ') for destinations with no name to look up, such as a group DM — pass the " +
+					"ID directly here, not in dm_user. Omit if sending a 1:1 DM or if not specified.",
 			},
 			"dm_user": map[string]string{
 				"type":        "string",

@@ -42,6 +42,10 @@ All three paths send through `updatesvc.Service.QuickSend`, which now calls `sla
 - Long content (with or without a table) is split across multiple messages sent in sequence, each labeled "— continued", instead of being truncated with a cutoff notice. `QuickSend` returns the first part's `ts` for edit/delete tracking; later parts are additional posts in the same destination.
 - This only affects the Claude Queue / Quick Send send path. DayTrack's Slack posting (`client.PostMessage`/`UpdateMessage`, its own `truncateForSlack`) and reminder-rule roster DMs are untouched — they don't go through `QuickSend`.
 
+### Raw conversation IDs (`queue_slack_message`, `send_slack_message_now`, `delete_slack_message`)
+
+`resolveChannel` (`mcp_slack.go`) accepts a raw Slack conversation ID — any channel, group DM, or DM ID matching `^[CGD][A-Z0-9]{8,}$` — in the `channel` param, passed straight through with no name lookup. This covers group DMs, which have no name to resolve by. Passing a raw ID doesn't grant access by itself — the Velocity bot still has to actually be a member of that conversation, or Slack returns `channel_not_found` just like it would for any other unauthorized conversation.
+
 ### `send_slack_message_now` notes
 
 - Sends immediately by calling `updatesvc.Service.QuickSend` directly (the same service the Quick Send UI tab uses) — no waiting for the scheduler's next tick.

@@ -3,19 +3,33 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 )
 
+// slackConvIDRe matches a raw Slack conversation ID: a public/private channel
+// (C...), a group DM (G...), or a 1:1 DM channel (D...). These have no
+// display name to look up — group DMs in particular are the only way to
+// target them — so resolveChannel passes them straight through.
+var slackConvIDRe = regexp.MustCompile(`^[CGD][A-Z0-9]{8,}$`)
+
 // resolveChannel looks up a human-readable channel name (e.g. "ardoise-pm", "#general")
-// and returns (channelID, "#channelName"). Returns ("", "") if name is blank or not found.
+// and returns (channelID, "#channelName"). A raw Slack conversation ID (channel, group
+// DM, or DM — anything matching slackConvIDRe) is passed through unchanged, skipping
+// name resolution entirely, since group DMs have no name to resolve by. Returns ("", "")
+// if name is blank or not found.
 func (h *MCPHandler) resolveChannel(ctx context.Context, userID, name string) (string, string) {
 	if name == "" {
 		return "", ""
 	}
-	name = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(name)), "#")
+	trimmed := strings.TrimSpace(name)
+	if slackConvIDRe.MatchString(trimmed) {
+		return trimmed, trimmed
+	}
+	name = strings.TrimPrefix(strings.ToLower(trimmed), "#")
 	channels, err := h.slackSvc.GetChannels(ctx, userID)
 	if err != nil {
 		return "", "#" + name // store the label at least
