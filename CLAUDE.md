@@ -456,3 +456,12 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - Velocity: fix emoji picker closing on its own scrollbar (scroll-bubble bug)
 - Velocity: split DayTrackPage.tsx into helpers + shared components (file-size fix)
 
+### 2026-10-01
+- Velocity: remove navbar chip sliding progress bars
+- Velocity: instant Slack send MCP tool (`send_slack_message_now`), bypasses the review queue
+- Velocity: delete Slack message MCP tool (`delete_slack_message`), Velocity's own messages only
+- Velocity: instant sends now show up in Update Reminders Claude Queue (KPI, Recent list, Delete from Slack)
+- Velocity: Slack Markdown tables now render as real bordered tables instead of raw pipe characters
+- Velocity: long Slack messages split across multiple messages instead of being truncated
+- Velocity: Slack send/queue/delete tools accept raw conversation IDs for group DMs and other unnamed destinations
+
