@@ -108,6 +108,21 @@ func TestSanitizeDashes(t *testing.T) {
 	}
 }
 
+func TestSanitizeApostrophes(t *testing.T) {
+	cases := map[string]string{
+		"i'm velocity, the team bot":        "im velocity, the team bot",
+		"it's great, don't you think?":      "its great, dont you think?",
+		"That's not how I'd put it":         "Thats not how Id put it",
+		"no apostrophes here, all good":     "no apostrophes here, all good",
+		"a plain 'quoted' word stays quoted": "a plain quoted word stays quoted",
+	}
+	for in, want := range cases {
+		if got := sanitizeApostrophes(in); got != want {
+			t.Errorf("sanitizeApostrophes(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestHandle_URLVerificationChallenge(t *testing.T) {
 	t.Setenv("SLACK_SIGNING_SECRET", "test-secret")
 	body := `{"type":"url_verification","challenge":"abc123"}`
