@@ -322,7 +322,35 @@ type groqChatResponse struct {
 // endpoint, optionally offering slackBotTools. withTools is false on the
 // follow-up call after tool results are appended, since by then the model
 // has what it needs and should just answer in character.
+// callGroqChatCompletion retries on rate limits with the same fixed
+// exponential backoff as weeklyGroqCall (standup_compiler.go) — 4 attempts,
+// starting at 2s and doubling — since this runs inside a goroutine after
+// Slack has already been ack'd within 3s, blocking here to wait out a rate
+// limit and then actually reply is safe, unlike a synchronous request path.
 func callGroqChatCompletion(ctx context.Context, messages []groqMessage, withTools bool) (*groqChatResponse, error) {
+	const maxRetries = 4
+	backoff := 2 * time.Second
+
+	var res *groqChatResponse
+	var err error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		res, err = doGroqChatCompletion(ctx, messages, withTools)
+		if err == nil {
+			return res, nil
+		}
+		lower := strings.ToLower(err.Error())
+		isRate := strings.Contains(lower, "rate limit") || strings.Contains(lower, "429") || strings.Contains(lower, "too many")
+		if !isRate || attempt == maxRetries-1 {
+			return nil, err
+		}
+		log.Printf("[slack-events] groq rate limited, retrying in %s (attempt %d/%d)", backoff, attempt+1, maxRetries)
+		time.Sleep(backoff)
+		backoff *= 2
+	}
+	return nil, err
+}
+
+func doGroqChatCompletion(ctx context.Context, messages []groqMessage, withTools bool) (*groqChatResponse, error) {
 	apiKey := os.Getenv("GROQ_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("GROQ_API_KEY not configured")
