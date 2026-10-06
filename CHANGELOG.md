@@ -3,6 +3,7 @@
 ## 2026-10-06
 
 ### Features
+- Velocity Bot sent/queued message context
 - Velocity Bot real YouTrack ticket lookup
 - Velocity Bot persona rewrite; STYLE: Bot Config redesign
 - Slack bot auto-reply, DB-driven persona via MCP
