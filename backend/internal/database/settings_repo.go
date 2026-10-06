@@ -25,8 +25,14 @@ func (r *SettingsRepository) Get(ctx context.Context, key string) (*models.Globa
 	}
 
 	var setting models.GlobalSetting
+	// COALESCE description: the column is nullable but models.GlobalSetting.Description
+	// is a plain (non-pointer) string, so scanning a NULL description directly used to
+	// fail the whole row silently (callers check `err == nil` and just skip the field) —
+	// confirmed this broke youtrack_base_url/token/project_id (all have NULL description
+	// since Set() never populates it), which in turn broke the global-settings fallback
+	// path used by contexts with no authenticated user, like the Slack bot.
 	err := pool.QueryRow(ctx, `
-		SELECT id, key, value, encrypted, description, updated_by, created_at, updated_at
+		SELECT id, key, value, encrypted, COALESCE(description, ''), updated_by, created_at, updated_at
 		FROM global_settings WHERE key = $1
 	`, key).Scan(&setting.ID, &setting.Key, &setting.Value, &setting.Encrypted,
 		&setting.Description, &setting.UpdatedBy, &setting.CreatedAt, &setting.UpdatedAt)
