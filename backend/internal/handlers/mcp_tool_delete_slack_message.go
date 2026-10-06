@@ -12,12 +12,19 @@ var deleteSlackMessageToolSchema = map[string]interface{}{
 	"name": "delete_slack_message",
 	"description": "Delete a Slack message that Velocity itself posted (via queue_slack_message or send_slack_message_now). " +
 		"Only ever targets Velocity's own messages, never other people's — Slack doesn't allow bot deletion of user " +
-		"messages anyway. Requires `channel` or `dm_user` to know where to look. Without `contains`, deletes the " +
-		"most recently sent Velocity message in that destination; pass `contains` to match a specific one by a " +
-		"snippet of its text. Do NOT call list_slack_channels first — just pass the channel name the user mentioned.",
+		"messages anyway. Either pass `link` (a Slack message permalink, e.g. copied via Slack's \"Copy link\" on the " +
+		"message) to target that exact message directly, or `channel`/`dm_user` to know where to look. Without " +
+		"`contains`, deletes the most recently sent Velocity message in that destination; pass `contains` to match " +
+		"a specific one by a snippet of its text. Do NOT call list_slack_channels first — just pass the channel " +
+		"name the user mentioned.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
+			"link": map[string]string{
+				"type": "string",
+				"description": "A Slack message permalink, e.g. 'https://workspace.slack.com/archives/C0B30MXMDHQ/p1791268330344489'. " +
+					"Targets that exact message directly — when given, channel/dm_user/contains are not needed.",
+			},
 			"channel": map[string]string{
 				"type": "string",
 				"description": "Channel name as the user mentioned it, e.g. 'ardoise-pm', '#general'. Also accepts a raw Slack " +
@@ -37,6 +44,7 @@ var deleteSlackMessageToolSchema = map[string]interface{}{
 
 func mcpDeleteSlackMessage(ctx context.Context, h *MCPHandler, userID string, id interface{}, args json.RawMessage) rpcResponse {
 	var a struct {
+		Link     string `json:"link"`
 		Channel  string `json:"channel"`
 		DmUser   string `json:"dm_user"`
 		Contains string `json:"contains"`
@@ -44,8 +52,13 @@ func mcpDeleteSlackMessage(ctx context.Context, h *MCPHandler, userID string, id
 	if err := json.Unmarshal(args, &a); err != nil {
 		return rpcErr(id, -32602, "invalid arguments")
 	}
+
+	if a.Link != "" {
+		return mcpDeleteSlackMessageByLink(ctx, h, userID, id, a.Link)
+	}
+
 	if a.Channel == "" && a.DmUser == "" {
-		return toolError(id, "either channel or dm_user is required")
+		return toolError(id, "either link, channel, or dm_user is required")
 	}
 
 	var channelID, label string
@@ -114,4 +127,52 @@ func mcpDeleteSlackMessage(ctx context.Context, h *MCPHandler, userID string, id
 	}
 
 	return toolOK(id, "Deleted the message in "+label+".")
+}
+
+// mcpDeleteSlackMessageByLink deletes the exact message a Slack permalink
+// points to. The channel and timestamp come straight from the URL, so no
+// "most recent" / contains-matching search is needed — but ownership is
+// still verified against live channel messages before deleting, same
+// safety guarantee as the channel/dm_user path (only Velocity's own sends
+// are eligible).
+func mcpDeleteSlackMessageByLink(ctx context.Context, h *MCPHandler, userID string, id interface{}, link string) rpcResponse {
+	channelID, targetTS, ok := parseSlackPermalink(link)
+	if !ok {
+		return toolError(id, "that doesn't look like a Slack message link — expected something like https://workspace.slack.com/archives/C0B30MXMDHQ/p1791268330344489")
+	}
+
+	live, err := h.slackSvc.GetLiveChannelMessages(ctx, userID, channelID, "")
+	if err != nil {
+		return toolError(id, "Failed to load messages: "+err.Error())
+	}
+
+	found := false
+	isVelocity := false
+	for _, m := range live {
+		if m.TS == targetTS {
+			found = true
+			isVelocity = m.IsVelocity
+			break
+		}
+	}
+	if !found {
+		return toolError(id, "couldn't find that message, it may have already been deleted or be too old to load")
+	}
+	if !isVelocity {
+		return toolError(id, "that message wasn't sent by Velocity, so it can't be deleted through this tool")
+	}
+
+	if err := h.updateSvc.DeleteSlackMessage(ctx, userID, channelID, targetTS); err != nil {
+		return toolError(id, "Failed to delete: "+err.Error())
+	}
+	if queued, qerr := h.msgRepo.ListByUser(ctx, userID); qerr == nil {
+		for _, q := range queued {
+			if q.SlackTs == targetTS {
+				_ = h.msgRepo.Delete(ctx, q.ID, userID)
+				break
+			}
+		}
+	}
+
+	return toolOK(id, "Deleted the message.")
 }

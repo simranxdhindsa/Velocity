@@ -16,6 +16,24 @@ import (
 // target them — so resolveChannel passes them straight through.
 var slackConvIDRe = regexp.MustCompile(`^[CGD][A-Z0-9]{8,}$`)
 
+// slackPermalinkRe matches a Slack message permalink's channel ID and
+// timestamp segment, e.g.
+// https://workspace.slack.com/archives/C0B30MXMDHQ/p1791268330344489
+var slackPermalinkRe = regexp.MustCompile(`archives/([CGD][A-Z0-9]{8,})/p(\d{10})(\d{6})`)
+
+// parseSlackPermalink extracts the channel ID and message timestamp from a
+// Slack message permalink URL. The URL's p<digits> segment is the message's
+// ts with the decimal point removed (e.g. p1791268330344489 ->
+// "1791268330.344489"). Returns ok=false if link doesn't match the expected
+// shape (not a Slack permalink, or malformed).
+func parseSlackPermalink(link string) (channelID, ts string, ok bool) {
+	m := slackPermalinkRe.FindStringSubmatch(link)
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], m[2] + "." + m[3], true
+}
+
 // resolveChannel looks up a human-readable channel name (e.g. "ardoise-pm", "#general")
 // and returns (channelID, "#channelName"). A raw Slack conversation ID (channel, group
 // DM, or DM — anything matching slackConvIDRe) is passed through unchanged, skipping
