@@ -10,10 +10,12 @@ import { SlackIcon, MentionCard, ThreadCard, isSnoozed, cleanSlackText, timeAgo 
 import { SettingsTabContent, RemindersTabContent, getPresetDate } from './SlackTabs'
 import type { Preset } from './SlackTabs'
 import { SlackMessagesHub } from './SlackMessagesHub'
+import { BotConversationsView } from '@/components/SlackBotConversations'
+import { useAuth } from '@/contexts/AuthContext'
 import '../styles/pages/slack.css'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Tab = 'inbox' | 'messages'
+type Tab = 'inbox' | 'messages' | 'mcp-activity'
 type InboxView = 'mentions' | 'threads'
 type InboxFilter = 'Needs Action' | 'Pinned' | 'All' | 'Snoozed' | 'Resolved'
 
@@ -28,6 +30,8 @@ export function SlackIntelligencePage({
   initialTab = 'messages',
   onTabChange,
 }: SlackIntelligencePageProps) {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [tab, setTab] = useState<Tab>(initialTab)
   const [inboxView, setInboxView] = useState<InboxView>('mentions')
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>('Needs Action')
@@ -278,6 +282,7 @@ export function SlackIntelligencePage({
   const TABS: Array<{ id: Tab; label: string; badge?: number | 'dot' }> = [
     { id: 'messages', label: 'Messages' },
     { id: 'inbox',    label: 'Inbox', badge: needsActionCount > 0 ? needsActionCount : undefined },
+    { id: 'mcp-activity', label: 'MCP Activity' },
   ]
 
   const INBOX_FILTERS: InboxFilter[] = ['Needs Action', 'Pinned', 'All', 'Snoozed', 'Resolved']
@@ -457,6 +462,8 @@ export function SlackIntelligencePage({
         )}
 
         {tab === 'messages' && <SlackMessagesHub />}
+
+        {tab === 'mcp-activity' && <BotConversationsView isAdmin={isAdmin} />}
       </div>
 
       {/* Reminder modal */}

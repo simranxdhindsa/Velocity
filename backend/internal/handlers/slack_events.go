@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
@@ -164,18 +165,50 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 		return
 	}
 
+	client := slacksvc.NewClient(integration.BotToken)
+
+	// Resolve the sender's Velocity app user (via Slack email lookup) before
+	// generating the reply, so the full conversation log below can be
+	// attributed for per-user access control (see
+	// SlackBotConversationsHandler.List).
+	senderEmail := resolveSlackSenderEmail(ctx, client, ev.User)
+	velocityUserID := resolveVelocityUser(ctx, senderEmail)
+
 	actorLabel := slackActorLabel(ev)
 	systemPrompt := slackReplyPrompt(ctx, h.botRepo)
 	start := time.Now()
 	reply, err := groqFunnyReply(ctx, systemPrompt, ev.Text, actorLabel)
 	elapsed := time.Since(start).Round(time.Millisecond)
 	logSlackBotReply(actorLabel, ev.Text, reply, err, elapsed)
+
+	// Full-fidelity conversation log (separate from the lossy/truncated
+	// summary above) — fires on both the success and failure path.
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	logCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if lerr := database.NewSlackBotConversationRepository().Log(logCtx, database.SlackBotConversation{
+		UserID:         velocityUserID,
+		SlackUserID:    ev.User,
+		SlackUserEmail: senderEmail,
+		ChannelID:      ev.Channel,
+		ChannelLabel:   "",
+		EventType:      ev.Type,
+		IncomingText:   ev.Text,
+		ReplyText:      reply,
+		Success:        err == nil,
+		ErrorMessage:   errMsg,
+	}); lerr != nil {
+		log.Printf("[slack-events] failed to log conversation: %v", lerr)
+	}
+	cancel()
+
 	if err != nil {
 		log.Printf("[slack-events] groq reply failed: %v", err)
 		return
 	}
 
-	client := slacksvc.NewClient(integration.BotToken)
 	// In a channel (@mention), reply in-thread so it doesn't spam the channel;
 	// in a DM, just post normally.
 	if isMentionEvent := ev.Type == "app_mention"; isMentionEvent {
@@ -201,6 +234,41 @@ func slackActorLabel(ev slackInnerEvent) string {
 		return "mention in " + ev.Channel
 	}
 	return "DM from " + ev.User
+}
+
+// slackEmailCache avoids re-hitting Slack's users.info API for every message
+// from the same person — the Slack-ID-to-email mapping essentially never
+// changes within a process lifetime.
+var slackEmailCache sync.Map // map[string]string: slackUserID -> email (may be "")
+
+func resolveSlackSenderEmail(ctx context.Context, client *slacksvc.Client, slackUserID string) string {
+	if slackUserID == "" {
+		return ""
+	}
+	if v, ok := slackEmailCache.Load(slackUserID); ok {
+		return v.(string)
+	}
+	email := ""
+	if u, err := client.GetUser(ctx, slackUserID); err == nil && u != nil {
+		email = u.Profile.Email
+	}
+	slackEmailCache.Store(slackUserID, email)
+	return email
+}
+
+// resolveVelocityUser maps a Slack sender's email to a Velocity app user ID,
+// for per-user conversation history access control. Returns "" if no match
+// (e.g. an external/unknown Slack account) — conversations with an empty
+// user_id are visible only to admins (see SlackBotConversationsHandler).
+func resolveVelocityUser(ctx context.Context, email string) string {
+	if email == "" {
+		return ""
+	}
+	u, err := database.NewUserRepository().GetByEmail(ctx, email)
+	if err != nil || u == nil {
+		return ""
+	}
+	return u.ID
 }
 
 // logSlackBotReply records the full "message in -> reply out" round trip for

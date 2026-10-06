@@ -553,6 +553,18 @@ func main() {
 	// Keep only the last 7 days of MCP activity
 	handlers.RunMCPActivityPruner(database.NewMCPActivityRepository())
 
+	// Slack bot conversation log — full chat transcript of the Velocity Slack
+	// bot. Authenticated for any logged-in user (NOT admin-gated at the route
+	// level) — admins see every conversation, everyone else sees only their
+	// own; the role-based filter lives inside the handler, see
+	// SlackBotConversationsHandler.List.
+	slackBotConvHandler := handlers.NewSlackBotConversationsHandler()
+	slackBotConvRoutes := api.PathPrefix("/slack-bot-chat").Subrouter()
+	slackBotConvRoutes.Use(middleware.AuthMiddleware)
+	slackBotConvRoutes.HandleFunc("", slackBotConvHandler.List).Methods("GET")
+	// Keep only the last 30 days of Slack bot conversation history
+	handlers.RunSlackBotConversationPruner(database.NewSlackBotConversationRepository())
+
 	// Start pending-messages scheduler (fires due Slack messages every 60s)
 	handlers.RunPendingMessagesScheduler(notifHandler)
 

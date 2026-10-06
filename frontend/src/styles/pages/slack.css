@@ -1225,6 +1225,160 @@
 }
 
 /* ── Mobile responsive ─────────────────────────────────── */
+/* ── Bot Conversations sub-tab (sbc-* prefix) ──────────────────────────────── */
+/* Chat-bubble transcript of Velocity Slack bot DMs/@mentions, reusing SlackBotConversations.tsx */
+
+.sbc-view {
+  padding: 0.75rem 1.25rem 1.5rem;
+}
+
+.sbc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.sbc-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text-primary);
+}
+
+.sbc-header-title h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.sbc-header-title p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+
+.sbc-header-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sbc-stat {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.sbc-refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.sbc-refresh-btn:hover { border-color: var(--color-primary); }
+.sbc-refresh-btn:disabled { opacity: 0.6; cursor: default; }
+
+.sbc-spin { animation: sbc-spin 0.9s linear infinite; }
+@keyframes sbc-spin { to { transform: rotate(360deg); } }
+
+.sbc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.sbc-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sbc-chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sbc-chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sbc-chat-meta .sbc-dot { opacity: 0.6; }
+
+.sbc-bubble-row {
+  display: flex;
+  width: 100%;
+}
+
+.sbc-bubble-row--in { justify-content: flex-start; }
+.sbc-bubble-row--out { justify-content: flex-end; }
+
+.sbc-bubble {
+  max-width: 72%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.sbc-bubble--in {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-top-left-radius: 4px;
+}
+
+.sbc-bubble--out {
+  background: rgba(var(--color-primary-rgb), 0.16);
+  color: var(--text-primary);
+  border: 1px solid var(--color-primary);
+  border-top-right-radius: 4px;
+}
+
+.sbc-bubble--out.sbc-bubble--error {
+  background: var(--color-danger-muted);
+  border-color: var(--color-danger);
+}
+
+.sbc-bubble-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+  margin-bottom: 3px;
+}
+
+@media (max-width: 768px) {
+  .sbc-bubble { max-width: 88%; }
+}
+
 @media (max-width: 768px) {
   /* Page: tighter padding */
   .si2-page { padding: 0.75rem 0.875rem 1.5rem; }

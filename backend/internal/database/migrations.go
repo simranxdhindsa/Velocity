@@ -1344,6 +1344,32 @@ WHERE bot_type = 'ticket_parser'`,
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_mcp_activity_created_at ON mcp_activity_log(created_at DESC)`,
 
+		// Slack bot conversation log — full-fidelity transcript of every DM/
+		// mention <-> reply round trip the Velocity Slack bot has, separate from
+		// the lossy/truncated mcp_activity_log summary. user_id is deliberately
+		// NOT a foreign key: it's resolved from the Slack sender's email at log
+		// time and may be empty string when that resolution fails (unknown/
+		// external Slack account) — never NULL, so every column here is safe to
+		// scan into a plain Go string/bool without a NULL-scan bug. Rows older
+		// than 30 days are pruned by a background job (see
+		// RunSlackBotConversationPruner).
+		`CREATE TABLE IF NOT EXISTS slack_bot_conversations (
+			id BIGSERIAL PRIMARY KEY,
+			user_id VARCHAR(255) NOT NULL DEFAULT '',
+			slack_user_id VARCHAR(64) NOT NULL DEFAULT '',
+			slack_user_email VARCHAR(255) NOT NULL DEFAULT '',
+			channel_id VARCHAR(64) NOT NULL DEFAULT '',
+			channel_label VARCHAR(255) NOT NULL DEFAULT '',
+			event_type VARCHAR(16) NOT NULL DEFAULT '',
+			incoming_text TEXT NOT NULL DEFAULT '',
+			reply_text TEXT NOT NULL DEFAULT '',
+			success BOOLEAN NOT NULL DEFAULT true,
+			error_message TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_slack_bot_conversations_user_id ON slack_bot_conversations(user_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_slack_bot_conversations_created_at ON slack_bot_conversations(created_at DESC)`,
+
 		// ticket_parser prompt v2: adds PRESERVE MODE so fully-written tickets are not condensed.
 		// Runs unconditionally (no idempotency guard) so it always wins over earlier migrations
 		// that set the same column — this must stay the LAST ticket_parser UPDATE in this slice.

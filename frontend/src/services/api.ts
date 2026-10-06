@@ -2067,6 +2067,13 @@ class ApiService {
   async getMcpActivity(limit = 200) {
     return this.request<MCPActivityEntry[]>(`/mcp/activity?limit=${limit}`)
   }
+
+  // ── Slack bot conversation log ────────────────────────────────────────────
+  async getSlackBotConversations(limit = 200) {
+    return this.request<SlackBotConversation[]>(`/slack-bot-chat?limit=${limit}`) as Promise<
+      ApiResponse<SlackBotConversation[]> & { is_admin_view?: boolean }
+    >
+  }
 }
 
 export interface MCPConnection {
@@ -2085,6 +2092,21 @@ export interface MCPActivityEntry {
   summary: string
   success: boolean
   duration_ms: number
+  created_at: string
+}
+
+export interface SlackBotConversation {
+  id: string
+  user_id: string
+  slack_user_id: string
+  slack_user_email: string
+  channel_id: string
+  channel_label: string
+  event_type: string
+  incoming_text: string
+  reply_text: string
+  success: boolean
+  error_message: string
   created_at: string
 }
 

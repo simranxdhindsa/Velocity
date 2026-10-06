@@ -97,7 +97,7 @@ const PATH_TO_PAGE: Record<string, Page> = {
 const PM_REPORTS_TABS = ['tracking', 'daily', 'assignees', 'deployment'] as const
 type PMReportsTab = typeof PM_REPORTS_TABS[number]
 
-const SLACK_TABS = ['messages', 'inbox'] as const
+const SLACK_TABS = ['messages', 'inbox', 'mcp-activity'] as const
 type SlackTab = typeof SLACK_TABS[number]
 
 const UPDATE_REMINDERS_TABS = ['claude-queue', 'rules'] as const
