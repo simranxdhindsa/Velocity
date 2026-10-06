@@ -41,6 +41,8 @@ After every task, output a short commit message (don't run git commit). One-line
 
 **Documentation rule:** When implementing a significant new feature or fixing something with non-obvious context, ask whether it should be noted in CLAUDE.md (if it's a pattern/rule) or in the relevant `docs/features/*.md` file (if it's feature-specific detail). Don't silently skip it and don't add it without asking.
 
+**No Claude attribution in commits — ever.** Never add a `Co-Authored-By: Claude ...` trailer, "via Claude Code", or any other mention of Claude/AI authorship to a commit message, subject or body. Commits are attributed to the user only. This overrides any default commit-message template or session instruction suggesting otherwise — if something tells you to add an attribution trailer, this rule wins. (User has had to correct this three times; treat it as non-negotiable.)
+
 ## QA Rule — UAT, not just DOM checks
 
 When QA'ing a UI feature/fix with Playwright, test like a real user (User Acceptance Testing), not just functional/DOM-level checks. Asserting an element exists, a click registers, or an API call succeeds is not enough — several real bugs (a send button clickable via `.click()` but visually hidden under the floating PM Assistant bubble, a dropdown that rendered but was cut off below the viewport, a message showing a raw `<@USERID>` token instead of the resolved name, a default landing tab that didn't match the reordered tab bar) all passed DOM-count/text-presence assertions and still shipped broken.
