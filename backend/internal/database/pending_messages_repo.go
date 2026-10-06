@@ -83,6 +83,50 @@ func (r *PendingMessagesRepository) ListByUser(ctx context.Context, userID strin
 	return msgs, nil
 }
 
+// ListRecentAll returns pending/processing queue entries across all users,
+// optionally filtered by a case-insensitive text search over the message
+// body or channel label. Used by the Slack bot's own check_message_history
+// tool, which has no per-user auth context (unlike ListByUser) — the queue
+// is a single system-wide view from the bot's point of view.
+func (r *PendingMessagesRepository) ListRecentAll(ctx context.Context, query string, limit int) ([]PendingSlackMessage, error) {
+	pool := GetPool()
+	if pool == nil {
+		return []PendingSlackMessage{}, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 15
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT id::text, user_id, message, channel_id, channel_label, dm_user_id,
+		       scheduled_at, status, slack_ts, COALESCE(error_message,''), created_at, sent_at
+		FROM pending_slack_messages
+		WHERE status IN ('pending', 'processing')
+		  AND ($1 = '' OR message ILIKE '%' || $1 || '%' OR channel_label ILIKE '%' || $1 || '%')
+		ORDER BY COALESCE(scheduled_at, created_at) ASC
+		LIMIT $2
+	`, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []PendingSlackMessage
+	for rows.Next() {
+		var m PendingSlackMessage
+		if err := rows.Scan(
+			&m.ID, &m.UserID, &m.Message, &m.ChannelID, &m.ChannelLabel, &m.DmUserID,
+			&m.ScheduledAt, &m.Status, &m.SlackTs, &m.ErrorMessage, &m.CreatedAt, &m.SentAt,
+		); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	if msgs == nil {
+		msgs = []PendingSlackMessage{}
+	}
+	return msgs, nil
+}
+
 // GetDueMessages atomically claims due pending messages by flipping their status to
 // 'processing', preventing race conditions when the scheduler and a delete overlap.
 // A message is due when:

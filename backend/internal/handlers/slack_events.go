@@ -45,6 +45,7 @@ Think of yourself as the colleague who is friendly, quick, and slightly cheeky, 
 - No sign-off line. Do not write Regards, Velocity, or your friendly bot at the end.
 - Answer first, charm second. Get to the point in the first few words, do not warm up first.
 - You have real access to YouTrack tickets via your search_tickets and get_ticket tools. Use them whenever someone asks about a ticket, bug, or task. Never invent ticket details, status, or assignees, always look them up first. If a lookup fails or finds nothing, say so plainly instead of guessing.
+- You also have a check_message_history tool covering every Slack message Velocity has sent or has queued. Use it whenever someone asks if a message went out, what was sent recently, or whether something is still pending.
 - Salaries, performance reviews, leave reasons, or anything personal about a teammate are not yours to discuss. Say to ask Simran instead.
 - Light wordplay is welcome. Sarcasm, guilt trips, and passive aggression are not.
 - One playful beat per message, not a joke in every sentence.
@@ -218,6 +219,24 @@ var slackBotTools = []map[string]interface{}{
 					},
 				},
 				"required": []string{"id_readable"},
+			},
+		},
+	},
+	{
+		"type": "function",
+		"function": map[string]interface{}{
+			"name": "check_message_history",
+			"description": "Check Velocity's own Slack message history and send queue (Update Reminders / Claude Queue). " +
+				"Use when asked whether a message was already sent, what was recently sent, or whether something is " +
+				"still queued or scheduled to go out.",
+			"parameters": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional keyword to search for in the message text or channel/person name, e.g. 'standup' or 'Rohit'. Leave empty for just the most recent.",
+					},
+				},
 			},
 		},
 	},
@@ -404,16 +423,62 @@ func executeSlackBotTool(ctx context.Context, name string, argsJSON string) stri
 		if assignee := youtrack.GetAssignee(*issue); assignee != nil {
 			assigneeName = assignee.FullName
 		}
-		desc := issue.Description
-		if len(desc) > 500 {
-			desc = desc[:500] + "..."
-		}
 		return fmt.Sprintf("%s: %s\nStatus: %s\nPriority: %s\nAssignee: %s\nDescription: %s",
-			issue.IDReadable, issue.Summary, youtrack.GetStatus(*issue), youtrack.GetPriority(*issue), assigneeName, desc)
+			issue.IDReadable, issue.Summary, youtrack.GetStatus(*issue), youtrack.GetPriority(*issue), assigneeName, truncateText(issue.Description, 500))
+
+	case "check_message_history":
+		var args struct {
+			Query string `json:"query"`
+		}
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+		query := strings.TrimSpace(args.Query)
+
+		pending, perr := database.NewPendingMessagesRepository().ListRecentAll(ctx, query, 8)
+		sent, serr := database.NewSentSlackMessagesRepository().ListRecentAll(ctx, query, 8)
+		if perr != nil && serr != nil {
+			return "Could not check message history right now."
+		}
+
+		var sb strings.Builder
+		if len(pending) > 0 {
+			sb.WriteString("Queued or scheduled:\n")
+			for _, m := range pending {
+				when := "no schedule set, sends at the default time"
+				if m.ScheduledAt != nil {
+					when = m.ScheduledAt.Format("Jan 2 3:04pm")
+				}
+				dest := m.ChannelLabel
+				if dest == "" {
+					dest = "a DM"
+				}
+				fmt.Fprintf(&sb, "- [%s] to %s: %s (%s)\n", m.Status, dest, truncateText(m.Message, 120), when)
+			}
+		}
+		if len(sent) > 0 {
+			sb.WriteString("Already sent:\n")
+			for _, m := range sent {
+				dest := m.ChannelLabel
+				if dest == "" {
+					dest = "a DM"
+				}
+				fmt.Fprintf(&sb, "- %s to %s: %s\n", m.SentAt.Format("Jan 2 3:04pm"), dest, truncateText(m.Message, 120))
+			}
+		}
+		if sb.Len() == 0 {
+			return "No matching sent or queued messages found."
+		}
+		return sb.String()
 
 	default:
 		return "Unknown tool."
 	}
+}
+
+func truncateText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // sanitizeDashes enforces CLAUDE.md's "no em dashes or double dashes in

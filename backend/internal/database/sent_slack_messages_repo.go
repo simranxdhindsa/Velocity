@@ -86,6 +86,48 @@ func (r *SentSlackMessagesRepository) List(ctx context.Context, userID, channelI
 	return msgs, nil
 }
 
+// ListRecentAll returns recent sent messages across all users, optionally
+// filtered by a case-insensitive text search over the message body or
+// channel label. Used by the Slack bot's own check_message_history tool,
+// which has no per-user auth context (unlike List, which is scoped to one
+// app user for the Slack Messages hub UI) — Velocity's sent history is a
+// single system-wide log from the bot's point of view.
+func (r *SentSlackMessagesRepository) ListRecentAll(ctx context.Context, query string, limit int) ([]SentSlackMessage, error) {
+	pool := GetPool()
+	if pool == nil {
+		return []SentSlackMessage{}, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 15
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT id::text, user_id, source, channel_id, channel_label, message, slack_ts, sent_at, edited_at
+		FROM sent_slack_messages
+		WHERE ($1 = '' OR message ILIKE '%' || $1 || '%' OR channel_label ILIKE '%' || $1 || '%')
+		ORDER BY sent_at DESC
+		LIMIT $2
+	`, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []SentSlackMessage
+	for rows.Next() {
+		var m SentSlackMessage
+		if err := rows.Scan(
+			&m.ID, &m.UserID, &m.Source, &m.ChannelID, &m.ChannelLabel, &m.Message, &m.SlackTs, &m.SentAt, &m.EditedAt,
+		); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	if msgs == nil {
+		msgs = []SentSlackMessage{}
+	}
+	return msgs, nil
+}
+
 func (r *SentSlackMessagesRepository) GetByID(ctx context.Context, id, userID string) (*SentSlackMessage, error) {
 	pool := GetPool()
 	if pool == nil {
