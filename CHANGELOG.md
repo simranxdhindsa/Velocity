@@ -8,6 +8,9 @@
 - edit Slack message MCP tool
 
 
+### Enhancements
+- Velocity Bot persona fixes + tone tweaks
+
 ## 2026-10-01
 
 ### Features
