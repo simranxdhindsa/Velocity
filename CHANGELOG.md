@@ -11,6 +11,7 @@
 
 
 ### Enhancements
+- Velocity Bot retries on Groq rate limits
 - Velocity Bot savage/sarcastic tone
 - Velocity Bot persona fixes + tone tweaks
 
