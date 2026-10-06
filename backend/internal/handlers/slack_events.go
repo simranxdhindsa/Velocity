@@ -164,8 +164,12 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 		return
 	}
 
+	actorLabel := slackActorLabel(ev)
 	systemPrompt := slackReplyPrompt(ctx, h.botRepo)
-	reply, err := groqFunnyReply(ctx, systemPrompt, ev.Text)
+	start := time.Now()
+	reply, err := groqFunnyReply(ctx, systemPrompt, ev.Text, actorLabel)
+	elapsed := time.Since(start).Round(time.Millisecond)
+	logSlackBotReply(actorLabel, ev.Text, reply, err, elapsed)
 	if err != nil {
 		log.Printf("[slack-events] groq reply failed: %v", err)
 		return
@@ -186,6 +190,44 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 	}
 	if _, err := client.PostMessage(ctx, ev.Channel, reply); err != nil {
 		log.Printf("[slack-events] failed to post DM reply: %v", err)
+	}
+}
+
+// slackActorLabel builds a cheap, human-readable label for who triggered a
+// Slack bot interaction, using only the raw IDs already present on the event
+// (no extra Slack API lookups for a display name).
+func slackActorLabel(ev slackInnerEvent) string {
+	if ev.Type == "app_mention" {
+		return "mention in " + ev.Channel
+	}
+	return "DM from " + ev.User
+}
+
+// logSlackBotReply records the full "message in -> reply out" round trip for
+// the Slack bot, both as a console line and as a row in the shared
+// mcp_activity_log table/UI (same standard as the MCP server's own activity
+// log, see mcp_dispatch.go callTool).
+func logSlackBotReply(actorLabel, incoming, reply string, err error, elapsed time.Duration) {
+	success := err == nil
+	summary := fmt.Sprintf("%q -> %q", truncateText(incoming, 80), truncateText(reply, 150))
+	if !success {
+		summary = fmt.Sprintf("%q -> error: %s", truncateText(incoming, 80), err.Error())
+	}
+	if success {
+		log.Printf("[Slack Bot] ✓ reply to %s (%s): %s", actorLabel, elapsed, summary)
+	} else {
+		log.Printf("[Slack Bot] ✗ reply to %s failed (%s): %s", actorLabel, elapsed, summary)
+	}
+	logCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if lerr := mcpActivityRepo.Log(logCtx, database.MCPActivityEntry{
+		ToolName:    "slack_bot_reply",
+		ActionLabel: "Slack Bot replied (" + actorLabel + ")",
+		Summary:     summary,
+		Success:     success,
+		DurationMs:  int(elapsed.Milliseconds()),
+	}); lerr != nil {
+		log.Printf("[Slack Bot] ⚠ failed to record activity log entry: %v", lerr)
 	}
 }
 
@@ -269,7 +311,7 @@ type groqToolCall struct {
 // report generation (temperature 0); a funny auto-reply wants actual variety.
 // Supports one round of tool-calling so the model can look up real YouTrack
 // ticket data via slackBotTools instead of inventing it.
-func groqFunnyReply(ctx context.Context, systemPrompt, userText string) (string, error) {
+func groqFunnyReply(ctx context.Context, systemPrompt, userText, actorLabel string) (string, error) {
 	if strings.TrimSpace(userText) == "" {
 		userText = "(sent an empty message)"
 	}
@@ -288,7 +330,7 @@ func groqFunnyReply(ctx context.Context, systemPrompt, userText string) (string,
 		assistantMsg := res.Choices[0].Message
 		messages = append(messages, assistantMsg)
 		for _, tc := range assistantMsg.ToolCalls {
-			result := executeSlackBotTool(ctx, tc.Function.Name, tc.Function.Arguments)
+			result := executeSlackBotTool(ctx, tc.Function.Name, tc.Function.Arguments, actorLabel)
 			messages = append(messages, groqMessage{
 				Role:       "tool",
 				ToolCallID: tc.ID,
@@ -409,11 +451,58 @@ func slackYTClient(ctx context.Context) *youtrack.Client {
 }
 
 // executeSlackBotTool runs one Groq-requested tool call against the real
-// YouTrack client and returns a plain-text result to feed back to the model.
-func executeSlackBotTool(ctx context.Context, name string, argsJSON string) string {
+// YouTrack client, logs the outcome (console + mcp_activity_log, reusing the
+// same shared table/UI as the MCP server's own activity log in
+// mcp_dispatch.go), and returns a plain-text result to feed back to the
+// model.
+func executeSlackBotTool(ctx context.Context, name, argsJSON, actorLabel string) string {
+	start := time.Now()
+	result, success := executeSlackBotToolInner(ctx, name, argsJSON)
+	elapsed := time.Since(start).Round(time.Millisecond)
+
+	mark := "✓"
+	if !success {
+		mark = "✗"
+	}
+	log.Printf("[Slack Bot] %s %s(%s) for %s (%s): %s", mark, name, truncateText(argsJSON, 60), actorLabel, elapsed, truncateText(result, 150))
+
+	logCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := mcpActivityRepo.Log(logCtx, database.MCPActivityEntry{
+		ToolName:    "slack_bot_" + name,
+		ActionLabel: slackBotToolActionLabel(name) + " (" + actorLabel + ")",
+		Summary:     truncateText(result, 200),
+		Success:     success,
+		DurationMs:  int(elapsed.Milliseconds()),
+	}); err != nil {
+		log.Printf("[Slack Bot] ⚠ failed to record activity log entry: %v", err)
+	}
+	return result
+}
+
+// slackBotToolActionLabel gives each Slack bot tool a human-readable label
+// for the shared mcp_activity_log UI, mirroring the MCP server's own
+// per-tool action labels.
+func slackBotToolActionLabel(name string) string {
+	switch name {
+	case "search_tickets":
+		return "Slack Bot searched tickets"
+	case "get_ticket":
+		return "Slack Bot fetched ticket"
+	case "check_message_history":
+		return "Slack Bot checked message history"
+	default:
+		return "Slack Bot tool call"
+	}
+}
+
+// executeSlackBotToolInner does the actual work for executeSlackBotTool and
+// reports an explicit success flag based on what actually happened, rather
+// than leaving the caller to infer success/failure from the result string.
+func executeSlackBotToolInner(ctx context.Context, name string, argsJSON string) (string, bool) {
 	client := slackYTClient(ctx)
 	if client == nil {
-		return "YouTrack is not configured, ticket lookups are unavailable right now."
+		return "YouTrack is not configured, ticket lookups are unavailable right now.", false
 	}
 
 	switch name {
@@ -428,35 +517,36 @@ func executeSlackBotTool(ctx context.Context, name string, argsJSON string) stri
 		}
 		issues, err := client.SearchIssues(ctx, yql, 5)
 		if err != nil {
-			return fmt.Sprintf("Search failed: %v", err)
+			return fmt.Sprintf("Search failed: %v", err), false
 		}
 		if len(issues) == 0 {
-			return "No matching tickets found."
+			return "No matching tickets found.", true
 		}
 		var sb strings.Builder
 		for _, is := range issues {
 			fmt.Fprintf(&sb, "%s: %s (status: %s, priority: %s)\n", is.IDReadable, is.Summary, youtrack.GetStatus(is), youtrack.GetPriority(is))
 		}
-		return sb.String()
+		return sb.String(), true
 
 	case "get_ticket":
 		var args struct {
 			IDReadable string `json:"id_readable"`
 		}
 		_ = json.Unmarshal([]byte(argsJSON), &args)
-		if strings.TrimSpace(args.IDReadable) == "" {
-			return "No ticket ID provided."
+		idReadable := strings.TrimSpace(args.IDReadable)
+		if idReadable == "" {
+			return "No ticket ID provided.", false
 		}
-		issue, err := client.GetIssue(ctx, args.IDReadable)
+		issue, err := client.GetIssue(ctx, idReadable)
 		if err != nil {
-			return fmt.Sprintf("Could not find ticket %s: %v", args.IDReadable, err)
+			return fmt.Sprintf("Could not find ticket %s: %v", idReadable, err), false
 		}
 		assigneeName := "unassigned"
 		if assignee := youtrack.GetAssignee(*issue); assignee != nil {
 			assigneeName = assignee.FullName
 		}
 		return fmt.Sprintf("%s: %s\nStatus: %s\nPriority: %s\nAssignee: %s\nDescription: %s",
-			issue.IDReadable, issue.Summary, youtrack.GetStatus(*issue), youtrack.GetPriority(*issue), assigneeName, truncateText(issue.Description, 500))
+			issue.IDReadable, issue.Summary, youtrack.GetStatus(*issue), youtrack.GetPriority(*issue), assigneeName, truncateText(issue.Description, 500)), true
 
 	case "check_message_history":
 		var args struct {
@@ -468,7 +558,7 @@ func executeSlackBotTool(ctx context.Context, name string, argsJSON string) stri
 		pending, perr := database.NewPendingMessagesRepository().ListRecentAll(ctx, query, 8)
 		sent, serr := database.NewSentSlackMessagesRepository().ListRecentAll(ctx, query, 8)
 		if perr != nil && serr != nil {
-			return "Could not check message history right now."
+			return "Could not check message history right now.", false
 		}
 
 		var sb strings.Builder
@@ -497,12 +587,12 @@ func executeSlackBotTool(ctx context.Context, name string, argsJSON string) stri
 			}
 		}
 		if sb.Len() == 0 {
-			return "No matching sent or queued messages found."
+			return "No matching sent or queued messages found.", true
 		}
-		return sb.String()
+		return sb.String(), true
 
 	default:
-		return "Unknown tool."
+		return "Unknown tool.", false
 	}
 }
 

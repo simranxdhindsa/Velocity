@@ -19,6 +19,15 @@ npm run build
 npm run lint
 ```
 
+## Bug-Fix Rule — Reproduce Before Patching
+
+When a user reports a bug with evidence (screenshot, log line, Slack message), reproduce the exact failing input against the real live pipeline (same function, same DB, same external API) before writing or claiming a fix. Don't patch based on a plausible-sounding theory alone.
+
+- Write a throwaway scratch test that calls the real code path with the literal input that failed, not a paraphrase.
+- If the first theory doesn't reproduce, say so and keep digging. A fix without a reproduced failure and a passing re-run after the fix is not confirmed, it's a guess.
+- Run the suspect input multiple times if the path involves an LLM or any other non-deterministic step (temperature > 0, retries, external API) — a single clean run proves little.
+- If the bug turns out not to reproduce on current code (e.g. it predates a fix already shipped), say that plainly instead of inventing a fix for a bug that no longer exists.
+
 ## Workflow Rule
 
 After every task, output a short commit message (don't run git commit). One-liner prefixed with the change type:
