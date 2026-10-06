@@ -29,7 +29,7 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`.
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`.
 
 ### Markdown tables and long messages (`queue_slack_message`, `send_slack_message_now`, Quick Send)
 
@@ -59,6 +59,12 @@ All three paths send through `updatesvc.Service.QuickSend`, which now calls `sla
 - Without `contains`, deletes the most recent Velocity message in that channel/DM (`GetLiveChannelMessages` returns newest-first). Pass `contains` to target an older one by a text snippet.
 - After deleting from Slack, separately looks up and removes the matching `pending_slack_messages` row by `slack_ts` (a second lookup — `GetLiveChannelMessages`'s own `ID` field belongs to the hub-log table, not the queue table, so it can't be reused for this) so the Claude Queue "Recent" list doesn't keep a dangling card pointing at a deleted message.
 - DM destinations open the DM channel via a fresh `slacksvc.Client.OpenDirectMessageChannel` call rather than through `Service`, since `Service` doesn't expose that resolution itself.
+
+### `edit_slack_message` notes
+
+- Targeting (resolve channel/DM, `IsVelocity`-only matching, `contains` to pick a specific message) is identical to `delete_slack_message` — same safety guarantee, Claude can only edit Velocity's own messages.
+- Calls `updatesvc.Service.UpdateSlackMessage` → `chat.update`, the same path the Quick Send history UI's edit button uses. Plain text only — it does not run the new text through `slacksvc.BuildSendParts`, so editing a message that was originally sent as a Markdown table (native `table` block) isn't supported; that message keeps its original table content regardless of the new text passed in.
+- Does not touch the `pending_slack_messages` row's stored `message` text (consistent with the existing REST edit endpoint, which only takes `channelId`/`ts`, not a queue row ID) — only the live Slack message content changes.
 
 ### `search_youtrack_tickets` notes
 
