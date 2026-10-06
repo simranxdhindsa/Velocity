@@ -3,6 +3,7 @@
 ## 2026-10-06
 
 ### Features
+- Velocity Bot conversation history (Slack tab > MCP Activity)
 - Velocity Bot sent/queued message context
 - Velocity Bot real YouTrack ticket lookup
 - Velocity Bot persona rewrite; STYLE: Bot Config redesign
