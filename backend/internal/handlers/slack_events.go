@@ -19,6 +19,7 @@ import (
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/models"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
+	"github.com/dhindsa/project-management/internal/services/youtrack"
 )
 
 // defaultSlackReplyPrompt is the fallback persona used only if the DB is
@@ -43,7 +44,7 @@ Think of yourself as the colleague who is friendly, quick, and slightly cheeky, 
 - Never use em dashes or double dashes.
 - No sign-off line. Do not write Regards, Velocity, or your friendly bot at the end.
 - Answer first, charm second. Get to the point in the first few words, do not warm up first.
-- You have no access to tickets, data, or any system, so never invent details about a specific ticket, person, or fact. If asked about something you cannot actually know, say plainly that you cannot look it up right now.
+- You have real access to YouTrack tickets via your search_tickets and get_ticket tools. Use them whenever someone asks about a ticket, bug, or task. Never invent ticket details, status, or assignees, always look them up first. If a lookup fails or finds nothing, say so plainly instead of guessing.
 - Salaries, performance reviews, leave reasons, or anything personal about a teammate are not yours to discuss. Say to ask Simran instead.
 - Light wordplay is welcome. Sarcasm, guilt trips, and passive aggression are not.
 - One playful beat per message, not a joke in every sentence.
@@ -183,26 +184,131 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 	}
 }
 
+// slackBotTools are the function tools offered to Groq so it can look up
+// real YouTrack ticket data instead of inventing it, same underlying client
+// as the get_youtrack_ticket/search_youtrack_tickets MCP tools.
+var slackBotTools = []map[string]interface{}{
+	{
+		"type": "function",
+		"function": map[string]interface{}{
+			"name":        "search_tickets",
+			"description": "Search YouTrack tickets by free-text keyword, assignee name, or status. Use when asked about tickets in general, not a single known ID.",
+			"parameters": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Free text search terms, e.g. a title keyword, assignee name, or status like 'open'",
+					},
+				},
+			},
+		},
+	},
+	{
+		"type": "function",
+		"function": map[string]interface{}{
+			"name":        "get_ticket",
+			"description": "Get full details for one specific ticket by its ID, e.g. ARD-123.",
+			"parameters": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id_readable": map[string]interface{}{
+						"type":        "string",
+						"description": "The ticket ID, e.g. ARD-123",
+					},
+				},
+				"required": []string{"id_readable"},
+			},
+		},
+	},
+}
+
+type groqMessage struct {
+	Role       string         `json:"role"`
+	Content    string         `json:"content"`
+	ToolCalls  []groqToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+}
+
+type groqToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 // groqFunnyReply asks Groq for a short, funny, in-character reply to a Slack
 // message, using the given systemPrompt (the editable bot_configs persona,
 // resolved by the caller via slackReplyPrompt). Separate from callGroqChat
 // (daytrack_handler.go) because that helper is tuned for deterministic
 // report generation (temperature 0); a funny auto-reply wants actual variety.
+// Supports one round of tool-calling so the model can look up real YouTrack
+// ticket data via slackBotTools instead of inventing it.
 func groqFunnyReply(ctx context.Context, systemPrompt, userText string) (string, error) {
-	apiKey := os.Getenv("GROQ_API_KEY")
-	if apiKey == "" {
-		return "", fmt.Errorf("GROQ_API_KEY not configured")
-	}
 	if strings.TrimSpace(userText) == "" {
 		userText = "(sent an empty message)"
 	}
 
+	messages := []groqMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userText},
+	}
+
+	res, err := callGroqChatCompletion(ctx, messages, true)
+	if err != nil {
+		return "", err
+	}
+
+	if len(res.Choices) > 0 && len(res.Choices[0].Message.ToolCalls) > 0 {
+		assistantMsg := res.Choices[0].Message
+		messages = append(messages, assistantMsg)
+		for _, tc := range assistantMsg.ToolCalls {
+			result := executeSlackBotTool(ctx, tc.Function.Name, tc.Function.Arguments)
+			messages = append(messages, groqMessage{
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    result,
+			})
+		}
+		res, err = callGroqChatCompletion(ctx, messages, false)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	if len(res.Choices) == 0 {
+		return "", fmt.Errorf("no choices returned")
+	}
+	reply := strings.TrimSpace(res.Choices[0].Message.Content)
+	reply = sanitizeDashes(reply)
+	reply = sanitizeApostrophes(reply)
+	return reply, nil
+}
+
+type groqChatResponse struct {
+	Choices []struct {
+		Message groqMessage `json:"message"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// callGroqChatCompletion makes one request to Groq's chat-completions
+// endpoint, optionally offering slackBotTools. withTools is false on the
+// follow-up call after tool results are appended, since by then the model
+// has what it needs and should just answer in character.
+func callGroqChatCompletion(ctx context.Context, messages []groqMessage, withTools bool) (*groqChatResponse, error) {
+	apiKey := os.Getenv("GROQ_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("GROQ_API_KEY not configured")
+	}
+
 	payload := map[string]interface{}{
-		"model": "openai/gpt-oss-20b",
-		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": userText},
-		},
+		"model":       "openai/gpt-oss-20b",
+		"messages":    messages,
 		"stream":      false,
 		"temperature": 0.9,
 		// gpt-oss is a reasoning model: it spends tokens on an internal
@@ -214,44 +320,100 @@ func groqFunnyReply(ctx context.Context, systemPrompt, userText string) (string,
 		"reasoning_effort": "low",
 		"max_tokens":       300,
 	}
+	if withTools {
+		payload["tools"] = slackBotTools
+		payload["tool_choice"] = "auto"
+	}
 	b, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.groq.com/openai/v1/chat/completions", bytes.NewReader(b))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
-	var res struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
+	var res groqChatResponse
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", err
+		return nil, err
 	}
 	if res.Error != nil {
-		return "", fmt.Errorf("%s", res.Error.Message)
+		return nil, fmt.Errorf("%s", res.Error.Message)
 	}
-	if len(res.Choices) == 0 {
-		return "", fmt.Errorf("no choices returned")
+	return &res, nil
+}
+
+// slackYTClient resolves a YouTrack client the same way the MCP tools do
+// (mcpYTClient in mcp.go), minus the per-user integration lookup since the
+// Slack bot has no authenticated user context — falls through to global
+// settings, then env vars.
+func slackYTClient(ctx context.Context) *youtrack.Client {
+	return mcpYTClient(ctx, "")
+}
+
+// executeSlackBotTool runs one Groq-requested tool call against the real
+// YouTrack client and returns a plain-text result to feed back to the model.
+func executeSlackBotTool(ctx context.Context, name string, argsJSON string) string {
+	client := slackYTClient(ctx)
+	if client == nil {
+		return "YouTrack is not configured, ticket lookups are unavailable right now."
 	}
-	reply := strings.TrimSpace(res.Choices[0].Message.Content)
-	reply = sanitizeDashes(reply)
-	reply = sanitizeApostrophes(reply)
-	return reply, nil
+
+	switch name {
+	case "search_tickets":
+		var args struct {
+			Query string `json:"query"`
+		}
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+		yql := strings.TrimSpace(args.Query)
+		if yql == "" {
+			yql = "project: " + client.GetProjectID()
+		}
+		issues, err := client.SearchIssues(ctx, yql, 5)
+		if err != nil {
+			return fmt.Sprintf("Search failed: %v", err)
+		}
+		if len(issues) == 0 {
+			return "No matching tickets found."
+		}
+		var sb strings.Builder
+		for _, is := range issues {
+			fmt.Fprintf(&sb, "%s: %s (status: %s, priority: %s)\n", is.IDReadable, is.Summary, youtrack.GetStatus(is), youtrack.GetPriority(is))
+		}
+		return sb.String()
+
+	case "get_ticket":
+		var args struct {
+			IDReadable string `json:"id_readable"`
+		}
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+		if strings.TrimSpace(args.IDReadable) == "" {
+			return "No ticket ID provided."
+		}
+		issue, err := client.GetIssue(ctx, args.IDReadable)
+		if err != nil {
+			return fmt.Sprintf("Could not find ticket %s: %v", args.IDReadable, err)
+		}
+		assigneeName := "unassigned"
+		if assignee := youtrack.GetAssignee(*issue); assignee != nil {
+			assigneeName = assignee.FullName
+		}
+		desc := issue.Description
+		if len(desc) > 500 {
+			desc = desc[:500] + "..."
+		}
+		return fmt.Sprintf("%s: %s\nStatus: %s\nPriority: %s\nAssignee: %s\nDescription: %s",
+			issue.IDReadable, issue.Summary, youtrack.GetStatus(*issue), youtrack.GetPriority(*issue), assigneeName, desc)
+
+	default:
+		return "Unknown tool."
+	}
 }
 
 // sanitizeDashes enforces CLAUDE.md's "no em dashes or double dashes in
