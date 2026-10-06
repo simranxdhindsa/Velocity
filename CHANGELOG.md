@@ -11,6 +11,7 @@
 
 
 ### Enhancements
+- Slack Bot activity logging + bug-fix process rule
 - Velocity Bot savage replies stay professional
 - Velocity Bot retries on Groq rate limits
 - Velocity Bot savage/sarcastic tone
