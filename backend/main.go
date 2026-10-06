@@ -187,6 +187,11 @@ func main() {
 
 	// YouTrack webhook endpoint (public - called by YouTrack server)
 	api.HandleFunc("/webhooks/youtrack", youtrackHandler.HandleWebhook).Methods("POST")
+
+	// Slack Events API webhook (public - authenticated via Slack's own request
+	// signature, not JWT). Powers the "DM Velocity, get a funny AI reply" feature.
+	slackEventsHandler := handlers.NewSlackEventsHandler()
+	api.HandleFunc("/slack/events", slackEventsHandler.Handle).Methods("POST")
 	youtrackRoutes := api.PathPrefix("/youtrack").Subrouter()
 	youtrackRoutes.Use(middleware.AuthMiddleware)
 	youtrackRoutes.HandleFunc("/status", youtrackHandler.GetStatus).Methods("GET")

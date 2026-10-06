@@ -20,4 +20,6 @@ var mcpTools = []map[string]interface{}{
 	sendSlackMessageNowToolSchema,
 	deleteSlackMessageToolSchema,
 	editSlackMessageToolSchema,
+	getSlackReplyConfigToolSchema,
+	updateSlackReplyConfigToolSchema,
 }

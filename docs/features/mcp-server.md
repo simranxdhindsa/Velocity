@@ -29,7 +29,12 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`.
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`.
+
+### `get_slack_reply_config` / `update_slack_reply_config` notes
+
+- Read/write the `bot_configs` row (`bot_type='slack_reply'`) that powers the Slack Events webhook's funny auto-reply persona — see [`docs/features/slack-events-bot.md`](docs/features/slack-events-bot.md). This is what lets the persona be changed by asking Claude, instead of editing a hardcoded Go string and redeploying.
+- `update_slack_reply_config` replaces the whole prompt; there's no partial/append edit, so callers that want to tweak rather than replace should `get` first, then send back the edited full text.
 
 ### Markdown tables and long messages (`queue_slack_message`, `send_slack_message_now`, Quick Send)
 

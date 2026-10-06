@@ -689,6 +689,20 @@ sprint_id: ID of the most recent non-completed sprint from the sprints list. Oth
 			'system'
 		WHERE NOT EXISTS (SELECT 1 FROM bot_configs WHERE bot_type = 'ticket_parser')`,
 
+		// Seed default Velocity Bot config (powers the Slack Events webhook's
+		// DM/@mention auto-reply — editable from PM Assistant's Bot Config UI
+		// and from the get_slack_reply_config/update_slack_reply_config MCP
+		// tools, instead of being hardcoded in Go).
+		`INSERT INTO bot_configs (name, description, bot_type, prompt, variables, is_active, created_by)
+		SELECT 'Velocity Bot', 'Reply persona used when someone DMs Velocity or @mentions it in a Slack channel. Edit this to change the bot''s tone.', 'slack_reply',
+			E'You are Velocity, a project management bot, replying to a direct Slack message or mention.\nReply in a short, witty, funny tone, like a clever coworker cracking a joke, not corporate or robotic.\nKeep it to 1-3 sentences max. No emoji spam, one emoji at most. Never use em dashes or double dashes.\nStay harmless and work-appropriate; never mention you are an AI model or name an AI provider.',
+			'[]', true, 'system'
+		WHERE NOT EXISTS (SELECT 1 FROM bot_configs WHERE bot_type = 'slack_reply')`,
+
+		// Rename the already-seeded row from its original name (existing rows
+		// predate this rename and aren't touched by the WHERE NOT EXISTS seed above).
+		`UPDATE bot_configs SET name = 'Velocity Bot' WHERE bot_type = 'slack_reply' AND name = 'Slack Funny Reply'`,
+
 		// ── Developer → Subsystem config ─────────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS developer_subsystem_configs (
 			developer_login VARCHAR(255) PRIMARY KEY,

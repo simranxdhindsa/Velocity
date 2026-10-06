@@ -35,6 +35,8 @@ var mcpToolHandlers = map[string]mcpToolFunc{
 	"send_slack_message_now":       mcpSendSlackMessageNow,
 	"delete_slack_message":         mcpDeleteSlackMessage,
 	"edit_slack_message":           mcpEditSlackMessage,
+	"get_slack_reply_config":       mcpGetSlackReplyConfig,
+	"update_slack_reply_config":    mcpUpdateSlackReplyConfig,
 }
 
 // mcpToolActionLabels gives each tool a plain-language action name for the

@@ -132,6 +132,7 @@ GROQ_API_KEY=
 OPENAI_API_KEY=
 GEMINI_API_KEY=
 SLACK_BOT_TOKEN=
+SLACK_SIGNING_SECRET=   # Slack app's signing secret — verifies /api/slack/events webhook requests
 ASANA_PAT=
 ASANA_PROJECT_ID=
 ```
@@ -435,6 +436,7 @@ Detailed descriptions of each feature/tab live in `docs/features/`. Read the rel
 | [`docs/features/update-reminders.md`](docs/features/update-reminders.md) | Update Reminders — standalone left-nav page with 2 subtabs (Claude Queue, Rules; Quick Send was folded into Slack Messages' compose box), KPI row, green dot nav indicator, browser notifications, scheduler uses default send time for null-scheduled messages |
 | [`docs/features/shared-components.md`](docs/features/shared-components.md) | **Read before building any UI** — CustomDropdown, TimePicker, ConfirmModal, HoverCard, CalendarView, global CSS files |
 | [`docs/features/mcp-server.md`](docs/features/mcp-server.md) | `/api/mcp` server — one-file-per-tool convention, how to add a new tool, current tool list |
+| [`docs/features/slack-events-bot.md`](docs/features/slack-events-bot.md) | `/api/slack/events` webhook — funny AI auto-reply on DM/@mention, Slack signature verification, Groq `gpt-oss-20b` reasoning-model quirks, required Slack App setup |
 | [`docs/features/uat-testing.md`](docs/features/uat-testing.md) | **Read before any Playwright QA pass** — UAT lessons learned, real bugs that passed DOM-only checks, process checklist |
 
 ---

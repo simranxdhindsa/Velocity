@@ -94,6 +94,7 @@ type MCPHandler struct {
 	msgRepo      *database.PendingMessagesRepository
 	slackSvc     *slacksvc.Service
 	updateSvc    *updatesvc.Service
+	botRepo      *database.BotConfigRepository
 }
 
 func NewMCPHandler() *MCPHandler {
@@ -103,6 +104,7 @@ func NewMCPHandler() *MCPHandler {
 		msgRepo:      database.NewPendingMessagesRepository(),
 		slackSvc:     slacksvc.NewService(),
 		updateSvc:    updatesvc.NewService(),
+		botRepo:      database.NewBotConfigRepository(),
 	}
 }
 
