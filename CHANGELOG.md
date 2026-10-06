@@ -11,6 +11,7 @@
 
 
 ### Enhancements
+- Velocity Bot savage/sarcastic tone
 - Velocity Bot persona fixes + tone tweaks
 
 ## 2026-10-01
