@@ -3,6 +3,8 @@
 ## 2026-10-06
 
 ### Features
+- Velocity Bot persona rewrite; STYLE: Bot Config redesign
+- Slack bot auto-reply, DB-driven persona via MCP
 - edit Slack message MCP tool
 
 
