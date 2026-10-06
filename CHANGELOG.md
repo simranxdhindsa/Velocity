@@ -12,6 +12,7 @@
 
 
 ### Enhancements
+- delete_slack_message accepts a Slack message link
 - Slack Bot activity logging + bug-fix process rule
 - Velocity Bot savage replies stay professional
 - Velocity Bot retries on Groq rate limits
