@@ -17,6 +17,9 @@
 - Velocity Bot savage/sarcastic tone
 - Velocity Bot persona fixes + tone tweaks
 
+### Bug Fixes
+- global_settings.description NULL broke YouTrack fallback
+
 ## 2026-10-01
 
 ### Features
