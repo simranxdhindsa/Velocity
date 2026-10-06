@@ -13,11 +13,74 @@ import {
   X,
   Copy,
   Check,
+  MessageSquareText,
+  ClipboardList,
+  Sparkles,
+  Brain,
+  Rocket,
+  UploadCloud,
+  Ticket,
+  Smile,
+  type LucideIcon,
 } from 'lucide-react'
 import api from '../services/api'
 import type { BotConfig, BotVariable } from '../services/api'
 import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { CustomDropdown, type DropdownOption } from '@/components/CustomDropdown'
+
+// ====== Per-type icon + accent color (CSS var, never a hardcoded hex) ======
+const BOT_TYPE_ICONS: Record<string, LucideIcon> = {
+  slack_analysis: MessageSquareText,
+  daily_report: ClipboardList,
+  custom: Sparkles,
+  pm_assistant: Brain,
+  stage_report: Rocket,
+  deployment_report: UploadCloud,
+  ticket_parser: Ticket,
+  slack_reply: Smile,
+}
+
+const BOT_TYPE_ACCENTS: Record<string, string> = {
+  slack_analysis: 'var(--color-accent)',
+  daily_report: 'var(--color-success)',
+  custom: 'var(--color-warning)',
+  pm_assistant: 'var(--color-primary)',
+  stage_report: 'var(--color-secondary)',
+  deployment_report: 'var(--color-info)',
+  ticket_parser: 'var(--color-danger)',
+  slack_reply: 'var(--color-primary-light)',
+}
+
+function botTypeIcon(botType: string): LucideIcon {
+  return BOT_TYPE_ICONS[botType] ?? Bot
+}
+
+function botTypeAccent(botType: string): string {
+  return BOT_TYPE_ACCENTS[botType] ?? 'var(--color-primary)'
+}
+
+// Only the types creatable from the editor — pm_assistant/stage_report/slack_analysis/
+// daily_report/custom (matches the original <select>'s options); ticket_parser and
+// slack_reply are system-managed bot types, not user-creatable from this form.
+const BOT_TYPE_CREATE_LABELS: Record<string, string> = {
+  pm_assistant: 'PM Assistant',
+  stage_report: 'Stage Report',
+  slack_analysis: 'Slack Analysis',
+  daily_report: 'Daily Report',
+  custom: 'Custom',
+}
+const BOT_TYPE_OPTIONS: DropdownOption[] = Object.entries(BOT_TYPE_CREATE_LABELS).map(([value, label]) => {
+  const Icon = botTypeIcon(value)
+  return { value, label, icon: <Icon size={13} style={{ color: botTypeAccent(value) }} /> }
+})
+
+const VARIABLE_TYPE_OPTIONS: DropdownOption[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'select', label: 'Select' },
+  { value: 'date', label: 'Date' },
+  { value: 'team_member', label: 'Team Member' },
+]
 
 // ====== Bot cons pool (randomly attached to each card) ======
 const BOT_CONS = [
@@ -118,18 +181,13 @@ function BotCard({
     pm_assistant: 'PM Assistant',
     stage_report: 'Stage Report',
     deployment_report: 'Deployment Report',
-  }
-
-  const botTypeColors: Record<string, string> = {
-    slack_analysis: 'var(--color-primary)',
-    daily_report: 'var(--color-success)',
-    custom: 'var(--color-secondary)',
-    pm_assistant: '#f59e0b',
-    stage_report: '#8b5cf6',
-    deployment_report: '#0ea5e9',
+    ticket_parser: 'Ticket Parser',
+    slack_reply: 'Slack Reply',
   }
 
   const con = getBotCon(bot.id)
+  const Icon = botTypeIcon(bot.bot_type)
+  const accent = botTypeAccent(bot.bot_type)
 
   let variables: BotVariable[] = []
   try {
@@ -138,12 +196,30 @@ function BotCard({
     variables = []
   }
 
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`)
+    e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`)
+  }
+
   return (
-    <div className={`bot-card glass-card ${!bot.is_active ? 'bot-inactive' : ''}`}>
+    <div
+      className={`bot-card glass-card ${!bot.is_active ? 'bot-inactive' : ''}`}
+      style={{ '--bot-accent': accent } as React.CSSProperties}
+      onPointerMove={handlePointerMove}
+    >
+      <div className="bot-card-spotlight" aria-hidden="true" />
+      <span className="bot-card-cross bot-card-cross--tl" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+      </span>
+      <span className="bot-card-cross bot-card-cross--br" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+      </span>
+
       <div className="bot-card-header">
         <div className="bot-card-info bot-card-info-clickable" onClick={() => setExpanded(!expanded)}>
-          <div className="bot-card-icon" style={{ backgroundColor: botTypeColors[bot.bot_type] ?? 'var(--color-secondary)' }}>
-            <Bot size={18} />
+          <div className="bot-card-icon">
+            <Icon size={18} />
           </div>
           <div>
             <h3 className="bot-card-name">{bot.name}</h3>
@@ -245,6 +321,7 @@ function BotEditor({
   })
   const [mode, setMode] = useState<'basic' | 'advanced'>('basic')
   const [copied, setCopied] = useState<string | null>(null)
+  const [promptCopied, setPromptCopied] = useState(false)
 
   const addVariable = () => {
     setVariables([
@@ -330,17 +407,12 @@ function BotEditor({
             </div>
             <div className="form-group" style={{ flex: 1 }}>
               <label>Type</label>
-              <select
-                className="form-input"
+              <CustomDropdown
+                className="bot-type-dropdown"
                 value={botType}
-                onChange={(e) => setBotType(e.target.value as BotConfig['bot_type'])}
-              >
-                <option value="pm_assistant">PM Assistant</option>
-                <option value="stage_report">Stage Report</option>
-                <option value="slack_analysis">Slack Analysis</option>
-                <option value="daily_report">Daily Report</option>
-                <option value="custom">Custom</option>
-              </select>
+                onChange={(v) => setBotType(v as BotConfig['bot_type'])}
+                options={BOT_TYPE_OPTIONS}
+              />
             </div>
           </div>
 
@@ -386,18 +458,12 @@ function BotEditor({
                       value={v.label}
                       onChange={(e) => updateVariable(i, { label: e.target.value })}
                     />
-                    <select
-                      className="form-input form-input-sm"
+                    <CustomDropdown
+                      className="variable-type-dropdown"
                       value={v.type}
-                      onChange={(e) =>
-                        updateVariable(i, { type: e.target.value as BotVariable['type'] })
-                      }
-                    >
-                      <option value="text">Text</option>
-                      <option value="select">Select</option>
-                      <option value="date">Date</option>
-                      <option value="team_member">Team Member</option>
-                    </select>
+                      onChange={(val) => updateVariable(i, { type: val as BotVariable['type'] })}
+                      options={VARIABLE_TYPE_OPTIONS}
+                    />
                     <input
                       type="text"
                       className="form-input form-input-sm"
@@ -451,7 +517,24 @@ function BotEditor({
 
           {/* Prompt */}
           <div className="form-group">
-            <label>Prompt {mode === 'advanced' && '(Advanced)'}</label>
+            <div className="form-label-row">
+              <label>Prompt {mode === 'advanced' && '(Advanced)'}</label>
+              <div className="bot-prompt-toolbar">
+                <span className="bot-prompt-count">{prompt.length} chars</span>
+                <button
+                  type="button"
+                  className="btn-icon-sm"
+                  title="Copy prompt"
+                  onClick={() => {
+                    navigator.clipboard.writeText(prompt)
+                    setPromptCopied(true)
+                    setTimeout(() => setPromptCopied(false), 1500)
+                  }}
+                >
+                  {promptCopied ? <Check size={13} /> : <Copy size={13} />}
+                </button>
+              </div>
+            </div>
             <textarea
               className="form-input bot-prompt-editor"
               rows={mode === 'advanced' ? 15 : 8}

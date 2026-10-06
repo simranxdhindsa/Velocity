@@ -58,16 +58,61 @@
 }
 
 /* ── Bot card ─────────────────────────────────────────────── */
+/* Design language borrowed from a 21st.dev "spotlight feature card": a
+   pointer-follow radial glow (via --mx/--my set on pointermove), hairline
+   corner crosshair marks, and a bordered icon badge instead of a flat
+   filled circle. --bot-accent is set per-card from the bot's type color. */
 .bot-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  padding: 1rem 1.1rem;
-  transition: all var(--transition-normal);
+  padding: 1.1rem 1.1rem 1rem;
+  transition: border-color var(--transition-normal), transform var(--transition-normal);
+  overflow: hidden;
+}
+
+.bot-card:hover {
+  border-color: rgba(var(--color-primary-rgb), 0.3);
+  transform: translateY(-1px);
 }
 
 .bot-card.bot-inactive {
   opacity: 0.55;
+}
+
+.bot-card-spotlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(circle 220px at var(--mx, 50%) var(--my, 0%), color-mix(in srgb, var(--bot-accent, var(--color-primary)) 16%, transparent), transparent 70%);
+}
+
+.bot-card:hover .bot-card-spotlight {
+  opacity: 1;
+}
+
+.bot-card-cross {
+  position: absolute;
+  z-index: 2;
+  width: 10px;
+  height: 10px;
+  color: var(--border-color);
+  pointer-events: none;
+}
+
+.bot-card-cross svg { width: 100%; height: 100%; }
+.bot-card-cross--tl { top: -5px; left: -5px; }
+.bot-card-cross--br { bottom: -5px; right: -5px; }
+
+/* Absolutely-positioned decorations (spotlight, crosshairs) otherwise paint
+   above static in-flow content per CSS stacking order — lift every other
+   direct child above them in one rule instead of z-indexing each class. */
+.bot-card > *:not(.bot-card-spotlight):not(.bot-card-cross) {
+  position: relative;
+  z-index: 2;
 }
 
 .bot-card-header {
@@ -90,18 +135,29 @@
 }
 
 .bot-card-icon {
-  width: 36px;
-  height: 36px;
+  position: relative;
+  z-index: 2;
+  width: 38px;
+  height: 38px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  background: color-mix(in srgb, var(--bot-accent, var(--color-primary)) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bot-accent, var(--color-primary)) 28%, transparent);
+  color: var(--bot-accent, var(--color-primary));
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.bot-card:hover .bot-card-icon {
+  background: color-mix(in srgb, var(--bot-accent, var(--color-primary)) 20%, transparent);
+  border-color: color-mix(in srgb, var(--bot-accent, var(--color-primary)) 45%, transparent);
 }
 
 .bot-card-name {
+  position: relative;
+  z-index: 2;
   font-size: 0.9rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -111,9 +167,21 @@
 }
 
 .bot-card-type {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  font-weight: 500;
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--bot-accent, var(--text-muted));
+  background: color-mix(in srgb, var(--bot-accent, var(--color-primary)) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bot-accent, var(--color-primary)) 22%, transparent);
+  border-radius: var(--radius-full);
+  padding: 0.1rem 0.5rem;
+  margin-top: 0.2rem;
 }
 
 .bot-card-actions {
@@ -419,6 +487,46 @@
   flex-wrap: wrap;
   gap: 0.35rem;
   margin-top: 0.35rem;
+}
+
+/* Base .form-label-row is just display:block — scope a proper space-between
+   row here so the "Add Variable" button and the new prompt copy toolbar
+   both sit flush right of their label instead of stacking underneath. */
+.bot-config-page .form-label-row,
+.bot-editor-modal .form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bot-prompt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bot-prompt-count {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* CustomDropdown sizing to match .form-input within the bot editor's rows */
+.bot-type-dropdown .pm-custom-dropdown-trigger {
+  width: 100%;
+  height: 100%;
+  min-height: 38px;
+}
+
+.variable-type-dropdown {
+  flex: 1;
+  min-width: 110px;
+}
+.variable-type-dropdown .pm-custom-dropdown-trigger {
+  width: 100%;
+  min-height: 32px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
 }
 
 .bot-prompt-editor {
