@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-06
+
+### Features
+- edit Slack message MCP tool
+
+
 ## 2026-10-01
 
 ### Features
