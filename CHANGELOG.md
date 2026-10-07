@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-07
+
+### Enhancements
+- get_youtrack_ticket returns comments, attachment ownership and inline images; Slack bot get_ticket shows recent comments
+
+
 ## 2026-10-06
 
 ### Features
