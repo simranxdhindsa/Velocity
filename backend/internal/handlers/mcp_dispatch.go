@@ -39,6 +39,8 @@ var mcpToolHandlers = map[string]mcpToolFunc{
 	"update_slack_reply_config":    mcpUpdateSlackReplyConfig,
 	"get_daytrack":                 mcpGetDaytrack,
 	"whoami":                       mcpWhoami,
+	"read_slack_messages":          mcpReadSlackMessages,
+	"get_slack_mentions":           mcpGetSlackMentions,
 }
 
 // mcpToolActionLabels gives each tool a plain-language action name for the
@@ -63,6 +65,8 @@ var mcpToolActionLabels = map[string]string{
 	"update_slack_reply_config":    "Updated Slack reply config",
 	"get_daytrack":                 "Fetched DayTrack",
 	"whoami":                       "Identified caller",
+	"read_slack_messages":          "Read Slack messages",
+	"get_slack_mentions":           "Fetched Slack mentions",
 }
 
 // callTool dispatches a tools/call request to the matching tool's handler.

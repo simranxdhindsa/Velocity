@@ -29,7 +29,22 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone).
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered).
+
+### `read_slack_messages` / `get_slack_mentions` notes (read-only)
+
+Files: `mcp_tool_read_slack_messages.go`, `mcp_tool_get_slack_mentions.go`, shared helpers in `mcp_slack_read.go` (`slackReader`: caller identity, access control, mention/link resolution, 12-hour formatting), Slack API read calls in `services/slack/client_read.go` (`GetHistoryPaged`, `GetThreadPaged`, `GetConversationInfo`, `GetConversationMembers`, `GetBotMemberChannels`, `WorkspaceURL`).
+
+| Tool | Params (defaults) |
+|---|---|
+| `read_slack_messages` | one of `channel` (name or raw ID), `link` (permalink, returns message + whole thread), `my_dm: true`; `limit` 30 (max 200; for a link, max replies, default 100); `since` (`30m`/`2h`/`1d`/`1w`/`today`/`yesterday`/`YYYY-MM-DD` in the user's timezone); `query` (substring on resolved text + author, scans up to 1000 messages) |
+| `get_slack_mentions` | `since` 3d (max 30d), `channel` optional, `unanswered_only`, `limit` 30 (max 100) |
+
+- **Identity**: the caller's Slack user comes from their Velocity email (`users.lookupByEmail`), never from tool args.
+- **Access control** (`slackReader.authorize`): public channels need the bot to be a member; private channels and group DMs also require the caller to be a member (`conversations.members`); DMs are only allowed if the ID equals the caller's own DM with the bot (`conversations.open` with the caller's ID). Someone else's DM with the bot is refused.
+- **Output**: author (bot posts named via `bots.info`), 12-hour AM/PM time, text with `<@U..>`, `<#C..|x>`, `<!here>`, `<url|label>` resolved and HTML entities unescaped (no raw tokens survive), permalink built from the `auth.test` workspace URL (no per-message API call), `reply_count`, reactions, file names. Channel reads return oldest to newest.
+- **Mentions**: scans every channel the bot is in (`users.conversations`) within the window, plus up to 40 most recently active threads (`conversations.replies` is Tier 3) to find in-thread mentions and check whether the caller replied *after* the mention. `awaiting_reply` = not replied and not dismissed in Velocity's Slack tab (`slack_mentions.replied`). Top-level mentions whose thread wasn't scanned fall back to `reply_users`. Slackbot system messages are ignored.
+- **Scopes**: works with the current bot scopes (`channels:history`, `groups:history`, `groups:read`, `im:history`, `im:write`, `users:read.email`). Missing: `mpim:read`/`mpim:history` (group DMs fail with an honest missing_scope error), `im:read`. `search.messages` is not usable with a bot token, so mentions are found by scanning history. @group (`subteam`) and @here mentions are not counted.
 
 ### `get_slack_reply_config` / `update_slack_reply_config` notes
 

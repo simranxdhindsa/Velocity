@@ -69,6 +69,11 @@ type Message struct {
 	ThreadTS    string       `json:"thread_ts,omitempty"`
 	ReplyCount  int          `json:"reply_count,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// Read-side fields (see client_read.go), returned by history/replies.
+	ReplyUsers  []string   `json:"reply_users,omitempty"`
+	LatestReply string     `json:"latest_reply,omitempty"`
+	Reactions   []Reaction `json:"reactions,omitempty"`
+	Files       []File     `json:"files,omitempty"`
 }
 
 // Attachment is a legacy Slack message attachment. Bot integrations (like
