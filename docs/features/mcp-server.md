@@ -29,7 +29,7 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`.
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others).
 
 ### `get_slack_reply_config` / `update_slack_reply_config` notes
 
@@ -103,3 +103,22 @@ Returns the ticket fields plus the full discussion, because comments are often w
 - `yql` is a raw fragment ANDed onto the rest (`has: comments`, `tag: Hotfix`, `commented: {Last week}`).
 - Results are always sorted: `sort_by` = `updated` (default, `desc`), `created` (`desc`), or `priority` (`asc`, since Priority sorts by enum order and `asc` puts P0/A1 first).
 - Each result includes `type`, `reporter`, `created` and `updated` (ISO) in addition to the original fields.
+
+### `get_daytrack` notes
+
+Read-only view of a user's DayTrack log. Files: `mcp_tool_get_daytrack.go` (schema + handler), `mcp_daytrack.go` (target-user resolution, date parsing, 12-hour time formatting, ticket ID extraction).
+
+| Param | Default | Notes |
+|---|---|---|
+| `date` | `today` | `YYYY-MM-DD`, `today` or `yesterday`, resolved in the user's DayTrack timezone (`daytrack_slack_config.timezone`, default `Asia/Kolkata`) |
+| `from` / `to` | none | Inclusive range, max 62 days. `to` defaults to `from`. Can't be combined with `date` |
+| `category` | none | Case-insensitive exact match on the entry category. No match returns an error listing the categories present |
+| `user_email` / `user` | caller | Admins only (`models.RoleAdmin`). A non-admin naming anyone but themselves is refused before any lookup, so the tool never reveals whether another user exists. `user` matches name, email or email local part; ambiguous names list the candidates |
+| `include_report_text` | true for one day, false for ranges | Adds `report_text` per day |
+| `summary_only` | false | Totals only, no entries. Use for long ranges (a busy 2-week range is ~50KB with entries, ~2KB without) |
+
+- Reads with `DayTrackRepository.GetEntriesRange`. It does NOT call `pruneDeletedYouTrackEntries` (the REST handlers do), since that deletes rows.
+- `report_text` reuses `DayTrackHandler.buildDayTrackReportText`, the same function behind Copy DayTrack, the on-screen summary and the Slack post. It runs with `ytHandler=nil`, which makes the pruning step a no-op, so it stays read-only. It always covers the whole day and ignores `category`.
+- Totals count top-level entries only. Subtasks are nested under their parent and not added again, same as the DayTrack page export. Duration is `duration_mins`, or end minus start when only times were saved (`duration_from_times: true`). Entries with neither count as 0.
+- Times are normalised to 12-hour (`9:03 AM`), including legacy `HH:MM` values. Emoji comes from `categoryEmoji` (built-in map, then the user's custom category icon, then `▪️`).
+- `ticket_ids` combines `youtrack_issue_id`, `external_ref` (`yt-tested-ARD-1-prod`, `yt-create-ARD-1`) and any `ABC-123` IDs in the name or notes.
