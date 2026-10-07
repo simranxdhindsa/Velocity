@@ -210,6 +210,13 @@ func readSlackThread(ctx context.Context, r *slackReader, id interface{}, channe
 		}
 		return toolError(id, "Failed to read the thread in "+label+": "+err.Error())
 	}
+	// A reply link without ?thread_ts returns just the reply. Its thread_ts
+	// names the real root, so refetch the whole thread from there.
+	if threadTS == "" && len(msgs) > 0 && msgs[0].ThreadTS != "" && msgs[0].ThreadTS != ts {
+		if full, ferr := r.client.GetThreadPaged(ctx, channelID, msgs[0].ThreadTS, readSlackQueryScanLimit); ferr == nil && len(full) > 0 {
+			msgs = full
+		}
+	}
 	linkedIdx := -1
 	for i, m := range msgs {
 		if m.TS == ts {

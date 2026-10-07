@@ -55,11 +55,9 @@ func newSlackReader(ctx context.Context, h *MCPHandler, userID string) (*slackRe
 		}
 		return nil, msg
 	}
-	_, tzName := h.settingsRepo.GetDefaultSendSettings(ctx, userID)
-	loc, lerr := time.LoadLocation(tzName)
-	if lerr != nil {
-		loc = time.UTC
-	}
+	// Same timezone as DayTrack/whoami (daytrack_slack_config, default
+	// Asia/Kolkata). The send-settings timezone defaults to UTC.
+	loc, _ := mcpDayTrackTimezone(ctx, userID)
 	base, _ := client.WorkspaceURL(ctx) // permalinks are omitted if this fails
 	r := &slackReader{
 		client:        client,

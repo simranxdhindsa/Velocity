@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // Read-only Slack Web API helpers used by the MCP read tools
@@ -178,6 +179,12 @@ func (c *Client) GetBotMemberChannels(ctx context.Context) ([]Channel, error) {
 // conversation, following pagination. oldest/latest are Unix seconds, 0 for
 // unbounded. hasMore reports whether older messages were left unread.
 func (c *Client) GetHistoryPaged(ctx context.Context, channelID string, oldest, latest int64, max int) (msgs []Message, hasMore bool, err error) {
+	// With only `oldest` set, Slack pages from the oldest end of the window, so
+	// a limit would return the earliest messages instead of the newest. Bounding
+	// it with latest=now keeps the newest-first order.
+	if oldest > 0 && latest == 0 {
+		latest = time.Now().Unix() + 1
+	}
 	cursor := ""
 	for len(msgs) < max {
 		page := max - len(msgs)
