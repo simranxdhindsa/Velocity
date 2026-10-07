@@ -247,6 +247,25 @@ func toolOK(id interface{}, text string) rpcResponse {
 	})
 }
 
+// toolOKContent returns a successful tool result built from arbitrary MCP
+// content blocks (e.g. a text block followed by image blocks, see
+// mcpTextBlock/mcpImageBlock). mcpResultSummary reads the first text block.
+func toolOKContent(id interface{}, blocks []map[string]interface{}) rpcResponse {
+	return rpcOK(id, map[string]interface{}{
+		"content": blocks,
+		"isError": false,
+	})
+}
+
+func mcpTextBlock(text string) map[string]interface{} {
+	return map[string]interface{}{"type": "text", "text": text}
+}
+
+// mcpImageBlock is an MCP image content block; data is base64 (no data: prefix).
+func mcpImageBlock(base64Data, mimeType string) map[string]interface{} {
+	return map[string]interface{}{"type": "image", "data": base64Data, "mimeType": mimeType}
+}
+
 func toolError(id interface{}, text string) rpcResponse {
 	return rpcOK(id, map[string]interface{}{
 		"content": []map[string]string{{"type": "text", "text": text}},

@@ -29,7 +29,7 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`.
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`.
 
 ### `get_slack_reply_config` / `update_slack_reply_config` notes
 
@@ -70,6 +70,27 @@ All three paths send through `updatesvc.Service.QuickSend`, which now calls `sla
 - Targeting (resolve channel/DM, `IsVelocity`-only matching, `contains` to pick a specific message) is identical to `delete_slack_message` — same safety guarantee, Claude can only edit Velocity's own messages.
 - Calls `updatesvc.Service.UpdateSlackMessage` → `chat.update`, the same path the Quick Send history UI's edit button uses. Plain text only — it does not run the new text through `slacksvc.BuildSendParts`, so editing a message that was originally sent as a Markdown table (native `table` block) isn't supported; that message keeps its original table content regardless of the new text passed in.
 - Does not touch the `pending_slack_messages` row's stored `message` text (consistent with the existing REST edit endpoint, which only takes `channelId`/`ts`, not a queue row ID) — only the live Slack message content changes.
+
+### `get_youtrack_ticket` notes
+
+Returns the ticket fields plus the full discussion, because comments are often where a ticket is actually concluded (resolved? what was done? who still owes a reply?).
+
+| Param | Default | Notes |
+|---|---|---|
+| `issue_id` | required | Readable ID, e.g. `ARD-123` |
+| `comments_limit` | 50 (max 500) | Newest kept, still listed oldest first. `comments_truncated` / `comments_note` say when older ones were dropped |
+| `include_images` | `true` | `false` gives a text-only result |
+| `max_images` | 5 (max 10) | Over-cap images are listed as skipped in `images_note` |
+| `image_names` | none | Only return these attachments by exact name, e.g. to fetch ones skipped by the cap |
+
+- **Comments**: every non-deleted comment (paginated past YouTrack's default page size), each with `author` (login + full name), `created`/`created_at`, `updated`/`updated_at` (only when edited), `text`, its own `attachments` names, and `inline_images`.
+- **Attachments**: from `/api/issues/{id}/attachments` (non-removed), each with `source`: `description`, `comment` (+ `comment_id`, `comment_index`), `older_comment_not_included` (comment cut by `comments_limit`), or `deleted_comment`. Each image's `image` field says whether it was returned, skipped (and why), or not requested.
+- **Inline refs**: `![](image.png){width=70%}` in the description and comments is parsed into `description_inline_images` / `inline_images` and mapped to an attachment by name (exact, then case-insensitive, then URL basename). Unmapped refs have `attachment: null`.
+- **Images as MCP image content blocks**: the result is a JSON text block, then for each image a short text label (`Image 1 of 2: image.png (attached to comment #4 by ...)`) followed by `{"type":"image","data":<base64>,"mimeType":...}`. Built with `toolOKContent` + `mcpTextBlock`/`mcpImageBlock` (`mcp.go`). `mcpResultSummary` (`mcp_dispatch.go`) handles both `[]map[string]string` and `[]map[string]interface{}` content and always logs the first text block, never base64.
+- **Image sizing**: downloads go through the YouTrack client's own token (`Client.DownloadAttachment`, resolves the relative `url` against the instance host and refuses other hosts). PNG/JPEG/GIF over ~1MB or 1568px on the longest side are downscaled with a stdlib box filter and re-encoded as JPEG (`PrepareImageForLLM`). WebP has no stdlib decoder, so it's passed through only when already under 1MB. Anything that still doesn't fit is skipped and named in `images_note`.
+- Images from comments outside `comments_limit` are skipped unless named in `image_names`.
+- Files: `mcp_tool_get_youtrack_ticket.go` (schema + handler), `mcp_ticket_discussion.go` (payload/image helpers), `services/youtrack/issue_discussion.go` (comments/attachments/download/inline-ref parsing), `services/youtrack/attachment_images.go` (downscaling).
+- The Slack bot's `get_ticket` tool (`slack_events_tools.go`) reuses `GetIssueDiscussion` but only appends the last 5 comments as compact text (author, time, 300 chars each, image embeds replaced with `[image: name]`). No images there, to keep the Groq context small.
 
 ### `search_youtrack_tickets` notes
 

@@ -126,10 +126,25 @@ func mcpResultSummary(resp rpcResponse) (summary string, success bool) {
 	}
 	isError, _ := result["isError"].(bool)
 
-	content, _ := result["content"].([]map[string]string)
+	// Text-only tools use []map[string]string (toolOK/toolError); tools that
+	// return images use []map[string]interface{} (toolOKContent). Either way,
+	// the summary is the first text block, never base64 image data.
 	text := ""
-	if len(content) > 0 {
-		text = content[0]["text"]
+	switch content := result["content"].(type) {
+	case []map[string]string:
+		for _, b := range content {
+			if b["type"] == "text" {
+				text = b["text"]
+				break
+			}
+		}
+	case []map[string]interface{}:
+		for _, b := range content {
+			if t, _ := b["type"].(string); t == "text" {
+				text, _ = b["text"].(string)
+				break
+			}
+		}
 	}
 	return text, !isError
 }
