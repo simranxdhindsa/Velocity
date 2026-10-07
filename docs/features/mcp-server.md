@@ -2,7 +2,7 @@
 
 ## What it is
 
-`/api/mcp` is an MCP (Model Context Protocol) server so Claude.ai's custom connector can call YouTrack and Slack actions directly, on behalf of a Velocity user. Auth is a plain MCP token (`?token=` query param), separate from the app's JWT auth — managed under `/api/mcp/token` (JWT-protected, for generating/revoking the MCP token from Velocity's UI).
+`/api/mcp` is an MCP (Model Context Protocol) server so Claude.ai's custom connector can call YouTrack and Slack actions directly, on behalf of a Velocity user. Auth is a plain MCP token sent as an `Authorization: Bearer` header (issued via OAuth; `?token=` query params are rejected so tokens never land in URL logs), separate from the app's JWT auth — managed under `/api/mcp/token` (JWT-protected, for generating/revoking the MCP token from Velocity's UI).
 
 ## File organization — one file per tool
 

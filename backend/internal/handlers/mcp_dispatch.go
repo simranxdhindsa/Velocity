@@ -54,6 +54,11 @@ var mcpToolActionLabels = map[string]string{
 	"upload_youtrack_attachment":   "Uploaded attachment",
 	"link_youtrack_tickets":        "Linked tickets",
 	"queue_slack_message":          "Scheduled Slack message",
+	"send_slack_message_now":       "Sent Slack message",
+	"delete_slack_message":         "Deleted Slack message",
+	"edit_slack_message":           "Edited Slack message",
+	"get_slack_reply_config":       "Fetched Slack reply config",
+	"update_slack_reply_config":    "Updated Slack reply config",
 }
 
 // callTool dispatches a tools/call request to the matching tool's handler.

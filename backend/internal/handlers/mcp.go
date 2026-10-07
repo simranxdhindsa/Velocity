@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -86,7 +87,8 @@ func mcpS3Client(ctx context.Context) (*s3storage.Client, error) {
 }
 
 // MCPHandler serves the MCP protocol endpoint used by Claude's custom connector.
-// Auth: ?token= query param (plain MCP token, NOT a JWT).
+// Auth: Authorization: Bearer header only (plain MCP token, NOT a JWT).
+// Query-string tokens are rejected so tokens never land in access/proxy logs.
 // All JWT-protected token management lives in MCPTokenHandler (mcp_token.go).
 type MCPHandler struct {
 	tokenRepo    *database.MCPTokenRepository
@@ -191,7 +193,7 @@ func (h *MCPHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 // ── Main entrypoint: POST /api/mcp ───────────────────────────────────────────
 
 func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	// Resolve user from ?token= query param or Authorization: Bearer header
+	// Resolve user from the Authorization: Bearer header
 	userID := h.resolveUser(r)
 	if userID == "" {
 		// Include WWW-Authenticate so Claude.ai discovers our OAuth server
@@ -274,11 +276,17 @@ func toolError(id interface{}, text string) rpcResponse {
 }
 
 func (h *MCPHandler) resolveUser(r *http.Request) string {
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		auth := r.Header.Get("Authorization")
-		token = strings.TrimPrefix(auth, "Bearer ")
+	// ?token= is deliberately not accepted: URLs end up in access and proxy
+	// logs, browser history and Referer headers, which would leak the token.
+	if r.URL.Query().Has("token") {
+		log.Printf("[MCP] ✗ rejected request with ?token= query param, use the Authorization: Bearer header")
+		return ""
 	}
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return ""
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 	if token == "" {
 		return ""
 	}
