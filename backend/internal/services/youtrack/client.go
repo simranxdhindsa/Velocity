@@ -1041,31 +1041,7 @@ func (c *Client) GetLatestSprintName(ctx context.Context) (string, error) {
 	if err != nil || len(sprints) == 0 {
 		return "", err
 	}
-	// Prefer an in-progress sprint (started but not completed)
-	now := time.Now().UnixMilli()
-	var best *Sprint
-	for i := range sprints {
-		s := &sprints[i]
-		if s.IsCompleted {
-			continue
-		}
-		if s.Start > 0 && s.Start <= now {
-			if best == nil || s.Start > best.Start {
-				best = s
-			}
-		}
-	}
-	if best != nil {
-		return best.Name, nil
-	}
-	// Fallback: pick the sprint with the highest Start value overall
-	best = &sprints[0]
-	for i := range sprints[1:] {
-		if sprints[i+1].Start > best.Start {
-			best = &sprints[i+1]
-		}
-	}
-	return best.Name, nil
+	return LatestSprint(sprints, time.Now()).Name, nil
 }
 
 // CountActiveIssuesByAssigneeInSprint returns the number of To Do + In Progress tickets
