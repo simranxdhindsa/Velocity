@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/dhindsa/project-management/internal/models"
 	youtrack "github.com/dhindsa/project-management/internal/services/youtrack"
 )
 
@@ -35,7 +36,17 @@ var editYoutrackCommentToolSchema = map[string]interface{}{
 
 // loadOwnComment fetches a comment and checks it was written by the user
 // that owns the YouTrack token. Returns a ready tool error otherwise.
-func loadOwnComment(ctx context.Context, yt *youtrack.Client, id interface{}, issueID, commentID string) (*youtrack.PostedComment, *rpcResponse) {
+//
+// Members without a personal YouTrack integration share the org token, so
+// "written by the token user" can't tell them apart. Only callers with their
+// own integration, or admins, may edit or delete comments.
+func loadOwnComment(ctx context.Context, yt *youtrack.Client, userID string, id interface{}, issueID, commentID string) (*youtrack.PostedComment, *rpcResponse) {
+	if !mcpHasPersonalYouTrack(ctx, userID) {
+		if u, err := mcpUserRepo.GetByID(ctx, userID); err != nil || u == nil || u.Role != models.RoleAdmin {
+			r := toolError(id, "refused: you're using the shared org YouTrack account, so Velocity can't tell which comments are yours. Connect your own YouTrack token in Velocity > Integrations to edit or delete comments.")
+			return nil, &r
+		}
+	}
 	c, err := yt.GetComment(ctx, issueID, commentID)
 	if err != nil {
 		r := toolError(id, fmt.Sprintf("comment %s on %s not found: %v", commentID, issueID, err))
@@ -71,7 +82,7 @@ func mcpEditYoutrackComment(ctx context.Context, h *MCPHandler, userID string, i
 		return toolError(id, "YouTrack not configured. Add your YouTrack integration in Velocity > Integrations")
 	}
 	commentID := parseCommentID(a.CommentID)
-	if _, errResp := loadOwnComment(ctx, yt, id, a.IssueID, commentID); errResp != nil {
+	if _, errResp := loadOwnComment(ctx, yt, userID, id, a.IssueID, commentID); errResp != nil {
 		return *errResp
 	}
 	var groupIDs []string
@@ -96,4 +107,11 @@ func mcpEditYoutrackComment(ctx context.Context, h *MCPHandler, userID string, i
 	}
 	data, _ := json.MarshalIndent(out, "", "  ")
 	return toolOK(id, string(data))
+}
+
+// mcpHasPersonalYouTrack reports whether the user has their own connected
+// YouTrack integration (personal token), rather than the shared org token.
+func mcpHasPersonalYouTrack(ctx context.Context, userID string) bool {
+	i, err := mcpSettingsRepo.GetYouTrackIntegration(ctx, userID)
+	return err == nil && i != nil && i.Connected && i.Token != ""
 }

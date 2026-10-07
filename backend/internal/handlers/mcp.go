@@ -45,6 +45,7 @@ func mcpYTClient(ctx context.Context, userID string) *youtrack.Client {
 			baseURL = settings.BaseURL
 			token = settings.Token
 			projectID = settings.ProjectID
+			boardID = settings.BoardID
 		}
 	}
 
@@ -64,6 +65,14 @@ func mcpYTClient(ctx context.Context, userID string) *youtrack.Client {
 
 	if baseURL == "" || token == "" || projectID == "" {
 		return nil
+	}
+	// No board configured for this user or org-wide: follow the admin's
+	// selected board for the same project instead of letting the client
+	// auto-detect a different one.
+	if boardID == "" {
+		if b, err := mcpSettingsRepo.GetAdminYouTrackBoardID(ctx, projectID); err == nil {
+			boardID = b
+		}
 	}
 	client := youtrack.NewClient(baseURL, token, projectID)
 	if boardID != "" {

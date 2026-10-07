@@ -224,6 +224,31 @@ func (r *SettingsRepository) GetYouTrackIntegration(ctx context.Context, userID 
 	return &i, nil
 }
 
+// GetAdminYouTrackBoardID returns the board an admin selected in their own
+// YouTrack integration for the given project, or "" if none. Used as the
+// org-wide board when the global settings don't name one, so members without
+// a personal integration land on the same board as the admin.
+func (r *SettingsRepository) GetAdminYouTrackBoardID(ctx context.Context, projectID string) (string, error) {
+	pool := GetPool()
+	if pool == nil {
+		return "", nil
+	}
+	var boardID string
+	err := pool.QueryRow(ctx, `
+		SELECT yi.board_id
+		FROM youtrack_integrations yi
+		JOIN users u ON u.id = yi.user_id
+		WHERE u.role = 'admin' AND yi.connected AND yi.project_id = $1
+		  AND COALESCE(yi.board_id, '') <> ''
+		ORDER BY yi.updated_at DESC
+		LIMIT 1
+	`, projectID).Scan(&boardID)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return boardID, err
+}
+
 // SaveYouTrackIntegration upserts a user's YouTrack integration
 func (r *SettingsRepository) SaveYouTrackIntegration(ctx context.Context, userID string, req *models.SaveYouTrackIntegrationRequest) error {
 	pool := GetPool()

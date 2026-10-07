@@ -33,7 +33,7 @@ func mcpDeleteYoutrackComment(ctx context.Context, h *MCPHandler, userID string,
 		return toolError(id, "YouTrack not configured. Add your YouTrack integration in Velocity > Integrations")
 	}
 	commentID := parseCommentID(a.CommentID)
-	c, errResp := loadOwnComment(ctx, yt, id, a.IssueID, commentID)
+	c, errResp := loadOwnComment(ctx, yt, userID, id, a.IssueID, commentID)
 	if errResp != nil {
 		return *errResp
 	}

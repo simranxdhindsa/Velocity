@@ -27,6 +27,10 @@
 
 Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is self-contained in its own file so the dispatch/routing files stay thin as the tool count grows.
 
+## Board resolution (`mcpYTClient`)
+
+Per-user integration board, then the org-wide `youtrack_board_id` setting, then `YOUTRACK_BOARD_ID`. If all are empty, it uses the board an admin selected in their own integration for the same project (`GetAdminYouTrackBoardID`), so members land on the admin's board instead of the client auto-detecting a different one (it picked "Ardoise Tracker" 183-4 over "Ardoise Board" 183-7).
+
 ## Current tools (as of this writing)
 
 `get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered), `generate_deployment_report` (read-only deployment report for chosen columns, with exclusions).
@@ -186,6 +190,8 @@ No params. Lets Claude resolve "me / my / I" before calling other tools (`youtra
 - **Timezone**: `daytrack_slack_config.timezone` (the only per-user timezone stored), else the `Asia/Kolkata` default, with `source` saying which.
 
 ### `add_youtrack_comment` / `edit_youtrack_comment` / `delete_youtrack_comment` notes
+
+- **Edit/delete gate**: members without a personal YouTrack integration share the org token, so "written by the token user" can't tell them apart. `loadOwnComment` therefore refuses edit/delete unless the caller has their own connected integration (`mcpHasPersonalYouTrack`) or is an admin, before any YouTrack call.
 
 | Param | Default | Notes |
 |---|---|---|
