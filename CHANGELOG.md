@@ -3,6 +3,7 @@
 ## 2026-10-07
 
 ### Enhancements
+- MCP accepts Bearer header tokens only and labels all tools in the activity log
 - get_youtrack_ticket returns comments, attachment ownership and inline images; Slack bot get_ticket shows recent comments
 
 
