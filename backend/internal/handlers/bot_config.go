@@ -3,11 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/dhindsa/project-management/internal/database"
@@ -272,15 +269,10 @@ func (h *BotConfigHandler) GetStageColumns(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	states, err := client.GetStates(r.Context())
+	names, err := deploymentColumnNames(r.Context(), client)
 	if err != nil {
 		sendJSON(w, http.StatusOK, Response{Success: true, Data: []string{}})
 		return
-	}
-
-	names := make([]string, 0, len(states))
-	for _, s := range states {
-		names = append(names, s.Name)
 	}
 	sendJSON(w, http.StatusOK, Response{Success: true, Data: names})
 }
@@ -439,194 +431,6 @@ func extractExpectedBehavior(description string) string {
 		}
 	}
 	return ""
-}
-
-// ─── Deployment Report (YouTrack) ────────────────────────────────────────────
-
-type ytDeployTicketItem struct {
-	ID          string `json:"id"`
-	IDReadable  string `json:"id_readable"`
-	Summary     string `json:"summary"`
-	Description string `json:"description"`
-	IssueType   string `json:"issue_type"`
-	Subsystem   string `json:"subsystem"`
-	UpdatedAt   int64  `json:"updated_at"`
-}
-
-// parseRetryAfterFromGroq extracts the retry-after duration (in seconds) from a Groq rate-limit error.
-// Groq messages look like: "Please try again in 26.224s."
-func parseRetryAfterFromGroq(errMsg string) int {
-	re := regexp.MustCompile(`(?i)try again in (\d+(?:\.\d+)?)\s*(ms|s|m)`)
-	m := re.FindStringSubmatch(errMsg)
-	if len(m) < 3 {
-		return 30
-	}
-	val, err := strconv.ParseFloat(m[1], 64)
-	if err != nil {
-		return 30
-	}
-	switch strings.ToLower(m[2]) {
-	case "ms":
-		return int(math.Ceil(val/1000)) + 1
-	case "m":
-		return int(math.Ceil(val*60)) + 1
-	default:
-		return int(math.Ceil(val)) + 1
-	}
-}
-
-// GetDeploymentTickets returns issues from the selected YouTrack columns with their Type field.
-// GET /api/bots/deployment/tickets?columns=col1,col2
-func (h *BotConfigHandler) GetDeploymentTickets(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserFromContext(r)
-	if user == nil {
-		sendJSON(w, http.StatusUnauthorized, Response{Success: false, Message: "Unauthorized"})
-		return
-	}
-
-	columnsStr := r.URL.Query().Get("columns")
-	if columnsStr == "" {
-		sendJSON(w, http.StatusBadRequest, Response{Success: false, Message: "columns parameter required"})
-		return
-	}
-	rawCols := strings.Split(columnsStr, ",")
-	colSet := make(map[string]bool, len(rawCols))
-	for _, c := range rawCols {
-		colSet[strings.TrimSpace(c)] = true
-	}
-	sprintID := strings.TrimSpace(r.URL.Query().Get("sprint_id"))
-
-	client, err := h.getYouTrackClientForBots(r)
-	if err != nil || client == nil {
-		sendJSON(w, http.StatusServiceUnavailable, Response{Success: false, Message: "YouTrack not configured"})
-		return
-	}
-
-	var allIssues []youtrack.Issue
-	if sprintID != "" {
-		// Use the reliable agile-board endpoint, then filter by selected columns
-		allIssues, err = client.GetAllSprintIssues(r.Context(), sprintID)
-	} else {
-		allIssues, err = client.GetIssuesByState(r.Context(), rawCols)
-	}
-	if err != nil {
-		sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: "Failed to fetch issues: " + err.Error()})
-		return
-	}
-
-	// When sprint-scoped, filter to only the selected columns
-	var issues []youtrack.Issue
-	if sprintID != "" {
-		for _, iss := range allIssues {
-			state := youtrack.GetStatus(iss)
-			if colSet[state] {
-				issues = append(issues, iss)
-			}
-		}
-	} else {
-		issues = allIssues
-	}
-
-	tickets := make([]ytDeployTicketItem, 0, len(issues))
-	for _, issue := range issues {
-		issueType := youtrack.GetCustomFieldValue(issue, "Type")
-		if issueType == "" {
-			issueType = "Other"
-		}
-		subsystem := youtrack.GetSubsystem(issue)
-		tickets = append(tickets, ytDeployTicketItem{
-			ID:          issue.ID,
-			IDReadable:  issue.IDReadable,
-			Summary:     issue.Summary,
-			Description: issue.Description,
-			IssueType:   issueType,
-			Subsystem:   subsystem,
-			UpdatedAt:   issue.Updated,
-		})
-	}
-
-	sendJSON(w, http.StatusOK, Response{
-		Success: true,
-		Data: map[string]interface{}{
-			"tickets":  tickets,
-			"base_url": client.GetBaseURL(),
-		},
-	})
-}
-
-// GenerateDeploymentTicket generates a single AI fix statement for one ticket.
-// Returns rate-limit info (with retry_after seconds) when Groq throttles.
-// POST /api/bots/deployment/generate-ticket
-func (h *BotConfigHandler) GenerateDeploymentTicket(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserFromContext(r)
-	if user == nil {
-		sendJSON(w, http.StatusUnauthorized, Response{Success: false, Message: "Unauthorized"})
-		return
-	}
-
-	var req ytDeployTicketItem
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Summary) == "" {
-		sendJSON(w, http.StatusBadRequest, Response{Success: false, Message: "summary required"})
-		return
-	}
-
-	// Use the stage-report bot prompt if configured
-	systemPrompt := `You are writing bullet points for a deployment update report.
-Write ONE short sentence (max 15 words) describing what was fixed or added, in past tense, from the user's perspective.
-- Be specific and direct — name the exact feature or interaction that changed
-- Vary your sentence starts naturally (can use "Fixed", "Added", "Users can now...", "Resolved", etc.)
-- No internal jargon, no ticket IDs, no prefix tags like P0/P1/FE/BE/UI
-- Output ONLY the single sentence, nothing else`
-
-	bots, _ := h.botRepo.GetByType(r.Context(), models.BotTypeStageReport)
-	for _, b := range bots {
-		if b.IsActive && strings.TrimSpace(b.Prompt) != "" {
-			systemPrompt = b.Prompt
-			break
-		}
-	}
-
-	context := extractExpectedBehavior(req.Description)
-	if context == "" {
-		context = req.Description
-	}
-	if len(context) > 800 {
-		context = context[:800]
-	}
-	userMsg := fmt.Sprintf("Type: %s\nTicket: %s\nContext: %s", req.IssueType, req.Summary, context)
-
-	fix, err := ai.QueryWithContext(r.Context(), systemPrompt, userMsg)
-	if err != nil {
-		errMsg := err.Error()
-		lower := strings.ToLower(errMsg)
-		isRateLimit := strings.Contains(lower, "rate limit") || strings.Contains(lower, "rate_limit") ||
-			strings.Contains(lower, "429") || strings.Contains(lower, "too many") ||
-			strings.Contains(lower, "tokens per minute") || strings.Contains(lower, "try again in")
-		if isRateLimit {
-			retryAfter := parseRetryAfterFromGroq(errMsg)
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":     false,
-				"error":       "rate_limited",
-				"retry_after": retryAfter,
-			})
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "ai_error",
-			"message": errMsg,
-		})
-		return
-	}
-
-	sendJSON(w, http.StatusOK, Response{
-		Success: true,
-		Data: map[string]interface{}{
-			"fix_statement": strings.TrimSpace(fix),
-		},
-	})
 }
 
 // getDefaultTemplates returns the built-in bot templates

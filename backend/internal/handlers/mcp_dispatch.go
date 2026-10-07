@@ -46,6 +46,7 @@ var mcpToolHandlers = map[string]mcpToolFunc{
 	"whoami":                       mcpWhoami,
 	"read_slack_messages":          mcpReadSlackMessages,
 	"get_slack_mentions":           mcpGetSlackMentions,
+	"generate_deployment_report":   mcpGenerateDeploymentReport,
 }
 
 // mcpToolActionLabels gives each tool a plain-language action name for the
@@ -77,6 +78,7 @@ var mcpToolActionLabels = map[string]string{
 	"whoami":                       "Identified caller",
 	"read_slack_messages":          "Read Slack messages",
 	"get_slack_mentions":           "Fetched Slack mentions",
+	"generate_deployment_report":   "Generated deployment report",
 }
 
 // callTool dispatches a tools/call request to the matching tool's handler.

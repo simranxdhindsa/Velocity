@@ -29,7 +29,7 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered).
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered), `generate_deployment_report` (read-only deployment report for chosen columns, with exclusions).
 
 ### `read_slack_messages` / `get_slack_mentions` notes (read-only)
 
@@ -61,6 +61,26 @@ Files: `mcp_tool_read_slack_messages.go`, `mcp_tool_get_slack_mentions.go`, shar
 - `start_date` / `finish_date` (YYYY-MM-DD) are required; the description tells Claude to ask the user for the period and never invent one. Stored as 00:00 UTC on the first day to 23:59:59.999 UTC on the last, matching existing sprints. `finish_date` before `start_date` is rejected.
 - `name` defaults to the next number after the highest numbered sprint, keeping its prefix ("Sprint 13" gives "Sprint 14", `nextNumberedSprintName`). If no sprint name ends in a number, the tool errors and asks Claude to get a name. Duplicate names (case-insensitive) are rejected. Optional `goal`.
 - No `make_current`: Velocity derives the current sprint from dates (`LatestSprint`), so a sprint becomes current once its start date arrives.
+
+### `generate_deployment_report` notes
+
+Same report as PM Reports → Deployment Report (`YouTrackStageReport` in `PMReportsPage.tsx`). The shared core lives in `handlers/deployment_report.go` and is used by both the REST endpoints and the tool: `deploymentColumnNames` (`/bots/stage-report/columns`), `fetchDeploymentIssues` (`/bots/deployment/tickets`), `generateDeploymentFixStatement` (`/bots/deployment/generate-ticket`), and `buildDeploymentReportText`, a Go port of the frontend's `buildDeployReport` (keep `TYPE_CATEGORY_ORDER` / `DR_TYPE_CATEGORIES` / `SUBSYSTEM_ORDER` in sync with it). Filters and the AI loop are in `mcp_deployment_report_helpers.go`.
+
+| Param | Default | Notes |
+|---|---|---|
+| `list_columns` | false | Returns the real columns, the sprints and the default sprint. No report is generated |
+| `columns` | required | Matched case-insensitively against `GetStates`. Missing or unknown columns return an error that lists the real ones, so Claude asks the user |
+| `sprint_name` | current | Same rule as the UI: the not-completed sprint with the earliest finish still in the future. `"all"` means the whole project (the UI's "All sprints") |
+| `updated` | `all` | `today` / `yesterday`, like the UI date pills (server local time) |
+| `exclude_subsystems` / `exclude_types` / `exclude_keywords` / `exclude_tags` / `exclude_ids` | none | "Website tickets" means Subsystem `Website`. Tags are resolved per tag via `tag: {X}` YQL. Unknown tags and filters that match nothing come back as `warnings` |
+| `include_ids` | none | Always included: fetched if out of scope, and exclusions are skipped |
+| `generate_fix_statements` | true | false = raw summaries (leading `Subsystem:` prefix dropped). Much faster |
+
+- Output: `report` (Slack-ready text, identical format to the UI's Copy text), `tickets` (with `fix_source` ai / summary / summary_fallback), `excluded` with a reason each, `generation_failed`, `warnings`.
+- Read-only: it never posts to Slack or edits tickets. The flow's "generate-ticket" step is only the per-ticket AI rewrite. It does not create a YouTrack ticket.
+- AI: 2 workers, with rate-limit waits honoring Groq's retry-after and a 100s budget. A ticket that still fails uses its summary in the report and is listed in `generation_failed`. The UI drops such tickets instead. On Groq's 8000 TPM tier, about 20 tickets take around 90s.
+- `ai.QueryWithContext` now honors `GROQ_MODEL` (it used to hardcode `llama-3.3-70b-versatile`, which Groq has removed). `GROQ_MODEL` in `.env` must name a live model, or every AI fix statement fails, in the UI too.
+- Default sprint follows the Deployment Report tab (earliest-finishing non-completed sprint whose finish is still ahead), not `youtrack.LatestSprint` (most recently started) used by `bulk_update_tickets`. They differ only while two sprints overlap.
 
 ### `get_slack_reply_config` / `update_slack_reply_config` notes
 

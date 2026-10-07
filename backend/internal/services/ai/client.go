@@ -694,7 +694,12 @@ func QueryWithContext(ctx context.Context, systemPrompt, userQuery string) (stri
 	default:
 		apiURL = "https://api.groq.com/openai/v1/chat/completions"
 		apiKey = os.Getenv("GROQ_API_KEY")
-		model = "llama-3.3-70b-versatile"
+		// Same override as QueryWithHistory: llama-3.3-70b-versatile has been
+		// removed from Groq, so the configured GROQ_MODEL must win.
+		model = os.Getenv("GROQ_MODEL")
+		if model == "" {
+			model = "llama-3.3-70b-versatile"
+		}
 	}
 
 	if apiKey == "" {
