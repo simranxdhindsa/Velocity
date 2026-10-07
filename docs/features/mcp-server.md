@@ -29,7 +29,7 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others).
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone).
 
 ### `get_slack_reply_config` / `update_slack_reply_config` notes
 
@@ -122,3 +122,14 @@ Read-only view of a user's DayTrack log. Files: `mcp_tool_get_daytrack.go` (sche
 - Totals count top-level entries only. Subtasks are nested under their parent and not added again, same as the DayTrack page export. Duration is `duration_mins`, or end minus start when only times were saved (`duration_from_times: true`). Entries with neither count as 0.
 - Times are normalised to 12-hour (`9:03 AM`), including legacy `HH:MM` values. Emoji comes from `categoryEmoji` (built-in map, then the user's custom category icon, then `▪️`).
 - `ticket_ids` combines `youtrack_issue_id`, `external_ref` (`yt-tested-ARD-1-prod`, `yt-create-ARD-1`) and any `ABC-123` IDs in the name or notes.
+
+### `whoami` notes
+
+No params. Lets Claude resolve "me / my / I" before calling other tools (`youtrack.login` as `assignee_login`, `slack.user_id` as a DM target, `current_sprint` as `sprint_name`). File: `mcp_tool_whoami.go`. Never returns tokens.
+
+- **Velocity**: `users` row (id, name, email, role).
+- **YouTrack identity**: with a connected personal integration (`youtrack_integrations`), `GET /api/users/me` with that token, the same way DayTrack's YouTrack scan identifies the user. Without one, `mcpYTClient` falls back to shared org/env credentials whose `/users/me` is the token owner, so the tool instead matches the Velocity email against `GetUsers`. `matched_by` says which one was used. The login is then looked up in `developer_subsystem_configs` (`developer_config`: name, subsystems, is_qa).
+- **Board / current sprint**: `ResolveBoard` and `GetLatestSprintName` on the same client the other tools use, so `current_sprint` is exactly what `search_youtrack_tickets sprint_name="current"` and `get_developer_load` resolve. `credentials` says whether that is the personal integration, global settings or env. Users without a personal integration get the auto-detected board (global settings carry no board ID today), so their `current_sprint` can differ from an admin's.
+- **PM data source**: same rule as `AsanaPMHandler.GetDataSource`: admins/PMs use their own `user_data_source`, members/viewers follow the admin's. Both `active` and `own_setting` are returned.
+- **Slack user ID**: `slack_integrations.slack_user_id`, then `daytrack_slack_config.slack_user_id`, then `users.lookupByEmail` via the user's Slack bot token or `SLACK_BOT_TOKEN`. `source` says which.
+- **Timezone**: `daytrack_slack_config.timezone` (the only per-user timezone stored), else the `Asia/Kolkata` default, with `source` saying which.
