@@ -29,7 +29,7 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state filters), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`.
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`.
 
 ### `get_slack_reply_config` / `update_slack_reply_config` notes
 
@@ -97,3 +97,9 @@ Returns the ticket fields plus the full discussion, because comments are often w
 - Resolves `assignee_login` from a display name via `get_developer_configs` first — YouTrack YQL rejects the whole query with a `400 invalid_query` error if `Assignee:` doesn't match a real login (not just an empty result), so the tool surfaces a hint to verify the login when that happens.
 - `sprint_name` accepts the literal `"current"`/`"latest"` to resolve the active sprint via `GetLatestSprintName`.
 - Always scopes to `project: <projectID>` plus whatever filters are given; YQL parts are ANDed by joining with spaces.
+- `priority`, `type`, `subsystem` are passed as `Field: {value}` and must be exact project values (e.g. priorities here are `A1`/`P3`/`Normal`, subsystems `FE UI`/`BE UI`). An unknown value makes YouTrack reject the query with `invalid_query`, so the tool adds a hint to copy the value from a returned ticket. Never hardcode example values in the schema.
+- `updated_since` / `created_since` take `YYYY-MM-DD` or a relative `Nd` and become `updated: <date> .. Today`.
+- `unresolved_only` adds `#Unresolved` **and** `State: -{x}` for every state the workflow config gives the `closed` role. YouTrack's own resolved flag doesn't cover `Closed` in this project (220 Closed tickets matched `#Unresolved`). Config states/aliases are intersected with the project's real states via `GetStates` first, because a non-existent state name (e.g. an alias like `Fixed` not used in YouTrack) fails the whole query.
+- `yql` is a raw fragment ANDed onto the rest (`has: comments`, `tag: Hotfix`, `commented: {Last week}`).
+- Results are always sorted: `sort_by` = `updated` (default, `desc`), `created` (`desc`), or `priority` (`asc`, since Priority sorts by enum order and `asc` puts P0/A1 first).
+- Each result includes `type`, `reporter`, `created` and `updated` (ISO) in addition to the original fields.
