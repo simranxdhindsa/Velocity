@@ -17,6 +17,7 @@ var mcpTools = []map[string]interface{}{
 	uploadYoutrackAttachmentToolSchema,
 	linkYoutrackTicketsToolSchema,
 	bulkUpdateTicketsToolSchema,
+	createSprintToolSchema,
 	queueSlackMessageToolSchema,
 	sendSlackMessageNowToolSchema,
 	deleteSlackMessageToolSchema,

@@ -29,7 +29,7 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone).
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone).
 
 ### `bulk_update_tickets` notes
 
@@ -39,6 +39,13 @@ Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is se
 - **Actions**: `to_state` (validated the same way, applied with `UpdateIssueState`, the same call `/bulk-update-states` uses) and/or `to_sprint`. Sprint move = `AddIssueToSprint(target)` then, only if the ticket is still in the source sprint, `RemoveIssueFromSprint(source)` (`DELETE /api/agiles/{board}/sprints/{sprint}/issues/{id}`). Ardoise Board doesn't allow a card on several sprints, so YouTrack already moves it on add and a blind remove would 404.
 - **Safety**: `dry_run` defaults to true and returns the exact list (id, summary, current state/sprint, target). The description tells Claude to show it, wait for confirmation, then re-call with `dry_run=false` plus the previewed `ticket_ids`. Max 100 tickets per call. The real run reports `ok`/`errors` per ticket and never stops on a failure.
 - Files: `mcp_tool_bulk_update_tickets.go`, `mcp_sprint_scope.go` (board/sprint/state/role resolution shared with `create_sprint`), `services/youtrack/sprints.go`.
+
+### `create_sprint` notes
+
+- Creates a sprint on the user's selected board via `POST /api/agiles/{board}/sprints` (`youtrack.Client.CreateSprint`, `services/youtrack/sprint_create.go`).
+- `start_date` / `finish_date` (YYYY-MM-DD) are required; the description tells Claude to ask the user for the period and never invent one. Stored as 00:00 UTC on the first day to 23:59:59.999 UTC on the last, matching existing sprints. `finish_date` before `start_date` is rejected.
+- `name` defaults to the next number after the highest numbered sprint, keeping its prefix ("Sprint 13" gives "Sprint 14", `nextNumberedSprintName`). If no sprint name ends in a number, the tool errors and asks Claude to get a name. Duplicate names (case-insensitive) are rejected. Optional `goal`.
+- No `make_current`: Velocity derives the current sprint from dates (`LatestSprint`), so a sprint becomes current once its start date arrives.
 
 ### `get_slack_reply_config` / `update_slack_reply_config` notes
 
