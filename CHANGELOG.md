@@ -3,9 +3,24 @@
 ## 2026-10-07
 
 ### Enhancements
+- search_youtrack_tickets adds priority/type/subsystem/reporter/date filters, raw YQL, sorting and closed-state exclusion
 - MCP accepts Bearer header tokens only and labels all tools in the activity log
 - get_youtrack_ticket returns comments, attachment ownership and inline images; Slack bot get_ticket shows recent comments
 
+
+### Features
+- generate_deployment_report MCP tool with column selection and exclusions
+- add_youtrack_comment MCP tool with YouTrack Markdown, @mention resolution and attachments, plus own-comment edit/delete
+- create_sprint MCP tool with auto next-number naming
+- bulk_update_tickets MCP tool with dry-run preview, defaults to current sprint
+- read_slack_messages and get_slack_mentions MCP tools
+- whoami MCP tool
+- get_daytrack MCP tool
+
+### Bug Fixes
+- get_daytrack only treats real YouTrack project prefixes as ticket IDs; bulk_update_tickets warns before moving into a finished sprint
+- MCP members use the admin's selected YouTrack board; comment edit/delete require a personal YouTrack token or admin
+- Slack read tools use the user's timezone, return newest messages for since+limit, and expand reply links to the full thread
 
 ## 2026-10-06
 
