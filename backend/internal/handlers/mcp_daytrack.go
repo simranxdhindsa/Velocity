@@ -154,9 +154,33 @@ func mcpEntryDuration(e database.DayTrackEntry) (mins int, computed bool, ok boo
 	return d, true, true
 }
 
+// mcpYouTrackProjectPrefixes returns the uppercase shortNames of every
+// YouTrack project the user's token can see (ARD, APY, ...), so ticket IDs are
+// recognised per real project instead of any "WORD-123" text like "GPT-5".
+// Returns nil when YouTrack is unavailable.
+func mcpYouTrackProjectPrefixes(ctx context.Context, userID string) map[string]bool {
+	yt := mcpYTClient(ctx, userID)
+	if yt == nil {
+		return nil
+	}
+	projects, err := yt.GetProjects(ctx)
+	if err != nil || len(projects) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(projects))
+	for _, p := range projects {
+		if p.ShortName != "" {
+			out[strings.ToUpper(p.ShortName)] = true
+		}
+	}
+	return out
+}
+
 // mcpEntryTicketIDs collects ticket IDs from youtrack_issue_id, external_ref
-// (yt-tested-ARD-1-prod, yt-create-ARD-1) and the entry's name/notes.
-func mcpEntryTicketIDs(e database.DayTrackEntry) []string {
+// (yt-tested-ARD-1-prod, yt-create-ARD-1) and the entry's name/notes. Matches
+// in name/notes only count when the prefix is a real YouTrack project
+// (prefixes); with no project list, free text is skipped rather than guessed.
+func mcpEntryTicketIDs(e database.DayTrackEntry, prefixes map[string]bool) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(id string) {
@@ -168,9 +192,17 @@ func mcpEntryTicketIDs(e database.DayTrackEntry) []string {
 	if e.YoutrackIssueID != nil {
 		add(strings.TrimSpace(*e.YoutrackIssueID))
 	}
-	for _, src := range []string{e.ExternalRef, e.Name, e.Notes} {
+	for _, m := range mcpTicketIDRe.FindAllString(e.ExternalRef, -1) {
+		add(m)
+	}
+	if prefixes == nil {
+		return out
+	}
+	for _, src := range []string{e.Name, e.Notes} {
 		for _, m := range mcpTicketIDRe.FindAllString(src, -1) {
-			add(m)
+			if prefixes[m[:strings.LastIndex(m, "-")]] {
+				add(m)
+			}
 		}
 	}
 	return out

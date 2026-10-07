@@ -213,6 +213,7 @@ func mcpGetDaytrack(ctx context.Context, h *MCPHandler, userID string, id interf
 		parents = kept
 	}
 
+	prefixes := mcpYouTrackProjectPrefixes(ctx, userID)
 	build := func(e database.DayTrackEntry) mcpDTEntry {
 		out := mcpDTEntry{
 			Name:      e.Name,
@@ -221,7 +222,7 @@ func mcpGetDaytrack(ctx context.Context, h *MCPHandler, userID string, id interf
 			Status:    e.Status,
 			StartTime: mcpFmt12h(e.StartTime),
 			EndTime:   mcpFmt12h(e.EndTime),
-			TicketIDs: mcpEntryTicketIDs(e),
+			TicketIDs: mcpEntryTicketIDs(e, prefixes),
 			Notes:     e.Notes,
 			Source:    e.EntrySource,
 		}

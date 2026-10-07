@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	youtrack "github.com/dhindsa/project-management/internal/services/youtrack"
 )
@@ -235,6 +236,9 @@ func mcpBulkUpdateTickets(ctx context.Context, h *MCPHandler, userID string, id 
 	}
 	if target != nil {
 		result["target_sprint"] = target.Name
+		if w := finishedSprintWarning(target, time.Now()); w != "" {
+			result["warning"] = w
+		}
 	}
 	if len(notInSprint) > 0 {
 		result["not_in_sprint_note"] = fmt.Sprintf("These ticket_ids are not in sprint %q on this board, so they are skipped. Pass sprint_name if they live in another sprint.", source.Name)
@@ -279,6 +283,9 @@ func mcpBulkUpdateTickets(ctx context.Context, h *MCPHandler, userID string, id 
 			result["message"] = "No tickets match, nothing would change."
 		} else {
 			result["message"] = fmt.Sprintf("Preview only, nothing changed. Show these %d ticket(s) to the user and ask for confirmation. Then call again with dry_run=false and ticket_ids set to these IDs.", len(plans))
+			if w, ok := result["warning"].(string); ok {
+				result["message"] = result["message"].(string) + " Show this warning to the user too: " + w
+			}
 		}
 	} else {
 		result["succeeded"] = succeeded
@@ -336,4 +343,17 @@ func upperSet(ids []string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// finishedSprintWarning flags a target sprint that is already completed or
+// whose finish date has passed, since moving open tickets there is usually a
+// mistake. The move is still allowed once the user confirms.
+func finishedSprintWarning(sp *youtrack.Sprint, now time.Time) string {
+	switch {
+	case sp.IsCompleted:
+		return fmt.Sprintf("⚠️ %s is marked completed. Moving open tickets into a finished sprint is usually a mistake.", sp.Name)
+	case sp.Finish > 0 && time.UnixMilli(sp.Finish).Before(now):
+		return fmt.Sprintf("⚠️ %s already ended on %s. Moving open tickets into a finished sprint is usually a mistake.", sp.Name, time.UnixMilli(sp.Finish).UTC().Format("Jan 2, 2006"))
+	}
+	return ""
 }
