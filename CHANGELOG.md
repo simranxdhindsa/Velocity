@@ -2,25 +2,30 @@
 
 ## 2026-10-07
 
-### Enhancements
-- search_youtrack_tickets adds priority/type/subsystem/reporter/date filters, raw YQL, sorting and closed-state exclusion
-- MCP accepts Bearer header tokens only and labels all tools in the activity log
-- get_youtrack_ticket returns comments, attachment ownership and inline images; Slack bot get_ticket shows recent comments
-
+> 🧰 **10 new MCP tools and 2 upgraded ones.** Claude can now read ticket comments and screenshots, move tickets in bulk, create sprints, read Slack, check your DayTrack and build deployment reports.
 
 ### Features
-- generate_deployment_report MCP tool with column selection and exclusions
-- add_youtrack_comment MCP tool with YouTrack Markdown, @mention resolution and attachments, plus own-comment edit/delete
-- create_sprint MCP tool with auto next-number naming
-- bulk_update_tickets MCP tool with dry-run preview, defaults to current sprint
-- read_slack_messages and get_slack_mentions MCP tools
-- whoami MCP tool
-- get_daytrack MCP tool
+- `whoami`: Tells Claude who you are (Velocity account, YouTrack login, Slack ID, board, current sprint, timezone), so requests like "my tickets" just work.
+- `get_daytrack`: Reads your DayTrack for a day or a date range, with totals per day and per category. Admins can read anyone's DayTrack.
+- `read_slack_messages`: Reads recent messages from a channel or your DM with Velocity, or a whole thread from a Slack message link. Shows real names, never raw user IDs.
+- `get_slack_mentions`: Lists messages where someone @mentioned you and flags the ones still waiting for your reply.
+- `bulk_update_tickets`: Moves many tickets at once, to another column or to the next sprint (e.g. "move all Dev tickets to next sprint"). Works on the current sprint of your board by default and always shows a preview before changing anything.
+- `create_sprint`: Creates a new sprint on your board. The name defaults to the next number (Sprint 13 → Sprint 14), and Claude asks you for the dates.
+- `add_youtrack_comment`: Posts a comment on a ticket in proper YouTrack format, with @mentions, tables, code blocks and image attachments.
+- `edit_youtrack_comment` / `delete_youtrack_comment`: Edits or deletes your own comments. Other people's comments are always refused.
+- `generate_deployment_report`: Builds the deployment report for the columns you pick (e.g. Stage + Ready for Stage), with options to exclude website tickets or specific ticket IDs.
+
+### Enhancements
+- `get_youtrack_ticket`: Now returns the full comment thread, attachments and screenshots, so Claude can tell whether a ticket is resolved and who still owes a reply.
+- `search_youtrack_tickets`: New filters for priority, type, subsystem, reporter and dates (e.g. "updated in the last 7 days"), sorting, and an option to skip closed tickets.
+- Velocity Bot: When you ask about a ticket in Slack, it now reads the latest comments too.
+- Security: The MCP connection only accepts the access token in the request header, never in the URL.
+- MCP Activity log: Every tool now shows a readable name.
 
 ### Bug Fixes
-- get_daytrack only treats real YouTrack project prefixes as ticket IDs; bulk_update_tickets warns before moving into a finished sprint
-- MCP members use the admin's selected YouTrack board; comment edit/delete require a personal YouTrack token or admin
-- Slack read tools use the user's timezone, return newest messages for since+limit, and expand reply links to the full thread
+- Slack tools show times in your timezone, return the newest messages when you filter by time, and open the full thread from a reply link.
+- Team members without their own YouTrack connection now use the same board as the admin. Editing or deleting comments requires your own YouTrack connection.
+- DayTrack no longer mistakes text like "GPT-5" for a ticket ID. Bulk moves warn you before moving tickets into a sprint that already ended.
 
 ## 2026-10-06
 

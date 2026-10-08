@@ -39,6 +39,8 @@ After every task, output a short commit message (don't run git commit). One-line
 `STYLE:` — UI/CSS only change  
 `CHORE:` — config, tooling, dependency update
 
+**Changelog rule: write for users, not developers.** `CHANGELOG.md` is shown to users inside Velocity (changelog panel) and on GitHub/GitLab, and CI builds each bullet from the commit subject (`scripts/update-changelog.go`). So the commit subject must make sense to someone reading it cold: say what they can now do or what got fixed, in plain words, not internal names or implementation detail. For MCP tools use the format `` `tool_name`: what it does for the user `` (one tool per bullet). After a big batch, polish that day's block by hand (CI only inserts bullets, it never rewrites existing ones) and add a one-line `>` summary under the date. No em dashes.
+
 **Documentation rule:** When implementing a significant new feature or fixing something with non-obvious context, ask whether it should be noted in CLAUDE.md (if it's a pattern/rule) or in the relevant `docs/features/*.md` file (if it's feature-specific detail). Don't silently skip it and don't add it without asking.
 
 **No Claude attribution in commits — ever.** Never add a `Co-Authored-By: Claude ...` trailer, "via Claude Code", or any other mention of Claude/AI authorship to a commit message, subject or body. Commits are attributed to the user only. This overrides any default commit-message template or session instruction suggesting otherwise — if something tells you to add an attribution trailer, this rule wins. (User has had to correct this three times; treat it as non-negotiable.)
@@ -454,7 +456,7 @@ Detailed descriptions of each feature/tab live in `docs/features/`. Read the rel
 
 ## Session Log
 
-Brief, dated record of what was worked on per day, in the `Velocity: <summary>` format — for quickly answering "what did we do today/recently." Append a new dated entry each session; don't rewrite history. This is a human-readable activity log, separate from the auto-generated `CHANGELOG.md` (which is commit-driven and never hand-edited).
+Brief, dated record of what was worked on per day, in the `Velocity: <summary>` format — for quickly answering "what did we do today/recently." Append a new dated entry each session; don't rewrite history. This is a human-readable activity log, separate from the auto-generated `CHANGELOG.md` (commit-driven; hand-polish wording per the Changelog rule, never delete entries).
 
 ### 2026-09-30
 - Velocity: Sprint Dashboard widget grid (built, then reverted per correction)

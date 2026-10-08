@@ -5,6 +5,16 @@ import type { ChangelogEntry } from '../../services/api'
 import api from '../../services/api'
 import { VelocityLogo } from '../brand/VelocityLogo'
 
+// Changelog bullets are Markdown; render `tool_name` spans as inline code so
+// tool names read the same here as on GitHub/GitLab.
+function renderInlineCode(text: string) {
+  return text.split(/(`[^`]+`)/g).map((part, i) =>
+    part.length > 2 && part.startsWith('`') && part.endsWith('`')
+      ? <code key={i} className="cl-code">{part.slice(1, -1)}</code>
+      : part,
+  )
+}
+
 interface Props {
   anchorRect: DOMRect
   entries: ChangelogEntry[]
@@ -87,7 +97,7 @@ export default function ChangelogPanel({ anchorRect, entries, onClose }: Props) 
                   </div>
                   <ul className="cl-items">
                     {items.map((item, i) => (
-                      <li key={i} className="cl-item">{item}</li>
+                      <li key={i} className="cl-item">{renderInlineCode(item)}</li>
                     ))}
                   </ul>
                 </div>
