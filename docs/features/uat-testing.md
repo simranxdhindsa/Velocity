@@ -44,6 +44,11 @@ A hypothesis that Slack mention tokens (`<@USERID>`) render as raw IDs in every 
 ### 8. A shared component's fix benefits (and must be checked against) every consumer
 Fixing the date-picker off-screen bug inside the shared `CalendarPicker` component fixed it for all 7 places that use it, not just the one that surfaced the bug. When fixing a shared component, grep for every usage first — the fix is free leverage, but a wrong fix is also free breakage.
 
+### 9. Status chips that appear and disappear can make the whole page jump
+On the Knowledge Base page, header chips like "1 ready" and "1 admin-only" come and go as documents finish indexing or change visibility. With the stats in a wrapping row next to the title, each change toggled the header between one and two lines, so every list row moved about 30px while the user was aiming at it (a real click landed on the wrong element during UAT). A static screenshot looks fine; the bug only shows when you act during a state change.
+
+**Do:** Give status counters a layout that cannot change height with their content (own row, fixed min-widths for badges like "Indexing"/"Ready"), and during UAT interact with the page *while* background state changes (polling, indexing), not only after it settles. Also check the last row's actions against the floating PM Assistant bubble at max scroll on mobile; pages need bottom padding to scroll clear of it.
+
 ## Process checklist
 
 Before calling a UI task done:

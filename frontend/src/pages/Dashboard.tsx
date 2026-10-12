@@ -33,6 +33,7 @@ import {
   Activity,
   Zap,
   Palette,
+  BookOpen,
   Menu,
 } from 'lucide-react'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
@@ -55,6 +56,7 @@ import { ActivityPage } from './ActivityPage'
 import { DayTrackPage } from './DayTrackPage'
 import { GanttPage } from './GanttPage'
 import { McpActivityPage } from './McpActivityPage'
+import { KnowledgeBasePage } from './KnowledgeBasePage'
 import { JellySwitch } from '../components/JellySwitch'
 import { ThemeSettingsPage } from './ThemeSettingsPage'
 import { applyUserTheme } from '../utils/themeUtils'
@@ -63,7 +65,7 @@ import { useNotifications } from '../services/useNotifications'
 import ChangelogPanel from '../components/changelog/ChangelogPanel'
 import type { ChangelogEntry } from '../services/api'
 
-type Page = 'dashboard' | 'board' | 'list' | 'sprint-pulse' | 'daily-ops' | 'calendar' | 'reports' | 'ai-analysis' | 'dev-activity' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme' | 'gantt' | 'update-reminders' | 'mcp-activity'
+type Page = 'dashboard' | 'board' | 'list' | 'sprint-pulse' | 'daily-ops' | 'calendar' | 'reports' | 'ai-analysis' | 'dev-activity' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme' | 'gantt' | 'update-reminders' | 'mcp-activity' | 'knowledge-base'
 
 // Pages accessible by members/viewers (limited access)
 const MEMBER_PAGES: Page[] = ['dashboard', 'board', 'list', 'sprint-pulse', 'daily-ops', 'activity', 'calendar', 'ai-analysis', 'dev-activity', 'pm-reports', 'daytrack', 'integrations', 'gantt', 'slack', 'update-reminders', 'theme']
@@ -92,6 +94,7 @@ const PATH_TO_PAGE: Record<string, Page> = {
   'gantt': 'gantt',
   'update-reminders': 'update-reminders',
   'mcp-activity': 'mcp-activity',
+  'knowledge-base': 'knowledge-base',
 }
 
 const PM_REPORTS_TABS = ['tracking', 'daily', 'assignees', 'deployment'] as const
@@ -147,7 +150,7 @@ export default function Dashboard() {
     const path = location.pathname
     if (path === '/' || path === '') {
       const last = localStorage.getItem(PERSIST.LAST_PAGE) as Page | null
-      const valid: Page[] = ['board', 'list', 'sprint-pulse', 'daily-ops', 'pm-reports', 'slack', 'activity', 'daytrack', 'ai-analysis', 'dev-activity', 'integrations', 'settings', 'bots', 'theme', 'gantt']
+      const valid: Page[] = ['board', 'list', 'sprint-pulse', 'daily-ops', 'pm-reports', 'slack', 'activity', 'daytrack', 'ai-analysis', 'dev-activity', 'integrations', 'settings', 'bots', 'knowledge-base', 'theme', 'gantt']
       if (last && valid.includes(last)) {
         navigate(`/${last}`, { replace: true })
       }
@@ -485,6 +488,15 @@ export default function Dashboard() {
                 <span>Bot Config</span>
               </button>
             )}
+            {user?.role === 'admin' && (
+              <button
+                className={`sidebar-nav-item ${currentPage === 'knowledge-base' ? 'active' : ''}`}
+                onClick={() => setCurrentPage('knowledge-base')}
+              >
+                <BookOpen size={20} />
+                <span>Knowledge Base</span>
+              </button>
+            )}
             <button
               className={`sidebar-nav-item ${currentPage === 'integrations' ? 'active' : ''}`}
               onClick={() => setCurrentPage('integrations')}
@@ -552,6 +564,7 @@ export default function Dashboard() {
             {currentPage === 'bots' && 'Bot Configuration'}
             {currentPage === 'settings' && 'Access Control'}
             {currentPage === 'mcp-activity' && 'MCP Activity'}
+            {currentPage === 'knowledge-base' && 'Knowledge Base'}
             {currentPage === 'integrations' && 'Integrations'}
             {currentPage === 'slack' && 'Slack Intelligence'}
             {currentPage === 'update-reminders' && 'Update Reminders'}
@@ -735,6 +748,11 @@ export default function Dashboard() {
         {mountedTabs.has('mcp-activity') && (
           <div className={currentPage !== 'mcp-activity' ? 'dash-tab-hidden' : undefined}>
             <McpActivityPage />
+          </div>
+        )}
+        {mountedTabs.has('knowledge-base') && (
+          <div className={currentPage !== 'knowledge-base' ? 'dash-tab-hidden' : undefined}>
+            <KnowledgeBasePage />
           </div>
         )}
         {mountedTabs.has('bots') && (

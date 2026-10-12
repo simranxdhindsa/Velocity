@@ -51,6 +51,16 @@ Every reply searches with the incoming message (short follow-ups like "and him?"
 | PUT | `/api/kb/notes/{id}` | Edit a note |
 | GET | `/api/kb/search?q=&as=everyone\|admin` | Test search as a member or admin would see it |
 
+## Admin page (frontend)
+
+Left nav → Settings → **Knowledge Base** (`/knowledge-base`), shown only to `role === 'admin'` (the API is admin-only regardless). Files: `pages/KnowledgeBasePage.tsx` (state, upload, polling), `pages/KnowledgeBaseParts.tsx` (document row, chunk preview, "Try a question", note editor, skeleton), `pages/knowledge-base-types.ts` (pure helpers), CSS `styles/pages/knowledge-base.css` (page/list) + `knowledge-base-tools.css` (search box, note modal).
+
+- Drag and drop or "Upload files" (multiple), with a "Visible to" choice for new files; "Write a note" opens a Markdown editor (notes stay editable, files get "Upload a new version").
+- Each row: visibility dropdown (applies instantly), status badge (Indexing / Ready / Ready with warning / Failed with reason), chunk preview ("exactly what the bot can read"), re-index, delete via `ConfirmModal`.
+- Polls every 2.5s while anything is indexing.
+- "Try a question" runs the real hybrid search as a member or as an admin, so admins can check visibility and coverage before anyone asks the bot. Results clear when documents change.
+- UAT-verified in dark/light and at 390px (no horizontal scroll, last row clears the PM Assistant bubble).
+
 ## Tables (`database/kb_migrations.go`)
 
 `kb_documents` (metadata, original bytes, content hash, visibility, status, error/warning, chunk/char counts, `embedded`) and `kb_chunks` (heading, content, generated `tsv` with GIN index, `embedding vector(768)` with HNSW index). Changing the embedding model or dimensions needs a new column and a re-index of every document.

@@ -1,0 +1,548 @@
+/* Knowledge Base page (admin): page, header, drop zone, document list.
+   "Try a question" and the note editor live in knowledge-base-tools.css. */
+
+.kb-page {
+  padding: 24px 28px 96px; /* clear of the floating PM Assistant bubble */
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+/* Title on top, stats on their own row below: chips come and go while
+   documents index, and a wrapping single row made the whole page jump. */
+.kb-header {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.kb-header-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--color-primary);
+  min-width: 0;
+}
+
+.kb-header-title h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.kb-header-title p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.kb-header-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kb-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.kb-stat--good {
+  color: var(--color-success);
+  background: var(--color-success-muted);
+  border-color: transparent;
+}
+
+.kb-stat--warn {
+  color: var(--color-warning);
+  background: var(--color-warning-muted);
+  border-color: transparent;
+}
+
+/* ── Buttons & inputs ───────────────────────────────────────────────────── */
+
+.kb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.kb-btn:hover:not(:disabled) {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.kb-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.kb-btn--primary {
+  color: #fff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.kb-btn--primary:hover:not(:disabled) {
+  color: #fff;
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.kb-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.kb-icon-btn:hover:not(:disabled) {
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.1);
+}
+
+.kb-icon-btn--danger:hover:not(:disabled) {
+  color: var(--color-danger);
+  background: var(--color-danger-muted);
+}
+
+.kb-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.kb-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.kb-input:focus,
+.kb-textarea:focus {
+  border-color: var(--color-primary);
+}
+
+.kb-textarea {
+  width: 100%;
+  min-height: 300px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.kb-muted {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.kb-error {
+  font-size: 12.5px;
+  color: var(--color-danger);
+  margin: 10px 0 0;
+}
+
+.kb-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.kb-link:hover {
+  color: var(--color-primary);
+}
+
+.kb-spin {
+  animation: kb-spin 0.9s linear infinite;
+}
+
+@keyframes kb-spin {
+  to { transform: rotate(360deg); }
+}
+
+.kb-vis-dd .pm-custom-dropdown-trigger {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* ── Drop zone ──────────────────────────────────────────────────────────── */
+
+.kb-drop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 18px 20px;
+  border: 1.5px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  margin-bottom: 14px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.kb-drop--over {
+  border-color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.08);
+}
+
+.kb-drop-text {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-primary);
+  min-width: 0;
+}
+
+.kb-drop-text > svg {
+  flex-shrink: 0;
+}
+
+.kb-drop-text > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.kb-drop-text strong {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.kb-drop-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kb-drop-vis {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Notices ────────────────────────────────────────────────────────────── */
+
+.kb-notices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+
+.kb-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.kb-notice svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.kb-notice--ok {
+  color: var(--color-success);
+  background: var(--color-success-muted);
+}
+
+.kb-notice--error {
+  color: var(--color-danger);
+  background: var(--color-danger-muted);
+}
+
+/* ── Document list ──────────────────────────────────────────────────────── */
+
+.kb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kb-doc {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  transition: border-color 0.15s;
+}
+
+.kb-doc:hover,
+.kb-doc--open {
+  border-color: var(--border-color);
+}
+
+.kb-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.kb-doc-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.12);
+}
+
+.kb-doc-icon--note {
+  color: var(--color-warning);
+  background: var(--color-warning-muted);
+}
+
+.kb-doc-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.kb-doc-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-doc-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-doc-msg {
+  font-size: 11.5px;
+  color: var(--color-warning);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.kb-doc-msg--fail {
+  color: var(--color-danger);
+}
+
+.kb-doc-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.kb-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px; /* "Indexing" and "Ready" take the same space so rows line up */
+  box-sizing: border-box;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.kb-badge--ready {
+  color: var(--color-success);
+  background: var(--color-success-muted);
+}
+
+.kb-badge--warn {
+  color: var(--color-warning);
+  background: var(--color-warning-muted);
+}
+
+.kb-badge--processing {
+  color: var(--color-primary-light);
+  background: rgba(var(--color-primary-rgb), 0.12);
+}
+
+.kb-badge--failed {
+  color: var(--color-danger);
+  background: var(--color-danger-muted);
+}
+
+.kb-chunks {
+  border-top: 1px solid var(--border-subtle);
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.kb-chunk {
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 8px 10px;
+}
+
+.kb-chunk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.kb-chunk-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.kb-chunk-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary-light);
+}
+
+.kb-chunk-body {
+  margin: 0;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kb-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+}
+
+.kb-empty p {
+  margin: 0;
+  max-width: 440px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Light theme ────────────────────────────────────────────────────────── */
+
+[data-theme="light"] .kb-doc,
+[data-theme="light"] .kb-drop {
+  background: var(--bg-elevated);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) and (min-width: 769px) {
+  .kb-page {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Extra bottom room so the last row's actions can scroll clear of the
+     floating PM Assistant bubble (fixed, bottom-right). */
+  .kb-page {
+    padding: 16px 12px 104px;
+  }
+
+  .kb-hide-mobile {
+    display: none !important;
+  }
+
+  .kb-drop {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px;
+  }
+
+  .kb-drop-actions {
+    justify-content: flex-start;
+  }
+
+  /* Row: icon + text on top, visibility/status/actions wrap below */
+  .kb-doc-row {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+
+  .kb-doc-main {
+    flex-basis: calc(100% - 50px);
+  }
+
+  .kb-doc-row > .kb-vis-dd {
+    margin-left: 48px;
+  }
+
+  .kb-doc-actions {
+    margin-left: auto;
+  }
+
+}

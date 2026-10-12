@@ -2074,6 +2074,113 @@ class ApiService {
       ApiResponse<SlackBotConversation[]> & { is_admin_view?: boolean }
     >
   }
+
+  // ── Team knowledge base (admin only) ──────────────────────────────────────
+  async getKBDocuments() {
+    return this.request<KBDocument[]>('/kb/documents') as Promise<
+      ApiResponse<KBDocument[]> & { vector_search?: boolean; supported_extensions?: string[]; max_file_bytes?: number }
+    >
+  }
+
+  // Multipart, so it bypasses request() (which forces a JSON content type).
+  async uploadKBDocuments(files: File[], visibility: KBVisibility) {
+    const fd = new FormData()
+    files.forEach(f => fd.append('files', f, f.name))
+    fd.append('visibility', visibility)
+    return this.sendForm<KBUploadResult[]>('/kb/documents', 'POST', fd)
+  }
+
+  async replaceKBFile(id: string, file: File) {
+    const fd = new FormData()
+    fd.append('file', file, file.name)
+    return this.sendForm<KBDocument>(`/kb/documents/${id}/file`, 'PUT', fd)
+  }
+
+  private async sendForm<T>(endpoint: string, method: string, body: FormData): Promise<ApiResponse<T>> {
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      method,
+      headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      body,
+    })
+    let data: any
+    try {
+      data = await res.json()
+    } catch {
+      throw new Error(`Upload failed (${res.status})`)
+    }
+    if (!res.ok) throw new Error(data?.message || `Upload failed (${res.status})`)
+    return data
+  }
+
+  async updateKBDocument(id: string, patch: { title?: string; visibility?: KBVisibility }) {
+    return this.request<KBDocument>(`/kb/documents/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+  }
+
+  async reindexKBDocument(id: string) {
+    return this.request<KBDocument>(`/kb/documents/${id}/reindex`, { method: 'POST' })
+  }
+
+  async deleteKBDocument(id: string) {
+    return this.request<void>(`/kb/documents/${id}`, { method: 'DELETE' })
+  }
+
+  async getKBChunks(id: string) {
+    return this.request<KBHit[]>(`/kb/documents/${id}/chunks`)
+  }
+
+  async getKBNoteText(id: string) {
+    return this.request<{ title: string; content: string; visibility: KBVisibility }>(`/kb/documents/${id}/text`)
+  }
+
+  async createKBNote(note: { title: string; content: string; visibility: KBVisibility }) {
+    return this.request<KBDocument>('/kb/notes', { method: 'POST', body: JSON.stringify(note) })
+  }
+
+  async updateKBNote(id: string, note: { title: string; content: string; visibility: KBVisibility }) {
+    return this.request<KBDocument>(`/kb/notes/${id}`, { method: 'PUT', body: JSON.stringify(note) })
+  }
+
+  async searchKB(q: string, as: 'everyone' | 'admin') {
+    return this.request<KBHit[]>(`/kb/search?q=${encodeURIComponent(q)}&as=${as}`)
+  }
+}
+
+export type KBVisibility = 'everyone' | 'admins'
+
+export interface KBDocument {
+  id: string
+  title: string
+  filename: string
+  mime_type: string
+  size_bytes: number
+  visibility: KBVisibility
+  status: 'processing' | 'ready' | 'failed'
+  /** Failure reason, or a warning on a ready doc (e.g. keyword search only) */
+  error: string
+  chunk_count: number
+  char_count: number
+  embedded: boolean
+  uploaded_by: string
+  uploader_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface KBUploadResult {
+  filename: string
+  document?: KBDocument
+  error?: string
+}
+
+export interface KBHit {
+  chunk_id: number
+  document_id: string
+  document_title: string
+  heading: string
+  content: string
+  visibility: KBVisibility
+  score: number
+  matched?: 'keyword' | 'meaning' | 'both'
 }
 
 export interface MCPConnection {
