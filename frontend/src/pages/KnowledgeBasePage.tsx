@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookOpen, Upload, StickyNote, RefreshCw, Shield, Users, Sparkles, XCircle, CheckCircle2 } from 'lucide-react'
+import { BookOpen, Upload, StickyNote, RefreshCw, Shield, Sparkles, XCircle, CheckCircle2 } from 'lucide-react'
 import api from '@/services/api'
-import type { KBDocument, KBVisibility } from '@/services/api'
+import type { KBDocument } from '@/services/api'
 import { useAuth } from '@/contexts/AuthContext'
-import { CustomDropdown } from '@/components/CustomDropdown'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { KBDocRow, KBNoteEditor, KBTrySearch, KnowledgeBaseSkeleton } from './KnowledgeBaseParts'
-import { VISIBILITY_OPTIONS, formatBytes } from './knowledge-base-types'
+import { formatBytes } from './knowledge-base-types'
 import '@/styles/pages/knowledge-base.css'
 
 const DEFAULT_EXTS = ['.md', '.txt', '.csv', '.json', '.html', '.pdf', '.docx', '.pptx', '.xlsx']
@@ -26,11 +25,10 @@ export function KnowledgeBasePage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [loadError, setLoadError] = useState('')
-  const [vectorSearch, setVectorSearch] = useState(true)
+  const [smartSearch, setSmartSearch] = useState(true)
   const [exts, setExts] = useState<string[]>(DEFAULT_EXTS)
   const [maxBytes, setMaxBytes] = useState(15 * 1024 * 1024)
 
-  const [uploadVisibility, setUploadVisibility] = useState<KBVisibility>('everyone')
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [notices, setNotices] = useState<Notice[]>([])
@@ -46,7 +44,7 @@ export function KnowledgeBasePage() {
     try {
       const r = await api.getKBDocuments()
       setDocs(r.data ?? [])
-      setVectorSearch(r.vector_search ?? false)
+      setSmartSearch(r.smart_search ?? false)
       if (r.supported_extensions?.length) setExts(r.supported_extensions)
       if (r.max_file_bytes) setMaxBytes(r.max_file_bytes)
       setLoadError('')
@@ -83,7 +81,7 @@ export function KnowledgeBasePage() {
     }
     setUploading(true)
     try {
-      const r = await api.uploadKBDocuments(ok, uploadVisibility)
+      const r = await api.uploadKBDocuments(ok)
       const results = r.data ?? []
       notify([
         ...pre,
@@ -126,15 +124,6 @@ export function KnowledgeBasePage() {
   }
 
   // Row actions, stable so memoised rows don't re-render on every poll.
-  const handleVisibility = useCallback(async (doc: KBDocument, v: KBVisibility) => {
-    setDocs(prev => prev.map(d => d.id === doc.id ? { ...d, visibility: v } : d)) // optimistic
-    try {
-      await api.updateKBDocument(doc.id, { visibility: v })
-    } catch (e) {
-      setDocs(prev => prev.map(d => d.id === doc.id ? { ...d, visibility: doc.visibility } : d))
-      setNotices([{ kind: 'error', text: `${doc.title}: ${e instanceof Error ? e.message : 'could not change visibility'}` }])
-    }
-  }, [])
   const handleEditNote = useCallback((doc: KBDocument) => setNoteEditor({ doc }), [])
   const handleReplace = useCallback((doc: KBDocument) => {
     replaceTarget.current = doc
@@ -176,7 +165,6 @@ export function KnowledgeBasePage() {
   }
 
   const readyCount = docs.filter(d => d.status === 'ready').length
-  const adminOnlyCount = docs.filter(d => d.visibility === 'admins').length
 
   return (
     <div className="kb-page">
@@ -185,15 +173,14 @@ export function KnowledgeBasePage() {
           <BookOpen size={20} />
           <div>
             <h2>Knowledge Base</h2>
-            <p>What Velocity Bot and Claude know about your team. Only admins can see and change this page.</p>
+            <p>What Velocity Bot and Claude know about your team. Everyone gets the same answers, only admins can change this page.</p>
           </div>
         </div>
         <div className="kb-header-stats">
           <span className="kb-stat">{docs.length} {docs.length === 1 ? 'document' : 'documents'}</span>
           {readyCount !== docs.length && <span className="kb-stat">{readyCount} ready</span>}
-          {adminOnlyCount > 0 && <span className="kb-stat"><Shield size={12} />{adminOnlyCount} admin-only</span>}
-          <span className={`kb-stat${vectorSearch ? ' kb-stat--good' : ' kb-stat--warn'}`} title={vectorSearch ? 'Finds exact names and paraphrased questions' : 'Meaning-based search is unavailable on this server, exact words still match'}>
-            <Sparkles size={12} />{vectorSearch ? 'Smart search on' : 'Keyword search only'}
+          <span className={`kb-stat${smartSearch ? ' kb-stat--good' : ' kb-stat--warn'}`} title={smartSearch ? 'Finds exact names and paraphrased questions' : 'No AI key is configured, so only exact words match'}>
+            <Sparkles size={12} />{smartSearch ? 'Smart search on' : 'Keyword search only'}
           </span>
           <button className="kb-btn" onClick={() => load(true)} disabled={refreshing}>
             <RefreshCw size={14} className={refreshing ? 'kb-spin' : ''} />Refresh
@@ -215,16 +202,6 @@ export function KnowledgeBasePage() {
           </div>
         </div>
         <div className="kb-drop-actions">
-          <div className="kb-drop-vis">
-            <span className="kb-muted">Visible to</span>
-            <CustomDropdown
-              className="kb-vis-dd"
-              options={VISIBILITY_OPTIONS}
-              value={uploadVisibility}
-              onChange={setUploadVisibility}
-              icon={uploadVisibility === 'admins' ? <Shield size={13} /> : <Users size={13} />}
-            />
-          </div>
           <button className="kb-btn kb-btn--primary" onClick={() => fileInput.current?.click()} disabled={uploading}>
             <Upload size={14} />Upload files
           </button>
@@ -248,7 +225,7 @@ export function KnowledgeBasePage() {
         </div>
       )}
 
-      <KBTrySearch disabled={readyCount === 0} resetKey={docs.map(d => `${d.id}:${d.status}:${d.visibility}`).join('|')} />
+      <KBTrySearch disabled={readyCount === 0} resetKey={docs.map(d => `${d.id}:${d.status}`).join('|')} />
 
       {loading ? (
         <KnowledgeBaseSkeleton />
@@ -265,7 +242,6 @@ export function KnowledgeBasePage() {
             <KBDocRow
               key={d.id}
               doc={d}
-              onVisibility={handleVisibility}
               onEditNote={handleEditNote}
               onReplace={handleReplace}
               onReindex={handleReindex}

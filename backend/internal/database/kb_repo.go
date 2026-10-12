@@ -10,14 +10,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Admin knowledge base storage (tables in kb_migrations.go). Visibility is
-// enforced here, in every search query, so no caller can forget it:
-// includeAdminOnly must be true only when the person asking is an admin.
+// Admin knowledge base storage (tables in kb_migrations.go). Every
+// document is shared with everyone who asks the bot; only managing it is
+// admin-only (enforced at the routes).
 
 const (
-	KBVisibilityEveryone = "everyone"
-	KBVisibilityAdmins   = "admins"
-
 	KBStatusProcessing = "processing"
 	KBStatusReady      = "ready"
 	KBStatusFailed     = "failed"
@@ -29,7 +26,6 @@ type KBDocument struct {
 	Filename   string    `json:"filename"`
 	MimeType   string    `json:"mime_type"`
 	SizeBytes  int       `json:"size_bytes"`
-	Visibility string    `json:"visibility"`
 	Status     string    `json:"status"`
 	Error      string    `json:"error"`
 	ChunkCount int       `json:"chunk_count"`
@@ -57,7 +53,6 @@ type KBHit struct {
 	DocTitle   string  `json:"document_title"`
 	Heading    string  `json:"heading"`
 	Content    string  `json:"content"`
-	Visibility string  `json:"visibility"`
 	Score      float64 `json:"score"`
 }
 
@@ -67,11 +62,11 @@ func NewKBRepository() *KBRepository { return &KBRepository{} }
 
 var errNoDB = errors.New("database not configured")
 
-const kbDocColumns = `d.id::text, d.title, d.filename, d.mime_type, d.size_bytes, d.visibility, d.status,
+const kbDocColumns = `d.id::text, d.title, d.filename, d.mime_type, d.size_bytes, d.status,
 	d.error, d.chunk_count, d.char_count, d.embedded, d.uploaded_by, COALESCE(u.name, ''), d.created_at, d.updated_at`
 
 func scanKBDoc(row pgx.Row, d *KBDocument, extra ...interface{}) error {
-	dest := []interface{}{&d.ID, &d.Title, &d.Filename, &d.MimeType, &d.SizeBytes, &d.Visibility, &d.Status,
+	dest := []interface{}{&d.ID, &d.Title, &d.Filename, &d.MimeType, &d.SizeBytes, &d.Status,
 		&d.Error, &d.ChunkCount, &d.CharCount, &d.Embedded, &d.UploadedBy, &d.Uploader, &d.CreatedAt, &d.UpdatedAt}
 	return row.Scan(append(dest, extra...)...)
 }
@@ -84,10 +79,10 @@ func (r *KBRepository) CreateDocument(ctx context.Context, d *KBDocument, conten
 	}
 	var id string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO kb_documents (title, filename, mime_type, size_bytes, original, content_hash, visibility, status, uploaded_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'processing', $8)
+		INSERT INTO kb_documents (title, filename, mime_type, size_bytes, original, content_hash, status, uploaded_by)
+		VALUES ($1, $2, $3, $4, $5, $6, 'processing', $7)
 		RETURNING id::text
-	`, d.Title, d.Filename, d.MimeType, len(d.Original), d.Original, contentHash, d.Visibility, d.UploadedBy).Scan(&id)
+	`, d.Title, d.Filename, d.MimeType, len(d.Original), d.Original, contentHash, d.UploadedBy).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -185,18 +180,15 @@ func (r *KBRepository) ListProcessing(ctx context.Context) ([]string, error) {
 	return ids, rows.Err()
 }
 
-// UpdateMeta changes a document's title and/or visibility (empty = keep).
-func (r *KBRepository) UpdateMeta(ctx context.Context, id, title, visibility string) error {
+// Rename changes a document's title (empty = keep).
+func (r *KBRepository) Rename(ctx context.Context, id, title string) error {
 	pool := GetPool()
 	if pool == nil {
 		return errNoDB
 	}
 	_, err := pool.Exec(ctx, `
-		UPDATE kb_documents SET
-			title = COALESCE(NULLIF($2, ''), title),
-			visibility = COALESCE(NULLIF($3, ''), visibility),
-			updated_at = NOW()
-		WHERE id::text = $1`, id, title, visibility)
+		UPDATE kb_documents SET title = COALESCE(NULLIF($2, ''), title), updated_at = NOW()
+		WHERE id::text = $1`, id, title)
 	return err
 }
 
@@ -280,7 +272,7 @@ func (r *KBRepository) ListChunks(ctx context.Context, id string, limit int) ([]
 	if pool == nil {
 		return []KBHit{}, nil
 	}
-	rows, err := pool.Query(ctx, `SELECT c.id, d.id::text, d.title, c.heading, c.content, d.visibility, 0::float8
+	rows, err := pool.Query(ctx, `SELECT c.id, d.id::text, d.title, c.heading, c.content, 0::float8
 		FROM kb_chunks c JOIN kb_documents d ON d.id = c.document_id
 		WHERE d.id::text = $1 ORDER BY c.chunk_index LIMIT $2`, id, limit)
 	if err != nil {
@@ -292,7 +284,7 @@ func (r *KBRepository) ListChunks(ctx context.Context, id string, limit int) ([]
 // KeywordSearch ranks chunks by full-text match. terms are already
 // normalized words (see kb.QueryTerms); any term may match, and chunks
 // matching more terms (or in the heading) rank higher.
-func (r *KBRepository) KeywordSearch(ctx context.Context, terms []string, includeAdminOnly bool, limit int) ([]KBHit, error) {
+func (r *KBRepository) KeywordSearch(ctx context.Context, terms []string, limit int) ([]KBHit, error) {
 	pool := GetPool()
 	if pool == nil || len(terms) == 0 {
 		return []KBHit{}, nil
@@ -302,15 +294,18 @@ func (r *KBRepository) KeywordSearch(ctx context.Context, terms []string, includ
 		parts = append(parts, quoteLexeme(t)+":*")
 	}
 	tsq := strings.Join(parts, " | ")
+	// Exact (simple) and stemmed (english) matching, summed: a chunk matching
+	// the literal word ranks above one matching only a word form.
 	rows, err := pool.Query(ctx, `
-		SELECT c.id, d.id::text, d.title, c.heading, c.content, d.visibility,
-		       ts_rank_cd(c.tsv, q, 1)::float8 AS score
+		SELECT c.id, d.id::text, d.title, c.heading, c.content,
+		       (ts_rank_cd(c.tsv, qs, 1) + ts_rank_cd(c.tsv_en, qe, 1))::float8 AS score
 		FROM kb_chunks c
 		JOIN kb_documents d ON d.id = c.document_id,
-		     to_tsquery('simple', $1) q
-		WHERE c.tsv @@ q AND d.status = 'ready' AND ($2 OR d.visibility = 'everyone')
+		     to_tsquery('simple', $1) qs,
+		     to_tsquery('english', $1) qe
+		WHERE (c.tsv @@ qs OR c.tsv_en @@ qe) AND d.status = 'ready'
 		ORDER BY score DESC
-		LIMIT $3`, tsq, includeAdminOnly, limit)
+		LIMIT $2`, tsq, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -319,35 +314,35 @@ func (r *KBRepository) KeywordSearch(ctx context.Context, terms []string, includ
 
 // VectorSearch ranks chunks by cosine similarity (score 0..1, higher is
 // closer). Returns nothing when pgvector is unavailable.
-func (r *KBRepository) VectorSearch(ctx context.Context, vec []float32, includeAdminOnly bool, limit int) ([]KBHit, error) {
+func (r *KBRepository) VectorSearch(ctx context.Context, vec []float32, limit int) ([]KBHit, error) {
 	pool := GetPool()
 	if pool == nil || !KBVectorEnabled() || len(vec) == 0 {
 		return []KBHit{}, nil
 	}
 	rows, err := pool.Query(ctx, `
-		SELECT c.id, d.id::text, d.title, c.heading, c.content, d.visibility,
+		SELECT c.id, d.id::text, d.title, c.heading, c.content,
 		       (1 - (c.embedding <=> $1::vector))::float8 AS score
 		FROM kb_chunks c
 		JOIN kb_documents d ON d.id = c.document_id
-		WHERE c.embedding IS NOT NULL AND d.status = 'ready' AND ($2 OR d.visibility = 'everyone')
+		WHERE c.embedding IS NOT NULL AND d.status = 'ready'
 		ORDER BY c.embedding <=> $1::vector
-		LIMIT $3`, vectorLiteral(vec), includeAdminOnly, limit)
+		LIMIT $2`, vectorLiteral(vec), limit)
 	if err != nil {
 		return nil, err
 	}
 	return scanHits(rows)
 }
 
-// CountReady reports how many ready documents a viewer can see, so callers
-// can skip searching an empty knowledge base.
-func (r *KBRepository) CountReady(ctx context.Context, includeAdminOnly bool) int {
+// CountReady reports how many documents are searchable, so callers can
+// skip searching an empty knowledge base.
+func (r *KBRepository) CountReady(ctx context.Context) int {
 	pool := GetPool()
 	if pool == nil {
 		return 0
 	}
 	var n int
 	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM kb_documents
-		WHERE status = 'ready' AND chunk_count > 0 AND ($1 OR visibility = 'everyone')`, includeAdminOnly).Scan(&n)
+		WHERE status = 'ready' AND chunk_count > 0`).Scan(&n)
 	return n
 }
 
@@ -356,7 +351,7 @@ func scanHits(rows pgx.Rows) ([]KBHit, error) {
 	hits := []KBHit{}
 	for rows.Next() {
 		var h KBHit
-		if err := rows.Scan(&h.ChunkID, &h.DocumentID, &h.DocTitle, &h.Heading, &h.Content, &h.Visibility, &h.Score); err != nil {
+		if err := rows.Scan(&h.ChunkID, &h.DocumentID, &h.DocTitle, &h.Heading, &h.Content, &h.Score); err != nil {
 			return nil, err
 		}
 		hits = append(hits, h)

@@ -2078,15 +2078,14 @@ class ApiService {
   // ── Team knowledge base (admin only) ──────────────────────────────────────
   async getKBDocuments() {
     return this.request<KBDocument[]>('/kb/documents') as Promise<
-      ApiResponse<KBDocument[]> & { vector_search?: boolean; supported_extensions?: string[]; max_file_bytes?: number }
+      ApiResponse<KBDocument[]> & { smart_search?: boolean; supported_extensions?: string[]; max_file_bytes?: number }
     >
   }
 
   // Multipart, so it bypasses request() (which forces a JSON content type).
-  async uploadKBDocuments(files: File[], visibility: KBVisibility) {
+  async uploadKBDocuments(files: File[]) {
     const fd = new FormData()
     files.forEach(f => fd.append('files', f, f.name))
-    fd.append('visibility', visibility)
     return this.sendForm<KBUploadResult[]>('/kb/documents', 'POST', fd)
   }
 
@@ -2112,7 +2111,7 @@ class ApiService {
     return data
   }
 
-  async updateKBDocument(id: string, patch: { title?: string; visibility?: KBVisibility }) {
+  async updateKBDocument(id: string, patch: { title?: string }) {
     return this.request<KBDocument>(`/kb/documents/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
   }
 
@@ -2129,23 +2128,21 @@ class ApiService {
   }
 
   async getKBNoteText(id: string) {
-    return this.request<{ title: string; content: string; visibility: KBVisibility }>(`/kb/documents/${id}/text`)
+    return this.request<{ title: string; content: string }>(`/kb/documents/${id}/text`)
   }
 
-  async createKBNote(note: { title: string; content: string; visibility: KBVisibility }) {
+  async createKBNote(note: { title: string; content: string }) {
     return this.request<KBDocument>('/kb/notes', { method: 'POST', body: JSON.stringify(note) })
   }
 
-  async updateKBNote(id: string, note: { title: string; content: string; visibility: KBVisibility }) {
+  async updateKBNote(id: string, note: { title: string; content: string }) {
     return this.request<KBDocument>(`/kb/notes/${id}`, { method: 'PUT', body: JSON.stringify(note) })
   }
 
-  async searchKB(q: string, as: 'everyone' | 'admin') {
-    return this.request<KBHit[]>(`/kb/search?q=${encodeURIComponent(q)}&as=${as}`)
+  async searchKB(q: string) {
+    return this.request<KBHit[]>(`/kb/search?q=${encodeURIComponent(q)}`)
   }
 }
-
-export type KBVisibility = 'everyone' | 'admins'
 
 export interface KBDocument {
   id: string
@@ -2153,7 +2150,6 @@ export interface KBDocument {
   filename: string
   mime_type: string
   size_bytes: number
-  visibility: KBVisibility
   status: 'processing' | 'ready' | 'failed'
   /** Failure reason, or a warning on a ready doc (e.g. keyword search only) */
   error: string
@@ -2178,7 +2174,6 @@ export interface KBHit {
   document_title: string
   heading: string
   content: string
-  visibility: KBVisibility
   score: number
   matched?: 'keyword' | 'meaning' | 'both'
 }

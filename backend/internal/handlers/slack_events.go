@@ -178,10 +178,8 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 	// Conversation memory: replay the thread / recent DM so follow-ups like
 	// "what is this?" have context (see slack_bot_context.go).
 	convo := buildSlackBotContext(ctx, client, ev)
-	// Team knowledge base: admin-only documents are used only for admins.
-	isAdmin := velocityUserIsAdmin(ctx, velocityUserID)
-	ctx = withKBViewer(ctx, isAdmin)
-	kbSection := slackBotKBSection(ctx, ev.Text, convo.History, isAdmin)
+	// Team knowledge base (see slack_bot_kb.go).
+	kbSection := slackBotKBSection(ctx, ev.Text, convo.History)
 	systemPrompt := systemPromptWithContext(slackReplyPrompt(ctx, h.botRepo), convo, kbSection)
 	reply, err := groqFunnyReply(ctx, systemPrompt, convo.History, convo.framedUserText(ev.Text), actorLabel)
 	elapsed := time.Since(start).Round(time.Millisecond)

@@ -31,33 +31,9 @@
   align-items: center;
 }
 
-.kb-seg {
-  display: inline-flex;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  flex-shrink: 0;
-}
 
-.kb-seg button {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 7px 10px;
-  border: none;
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-  cursor: pointer;
-  white-space: nowrap;
-}
 
-.kb-seg button + button {
-  border-left: 1px solid var(--border-color);
-}
 
-.kb-seg button.active {
-  color: var(--color-primary);
-  background: rgba(var(--color-primary-rgb), 0.12);
-}
 
 .kb-try-empty {
   margin-top: 12px;
@@ -103,10 +79,6 @@
   background: rgba(var(--color-primary-rgb), 0.12);
 }
 
-.kb-hit-tag--admin {
-  color: var(--color-warning);
-  background: var(--color-warning-muted);
-}
 
 .kb-hit-body {
   margin: 0;
@@ -167,11 +139,6 @@
   gap: 10px;
 }
 
-.kb-field-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
 
 .kb-modal-foot {
   display: flex;
@@ -202,10 +169,6 @@
     flex-basis: 100%;
   }
 
-  .kb-field-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
 
   .kb-textarea {
     min-height: 220px;

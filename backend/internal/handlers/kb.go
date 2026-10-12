@@ -18,7 +18,7 @@ import (
 
 // KBHandler serves the admin knowledge base API under /api/kb. Every route
 // is admin-only at the router (main.go); answers from it reach everyone
-// through the Slack bot and MCP, filtered by each document's visibility.
+// through the Slack bot and MCP, the same for every asker.
 type KBHandler struct {
 	repo *database.KBRepository
 }
@@ -31,10 +31,6 @@ func kbFail(w http.ResponseWriter, status int, msg string) {
 	sendJSON(w, status, map[string]interface{}{"success": false, "message": msg})
 }
 
-func validVisibility(v string) bool {
-	return v == database.KBVisibilityEveryone || v == database.KBVisibilityAdmins
-}
-
 // List handles GET /api/kb/documents.
 func (h *KBHandler) List(w http.ResponseWriter, r *http.Request) {
 	docs, err := h.repo.ListDocuments(r.Context())
@@ -45,7 +41,7 @@ func (h *KBHandler) List(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, http.StatusOK, map[string]interface{}{
 		"success":              true,
 		"data":                 docs,
-		"vector_search":        database.KBVectorEnabled() && kb.EmbeddingsAvailable(),
+		"smart_search":         kb.SmartSearchAvailable(),
 		"supported_extensions": kb.SupportedExtensions,
 		"max_file_bytes":       kb.MaxFileBytes,
 	})
@@ -58,21 +54,13 @@ type kbUploadResult struct {
 }
 
 // Upload handles POST /api/kb/documents (multipart: one or more "files",
-// optional "visibility"). Each file is validated, stored and indexed in the
+// "file"). Each file is validated, stored and indexed in the
 // background; per-file errors don't fail the whole batch.
 func (h *KBHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r)
 	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		kbFail(w, http.StatusBadRequest, "upload too large or malformed (100 MB per request)")
-		return
-	}
-	visibility := r.FormValue("visibility")
-	if visibility == "" {
-		visibility = database.KBVisibilityEveryone
-	}
-	if !validVisibility(visibility) {
-		kbFail(w, http.StatusBadRequest, "visibility must be 'everyone' or 'admins'")
 		return
 	}
 	files := r.MultipartForm.File["files"]
@@ -93,7 +81,7 @@ func (h *KBHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			results = append(results, res)
 			continue
 		}
-		doc, err := h.createDocument(r, user.ID, kbTitleFromFilename(fh.Filename), fh.Filename, fh.Header.Get("Content-Type"), data, visibility)
+		doc, err := h.createDocument(r, user.ID, kbTitleFromFilename(fh.Filename), fh.Filename, fh.Header.Get("Content-Type"), data)
 		if err != nil {
 			res.Error = err.Error()
 		} else {
@@ -129,7 +117,7 @@ func readUpload(fh *multipart.FileHeader) ([]byte, error) {
 // createDocument validates the type up front (so an unsupported file is
 // rejected immediately instead of failing later in the background),
 // rejects exact duplicates, stores the file and queues indexing.
-func (h *KBHandler) createDocument(r *http.Request, userID, title, filename, mime string, data []byte, visibility string) (*database.KBDocument, error) {
+func (h *KBHandler) createDocument(r *http.Request, userID, title, filename, mime string, data []byte) (*database.KBDocument, error) {
 	if !kbSupported(filename) {
 		return nil, fmt.Errorf("unsupported file type, supported: %s", strings.Join(kb.SupportedExtensions, " "))
 	}
@@ -139,7 +127,7 @@ func (h *KBHandler) createDocument(r *http.Request, userID, title, filename, mim
 	}
 	doc, err := h.repo.CreateDocument(r.Context(), &database.KBDocument{
 		Title: title, Filename: filename, MimeType: mime, Original: data,
-		Visibility: visibility, UploadedBy: userID,
+		UploadedBy: userID,
 	}, hash)
 	if err != nil {
 		return nil, err
@@ -171,9 +159,8 @@ func kbTitleFromFilename(name string) string {
 }
 
 type kbNoteRequest struct {
-	Title      string `json:"title"`
-	Content    string `json:"content"`
-	Visibility string `json:"visibility"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
 }
 
 // CreateNote handles POST /api/kb/notes: a document written in Velocity
@@ -190,14 +177,7 @@ func (h *KBHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
 		kbFail(w, http.StatusBadRequest, "title and content are required")
 		return
 	}
-	if req.Visibility == "" {
-		req.Visibility = database.KBVisibilityEveryone
-	}
-	if !validVisibility(req.Visibility) {
-		kbFail(w, http.StatusBadRequest, "visibility must be 'everyone' or 'admins'")
-		return
-	}
-	doc, err := h.createDocument(r, user.ID, req.Title, kbNoteFilename(req.Title), "text/markdown", []byte(req.Content), req.Visibility)
+	doc, err := h.createDocument(r, user.ID, req.Title, kbNoteFilename(req.Title), "text/markdown", []byte(req.Content))
 	if err != nil {
 		kbFail(w, http.StatusBadRequest, err.Error())
 		return
@@ -236,11 +216,7 @@ func (h *KBHandler) UpdateNote(w http.ResponseWriter, r *http.Request) {
 		kbFail(w, http.StatusBadRequest, "content is required")
 		return
 	}
-	if req.Visibility != "" && !validVisibility(req.Visibility) {
-		kbFail(w, http.StatusBadRequest, "visibility must be 'everyone' or 'admins'")
-		return
-	}
-	if err := h.repo.UpdateMeta(r.Context(), id, strings.TrimSpace(req.Title), req.Visibility); err != nil {
+	if err := h.repo.Rename(r.Context(), id, strings.TrimSpace(req.Title)); err != nil {
 		kbFail(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -253,27 +229,21 @@ func (h *KBHandler) UpdateNote(w http.ResponseWriter, r *http.Request) {
 	h.respondDoc(w, r, id)
 }
 
-// Update handles PATCH /api/kb/documents/{id} (title and/or visibility).
-// Visibility changes apply to search immediately, no re-index needed.
+// Update handles PATCH /api/kb/documents/{id} (rename).
 func (h *KBHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var req struct {
-		Title      string `json:"title"`
-		Visibility string `json:"visibility"`
+		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		kbFail(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	if req.Visibility != "" && !validVisibility(req.Visibility) {
-		kbFail(w, http.StatusBadRequest, "visibility must be 'everyone' or 'admins'")
 		return
 	}
 	if doc, _ := h.repo.GetDocument(r.Context(), id, false); doc == nil {
 		kbFail(w, http.StatusNotFound, "document not found")
 		return
 	}
-	if err := h.repo.UpdateMeta(r.Context(), id, strings.TrimSpace(req.Title), req.Visibility); err != nil {
+	if err := h.repo.Rename(r.Context(), id, strings.TrimSpace(req.Title)); err != nil {
 		kbFail(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -281,7 +251,7 @@ func (h *KBHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 // ReplaceFile handles PUT /api/kb/documents/{id}/file (multipart "file"):
-// upload a new version, keeping the title and visibility.
+// upload a new version, keeping the title.
 func (h *KBHandler) ReplaceFile(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	if doc, _ := h.repo.GetDocument(r.Context(), id, false); doc == nil {
@@ -369,21 +339,19 @@ func (h *KBHandler) Text(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendJSON(w, http.StatusOK, map[string]interface{}{"success": true, "data": map[string]string{
-		"title": doc.Title, "content": string(doc.Original), "visibility": doc.Visibility,
+		"title": doc.Title, "content": string(doc.Original),
 	}})
 }
 
-// Search handles GET /api/kb/search?q=...&as=everyone|admin: the "try a
-// question" box, showing exactly what the bot would retrieve for a member
-// (as=everyone) or an admin.
+// Search handles GET /api/kb/search?q=...: the "try a question" box,
+// showing exactly what the bot would retrieve for that question.
 func (h *KBHandler) Search(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		kbFail(w, http.StatusBadRequest, "q is required")
 		return
 	}
-	asAdmin := r.URL.Query().Get("as") == "admin"
-	hits, err := kb.Search(r.Context(), q, asAdmin, 8)
+	hits, err := kb.Search(r.Context(), q, 8)
 	if err != nil {
 		kbFail(w, http.StatusInternalServerError, err.Error())
 		return

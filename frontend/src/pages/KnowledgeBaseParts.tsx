@@ -2,12 +2,11 @@ import { memo, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   FileText, FileSpreadsheet, FileCode, Presentation, StickyNote, Loader2, CheckCircle2, AlertTriangle,
-  XCircle, Eye, Pencil, Upload, RotateCw, Trash2, X, Search, Users, Shield, ChevronUp,
+  XCircle, Eye, Pencil, Upload, RotateCw, Trash2, X, Search, ChevronUp,
 } from 'lucide-react'
 import api from '@/services/api'
-import type { KBDocument, KBHit, KBVisibility } from '@/services/api'
-import { CustomDropdown } from '@/components/CustomDropdown'
-import { VISIBILITY_OPTIONS, isNote, fileExt, formatBytes, timeAgo } from './knowledge-base-types'
+import type { KBDocument, KBHit } from '@/services/api'
+import { isNote, fileExt, formatBytes, timeAgo } from './knowledge-base-types'
 import '@/styles/pages/knowledge-base-tools.css'
 
 // ── Icon ─────────────────────────────────────────────────────────────────────
@@ -64,14 +63,13 @@ function StatusBadge({ doc }: { doc: KBDocument }) {
 
 interface DocRowProps {
   doc: KBDocument
-  onVisibility: (doc: KBDocument, v: KBVisibility) => void
   onEditNote: (doc: KBDocument) => void
   onReplace: (doc: KBDocument) => void
   onReindex: (doc: KBDocument) => void
   onDelete: (doc: KBDocument) => void
 }
 
-export const KBDocRow = memo(function KBDocRow({ doc, onVisibility, onEditNote, onReplace, onReindex, onDelete }: DocRowProps) {
+export const KBDocRow = memo(function KBDocRow({ doc, onEditNote, onReplace, onReindex, onDelete }: DocRowProps) {
   const [open, setOpen] = useState(false)
   const note = isNote(doc)
   const meta = [
@@ -93,13 +91,6 @@ export const KBDocRow = memo(function KBDocRow({ doc, onVisibility, onEditNote, 
             <div className={`kb-doc-msg${doc.status === 'failed' ? ' kb-doc-msg--fail' : ''}`}>{doc.error}</div>
           )}
         </div>
-        <CustomDropdown
-          className="kb-vis-dd"
-          options={VISIBILITY_OPTIONS}
-          value={doc.visibility}
-          onChange={v => v !== doc.visibility && onVisibility(doc, v)}
-          icon={doc.visibility === 'admins' ? <Shield size={13} /> : <Users size={13} />}
-        />
         <StatusBadge doc={doc} />
         <div className="kb-doc-actions">
           <button className="kb-icon-btn" title={open ? 'Hide chunks' : 'See how it was split'} onClick={() => setOpen(o => !o)} disabled={doc.status !== 'ready'}>
@@ -156,10 +147,9 @@ function ChunkPreview({ docId }: { docId: string }) {
 const MATCH_LABEL: Record<string, string> = { both: 'Keyword + meaning', keyword: 'Keyword', meaning: 'Meaning' }
 
 // resetKey changes whenever documents are added, removed, re-indexed or
-// change visibility, so stale results (e.g. from a deleted doc) are cleared.
+// finish indexing, so stale results (e.g. from a deleted doc) are cleared.
 export function KBTrySearch({ disabled, resetKey }: { disabled: boolean; resetKey: string }) {
   const [q, setQ] = useState('')
-  const [as, setAs] = useState<'everyone' | 'admin'>('everyone')
   const [hits, setHits] = useState<KBHit[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -176,7 +166,7 @@ export function KBTrySearch({ disabled, resetKey }: { disabled: boolean; resetKe
     setBusy(true)
     setError('')
     try {
-      const r = await api.searchKB(q.trim(), as)
+      const r = await api.searchKB(q.trim())
       setHits(r.data ?? [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed')
@@ -200,10 +190,6 @@ export function KBTrySearch({ disabled, resetKey }: { disabled: boolean; resetKe
           onChange={e => setQ(e.target.value)}
           disabled={disabled}
         />
-        <div className="kb-seg" role="group" aria-label="Ask as">
-          <button type="button" className={as === 'everyone' ? 'active' : ''} onClick={() => setAs('everyone')}>As a member</button>
-          <button type="button" className={as === 'admin' ? 'active' : ''} onClick={() => setAs('admin')}>As an admin</button>
-        </div>
         <button className="kb-btn kb-btn--primary" type="submit" disabled={disabled || busy || !q.trim()}>
           {busy ? <Loader2 size={14} className="kb-spin" /> : <Search size={14} />}Search
         </button>
@@ -219,7 +205,6 @@ export function KBTrySearch({ disabled, resetKey }: { disabled: boolean; resetKe
                 <div className="kb-hit-head">
                   <span className="kb-hit-src">{h.document_title}{h.heading ? ` › ${h.heading}` : ''}</span>
                   {h.matched && <span className="kb-hit-tag">{MATCH_LABEL[h.matched]}</span>}
-                  {h.visibility === 'admins' && <span className="kb-hit-tag kb-hit-tag--admin"><Shield size={11} />Admins only</span>}
                 </div>
                 <p className="kb-hit-body">{h.content.length > 420 ? h.content.slice(0, 420) + '…' : h.content}</p>
               </div>
@@ -250,7 +235,6 @@ interface NoteEditorProps {
 export function KBNoteEditor({ doc, onClose, onSaved }: NoteEditorProps) {
   const [title, setTitle] = useState(doc?.title ?? '')
   const [content, setContent] = useState('')
-  const [visibility, setVisibility] = useState<KBVisibility>(doc?.visibility ?? 'everyone')
   const [loading, setLoading] = useState(!!doc)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -262,7 +246,6 @@ export function KBNoteEditor({ doc, onClose, onSaved }: NoteEditorProps) {
         if (r.data) {
           setTitle(r.data.title)
           setContent(r.data.content)
-          setVisibility(r.data.visibility)
         }
       })
       .catch(e => setError(e instanceof Error ? e.message : 'Could not load the note'))
@@ -283,7 +266,7 @@ export function KBNoteEditor({ doc, onClose, onSaved }: NoteEditorProps) {
     setSaving(true)
     setError('')
     try {
-      const body = { title: title.trim(), content, visibility }
+      const body = { title: title.trim(), content }
       if (doc) await api.updateKBNote(doc.id, body)
       else await api.createKBNote(body)
       onSaved()
@@ -309,16 +292,7 @@ export function KBNoteEditor({ doc, onClose, onSaved }: NoteEditorProps) {
             </>
           ) : (
             <>
-              <div className="kb-field-row">
-                <input className="kb-input" placeholder="Title, e.g. Team directory" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
-                <CustomDropdown
-                  className="kb-vis-dd"
-                  options={VISIBILITY_OPTIONS}
-                  value={visibility}
-                  onChange={setVisibility}
-                  icon={visibility === 'admins' ? <Shield size={13} /> : <Users size={13} />}
-                />
-              </div>
+              <input className="kb-input" placeholder="Title, e.g. Team directory" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
               <textarea
                 className="kb-textarea"
                 placeholder={NOTE_PLACEHOLDER}

@@ -209,10 +209,6 @@
   to { transform: rotate(360deg); }
 }
 
-.kb-vis-dd .pm-custom-dropdown-trigger {
-  font-size: 12px;
-  white-space: nowrap;
-}
 
 /* ── Drop zone ──────────────────────────────────────────────────────────── */
 
@@ -266,11 +262,6 @@
   flex-wrap: wrap;
 }
 
-.kb-drop-vis {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 
 /* ── Notices ────────────────────────────────────────────────────────────── */
 
@@ -537,9 +528,6 @@
     flex-basis: calc(100% - 50px);
   }
 
-  .kb-doc-row > .kb-vis-dd {
-    margin-left: 48px;
-  }
 
   .kb-doc-actions {
     margin-left: auto;

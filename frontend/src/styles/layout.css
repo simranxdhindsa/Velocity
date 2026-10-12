@@ -2,7 +2,10 @@
    LAYOUT — Sidebar, header, main content
    ============================================================ */
 
-.app-container { min-height: 100vh; }
+/* flow-root stops .main-content's margin-top (header offset) from collapsing
+   through this container, which pushed the whole 100vh box down by the header
+   height and gave every page a 64px scrollbar even with almost no content. */
+.app-container { min-height: 100vh; display: flow-root; }
 
 /* ── Sidebar ─────────────────────────────────────────────── */
 .sidebar {

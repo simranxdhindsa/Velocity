@@ -98,13 +98,11 @@ func Index(ctx context.Context, docID string) error {
 		inputs[i] = database.KBChunkInput{Heading: c.Heading, Content: c.Content}
 	}
 
+	// Without embeddings (no pgvector or no GEMINI_API_KEY, the normal
+	// Groq-only setup) there is nothing to compute here: search covers
+	// paraphrases with AI query expansion instead, so no warning either.
 	warning := ""
-	switch {
-	case !database.KBVectorEnabled():
-		warning = "Indexed for keyword search only (the database has no pgvector)."
-	case !EmbeddingsAvailable():
-		warning = "Indexed for keyword search only (GEMINI_API_KEY is not set)."
-	default:
+	if database.KBVectorEnabled() && EmbeddingsAvailable() {
 		texts := make([]string, len(chunks))
 		for i, c := range chunks {
 			texts[i] = EmbeddingText(c.Heading, c.Content)
@@ -113,7 +111,7 @@ func Index(ctx context.Context, docID string) error {
 		if eerr != nil {
 			// Still usable through keyword search; say why meaning-based
 			// search is missing so the admin can re-index later.
-			warning = "Indexed for keyword search only, embeddings failed: " + eerr.Error()
+			warning = "Indexed without embeddings (search still works through AI keywords): " + eerr.Error()
 		} else {
 			for i := range inputs {
 				inputs[i].Embedding = vecs[i]
@@ -164,9 +162,9 @@ type Hit struct {
 }
 
 // Search runs hybrid retrieval: full-text (exact names, IDs, jargon) and
-// vector similarity (paraphrases), fused with reciprocal rank fusion.
-// includeAdminOnly must be true only for admins (see database.KBRepository).
-func Search(ctx context.Context, query string, includeAdminOnly bool, limit int) ([]Hit, error) {
+// vector similarity or Groq query expansion (paraphrases), fused with
+// reciprocal rank fusion.
+func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, nil
@@ -184,8 +182,12 @@ func Search(ctx context.Context, query string, includeAdminOnly bool, limit int)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		kwHits, kwErr = repo.KeywordSearch(ctx, terms, includeAdminOnly, candidatePool)
+		kwHits, kwErr = repo.KeywordSearch(ctx, terms, candidatePool)
 	}()
+	// Second channel: meaning-based. Vectors when an embedding provider is
+	// configured, otherwise Groq query expansion run as a keyword search.
+	// Either way its hits are fused with the plain keyword hits below.
+	expanded := false
 	if database.KBVectorEnabled() && EmbeddingsAvailable() {
 		wg.Add(1)
 		go func() {
@@ -195,7 +197,17 @@ func Search(ctx context.Context, query string, includeAdminOnly bool, limit int)
 				vecErr = err
 				return
 			}
-			vecHits, vecErr = repo.VectorSearch(ctx, vec, includeAdminOnly, candidatePool)
+			vecHits, vecErr = repo.VectorSearch(ctx, vec, candidatePool)
+		}()
+	} else {
+		expanded = true
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if extra := expandQuery(ctx, query, terms); len(extra) > 0 {
+				vecHits, vecErr = repo.KeywordSearch(ctx, extra, candidatePool)
+				rankByCoverage(vecHits, extra)
+			}
 		}()
 	}
 	wg.Wait()
@@ -222,7 +234,9 @@ func Search(ctx context.Context, query string, includeAdminOnly bool, limit int)
 	for rank, h := range vecHits {
 		f, ok := byID[h.ChunkID]
 		if !ok {
-			if h.Score < minVectorScore || h.Score-median < minVectorLead {
+			// The cosine cutoff only applies to vectors; expansion hits are
+			// keyword matches the model already judged relevant.
+			if !expanded && (h.Score < minVectorScore || h.Score-median < minVectorLead) {
 				continue // meaning-only match that doesn't stand out: likely unrelated
 			}
 			f = &fused{hit: h}
@@ -258,6 +272,41 @@ func Search(ctx context.Context, query string, includeAdminOnly bool, limit int)
 	return out, nil
 }
 
+// rankByCoverage reorders expansion hits by how many distinct expanded
+// terms each chunk contains. Postgres rank weights headings heavily, so one
+// generic term that hits a heading ("policy" in "Leave policy") would
+// otherwise outrank a chunk matching several specific terms (payments,
+// stripe, invoices). Measured live: that was the only kind of miss left.
+func rankByCoverage(hits []database.KBHit, terms []string) {
+	cover := make(map[int64]int, len(hits))
+	for _, h := range hits {
+		text := strings.ToLower(h.Heading + " " + h.Content)
+		n := 0
+		for _, t := range terms {
+			if strings.Contains(text, stemPrefix(t)) {
+				n++
+			}
+		}
+		cover[h.ChunkID] = n
+	}
+	sort.SliceStable(hits, func(i, j int) bool {
+		if cover[hits[i].ChunkID] != cover[hits[j].ChunkID] {
+			return cover[hits[i].ChunkID] > cover[hits[j].ChunkID]
+		}
+		return hits[i].Score > hits[j].Score
+	})
+}
+
+// stemPrefix is a cheap stand-in for stemming when counting coverage:
+// "invoices" -> "invoic", "payments" -> "paymen", short words unchanged.
+func stemPrefix(t string) string {
+	r := []rune(t)
+	if len(r) <= 5 {
+		return t
+	}
+	return string(r[:len(r)-2])
+}
+
 // stopwords are dropped from keyword queries so "who is working on the
 // payments service" searches for "working payments service", not "the".
 var stopwords = map[string]bool{}
@@ -268,7 +317,9 @@ func init() {
 		shall may might must i me my we our you your he him his she her it its they them their this that these
 		those what which who whom whose when where why how all any both each few more most other some such no
 		not only own same so than too very just also there here then now please tell know give show find get
-		let lets want need like hey hi hello velocity bot dont cant im ive whats whos does`) {
+		let lets want need like hey hi hello velocity bot dont cant im ive whats whos does
+		after before our ours us go goes going look looks looking talk much many charge someone anyone
+		thing things stuff person people team`) {
 		stopwords[w] = true
 	}
 }
@@ -294,9 +345,9 @@ func QueryTerms(q string) []string {
 	return out
 }
 
-// HasDocuments reports whether a viewer has anything to search.
-func HasDocuments(ctx context.Context, includeAdminOnly bool) bool {
-	return repo.CountReady(ctx, includeAdminOnly) > 0
+// HasDocuments reports whether there is anything to search.
+func HasDocuments(ctx context.Context) bool {
+	return repo.CountReady(ctx) > 0
 }
 
 // FormatForPrompt renders hits as a reference block for an LLM prompt,

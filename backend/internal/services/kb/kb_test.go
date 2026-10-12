@@ -195,3 +195,24 @@ func TestMedianScore(t *testing.T) {
 		t.Fatal("median wrong")
 	}
 }
+
+func TestRankByCoverage(t *testing.T) {
+	hits := []database.KBHit{
+		{ChunkID: 1, Heading: "Leave policy", Content: "18 days of paid leave", Score: 0.9},
+		{ChunkID: 2, Heading: "Zorvan", Content: "Owns the payments service and Stripe invoices", Score: 0.2},
+	}
+	rankByCoverage(hits, []string{"policy", "payments", "stripe", "invoices"})
+	if hits[0].ChunkID != 2 {
+		t.Fatalf("chunk matching more terms should rank first, got %+v", hits)
+	}
+}
+
+func TestParseExpansion(t *testing.T) {
+	if parseExpansion("NONE") != nil || parseExpansion(" none. ") != nil {
+		t.Fatal("NONE must mean no expansion")
+	}
+	got := strings.Join(parseExpansion("refunds -> Refunds, Stripe, billing team, the invoices"), ",")
+	if got != "refunds,stripe,billing,invoices" {
+		t.Fatalf("got %q", got)
+	}
+}

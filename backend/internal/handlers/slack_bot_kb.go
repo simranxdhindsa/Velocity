@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dhindsa/project-management/internal/database"
-	"github.com/dhindsa/project-management/internal/models"
 	"github.com/dhindsa/project-management/internal/services/kb"
 )
 
@@ -17,36 +15,13 @@ import (
 // admin-managed knowledge base with the incoming message and, when anything
 // relevant comes back, adds it to the system prompt as reference data. It
 // can also search again on its own with the search_knowledge_base tool.
-// Admin-only documents are used only when the sender is a Velocity admin.
+// Answers are the same for everyone; only managing the KB is admin-only.
 
 const (
 	slackKBMaxHits  = 5
 	slackKBMaxChars = 6000
 	slackKBTimeout  = 6 * time.Second
 )
-
-type kbViewerKey struct{}
-
-// withKBViewer records whether the person talking to the bot is an admin,
-// for the search_knowledge_base tool (tools get no other user context).
-func withKBViewer(ctx context.Context, isAdmin bool) context.Context {
-	return context.WithValue(ctx, kbViewerKey{}, isAdmin)
-}
-
-func kbViewerIsAdmin(ctx context.Context) bool {
-	v, _ := ctx.Value(kbViewerKey{}).(bool)
-	return v
-}
-
-// velocityUserIsAdmin reports whether a Velocity user ID belongs to an admin.
-// Unknown or unmatched Slack senders are never admins.
-func velocityUserIsAdmin(ctx context.Context, userID string) bool {
-	if userID == "" {
-		return false
-	}
-	u, err := database.NewUserRepository().GetByID(ctx, userID)
-	return err == nil && u != nil && u.Role == models.RoleAdmin
-}
 
 func init() {
 	slackBotTools = append(slackBotTools, map[string]interface{}{
@@ -92,14 +67,14 @@ func slackKBQuery(text string, history []groqMessage) string {
 
 // slackBotKBSection searches the knowledge base for the incoming message and
 // returns a system-prompt section, or "" when nothing relevant was found.
-func slackBotKBSection(ctx context.Context, text string, history []groqMessage, isAdmin bool) string {
+func slackBotKBSection(ctx context.Context, text string, history []groqMessage) string {
 	ctx, cancel := context.WithTimeout(ctx, slackKBTimeout)
 	defer cancel()
-	if !kb.HasDocuments(ctx, isAdmin) {
+	if !kb.HasDocuments(ctx) {
 		return ""
 	}
 	query := slackKBQuery(text, history)
-	hits, err := kb.Search(ctx, query, isAdmin, slackKBMaxHits)
+	hits, err := kb.Search(ctx, query, slackKBMaxHits)
 	if err != nil {
 		log.Printf("[slack-events] knowledge base search failed: %v", err)
 		return ""
@@ -132,7 +107,7 @@ func runSlackBotKBTool(ctx context.Context, argsJSON string) (string, bool) {
 	if q == "" {
 		return "No search query provided.", false
 	}
-	hits, err := kb.Search(ctx, q, kbViewerIsAdmin(ctx), slackKBMaxHits)
+	hits, err := kb.Search(ctx, q, slackKBMaxHits)
 	if err != nil {
 		return fmt.Sprintf("Knowledge base search failed: %v", err), false
 	}

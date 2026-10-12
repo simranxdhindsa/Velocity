@@ -1,11 +1,6 @@
-import type { KBDocument, KBVisibility } from '@/services/api'
+import type { KBDocument } from '@/services/api'
 
-// Shared constants and pure helpers for the Knowledge Base page (no React).
-
-export const VISIBILITY_OPTIONS: { value: KBVisibility; label: string }[] = [
-  { value: 'everyone', label: 'Everyone' },
-  { value: 'admins', label: 'Admins only' },
-]
+// Shared pure helpers for the Knowledge Base page (no React).
 
 /** A note written in Velocity (editable in place) rather than an uploaded file. */
 export function isNote(d: KBDocument) {

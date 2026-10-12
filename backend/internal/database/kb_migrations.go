@@ -38,7 +38,6 @@ func RunKBMigrations(ctx context.Context) {
 			size_bytes   INTEGER NOT NULL DEFAULT 0,
 			original     BYTEA,
 			content_hash TEXT NOT NULL DEFAULT '',
-			visibility   VARCHAR(16) NOT NULL DEFAULT 'everyone',
 			status       VARCHAR(16) NOT NULL DEFAULT 'processing',
 			error        TEXT NOT NULL DEFAULT '',
 			chunk_count  INTEGER NOT NULL DEFAULT 0,
@@ -60,7 +59,17 @@ func RunKBMigrations(ctx context.Context) {
 			            ) STORED
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_kb_chunks_document ON kb_chunks(document_id, chunk_index)`,
+		// Per-document visibility was dropped: answers are the same for
+		// everyone, only managing the knowledge base is admin-only.
+		`ALTER TABLE kb_documents DROP COLUMN IF EXISTS visibility`,
 		`CREATE INDEX IF NOT EXISTS idx_kb_chunks_tsv ON kb_chunks USING GIN(tsv)`,
+		// English-stemmed twin of tsv, so "owner" finds "owns" and
+		// "deployments" finds "deploy". tsv ('simple') stays for exact names.
+		`ALTER TABLE kb_chunks ADD COLUMN IF NOT EXISTS tsv_en TSVECTOR GENERATED ALWAYS AS (
+			setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||
+			setweight(to_tsvector('english', content), 'B')
+		) STORED`,
+		`CREATE INDEX IF NOT EXISTS idx_kb_chunks_tsv_en ON kb_chunks USING GIN(tsv_en)`,
 	}
 	for i, s := range stmts {
 		if _, err := pool.Exec(ctx, s); err != nil {

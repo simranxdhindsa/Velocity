@@ -59,6 +59,12 @@ type OpenAIRequest struct {
 	Model    string          `json:"model"`
 	Messages []OpenAIMessage `json:"messages"`
 	Stream   bool            `json:"stream"`
+	// Temperature is omitted (provider default) unless set.
+	Temperature *float64 `json:"temperature,omitempty"`
+	// ReasoningEffort and MaxTokens are only set for Groq's gpt-oss
+	// reasoning models (see QueryDeterministic); other providers reject them.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	MaxTokens       int    `json:"max_tokens,omitempty"`
 }
 
 // OpenAIMessage represents a chat message
@@ -676,6 +682,21 @@ func QueryWithHistory(ctx context.Context, systemPrompt string, history []ConvMe
 // QueryWithContext sends a system prompt + user query to the AI and returns the raw response text.
 // Used for free-form PM assistant queries.
 func QueryWithContext(ctx context.Context, systemPrompt, userQuery string) (string, error) {
+	return queryChat(ctx, systemPrompt, userQuery, nil)
+}
+
+// QueryDeterministic is QueryWithContext at temperature 0 with a small,
+// bounded answer, for short machine-read output that must not change
+// between identical calls (e.g. the knowledge base's query expansion).
+// On Groq's gpt-oss reasoning models it also sets low reasoning effort:
+// measured live, at temperature 0 the model otherwise reasons until the
+// 2048-token cap and returns empty content (finish_reason "length").
+func QueryDeterministic(ctx context.Context, systemPrompt, userQuery string) (string, error) {
+	zero := 0.0
+	return queryChat(ctx, systemPrompt, userQuery, &zero, 400)
+}
+
+func queryChat(ctx context.Context, systemPrompt, userQuery string, temperature *float64, maxTokens ...int) (string, error) {
 	provider := os.Getenv("AI_PROVIDER")
 	if provider == "" {
 		provider = "groq"
@@ -712,7 +733,12 @@ func QueryWithContext(ctx context.Context, systemPrompt, userQuery string) (stri
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userQuery},
 		},
-		Stream: false,
+		Stream:      false,
+		Temperature: temperature,
+	}
+	if len(maxTokens) > 0 && provider == "groq" && strings.Contains(model, "gpt-oss") {
+		req.ReasoningEffort = "low"
+		req.MaxTokens = maxTokens[0]
 	}
 
 	jsonBody, err := json.Marshal(req)

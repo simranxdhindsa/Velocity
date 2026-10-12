@@ -35,7 +35,7 @@ The bot used to answer every message in isolation. Now, before each reply, `buil
 
 ## Team knowledge base
 
-Each reply also searches the admin knowledge base with the incoming message (`slack_bot_kb.go`) and adds matching excerpts to the system prompt as reference data, plus a `search_knowledge_base` bot tool. Admins-only documents are used only when the Slack sender maps to a Velocity admin. Details: [`knowledge-base.md`](knowledge-base.md).
+Each reply also searches the admin knowledge base with the incoming message (`slack_bot_kb.go`) and adds matching excerpts to the system prompt as reference data, plus a `search_knowledge_base` bot tool. Answers are the same for everyone. Details: [`knowledge-base.md`](knowledge-base.md).
 
 ## Configurable persona (not hardcoded)
 
