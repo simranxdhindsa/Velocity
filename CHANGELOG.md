@@ -9,6 +9,8 @@
 
 
 ### Enhancements
+- Knowledge Base understands messy, unstructured files: long text without paragraphs is split per person with an AI summary for each part, PDFs read more cleanly, and files that read badly get a warning
+- Knowledge Base page has an always-visible upload card with drag and drop, live upload progress and indexing status for each file
 - Top KPI cards show a loading skeleton, and the number count-up is slower and smoother
 - Dashboard numbers now count up smoothly when they load or change
 - Ticket detail no longer shifts or jumps while the details finish loading
@@ -22,6 +24,7 @@
 - Knowledge base works with Groq alone, understanding reworded questions without a Gemini key, gives everyone the same answers, and pages no longer show a needless scrollbar
 
 ### Bug Fixes
+- Velocity Bot finds people in PDFs whose text came out glued together, like Sandeep in the Ardoise operations log, and keeps each person in their own chunk
 - Velocity Bot understands replies to older DMs, so "what is this" days after a ticket message explains that ticket
 - Blocked issue notifications show the real ticket IDs (like ARD-3034) instead of YouTrack's internal numbers
 
