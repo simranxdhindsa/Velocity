@@ -22,6 +22,7 @@
 - Knowledge base works with Groq alone, understanding reworded questions without a Gemini key, gives everyone the same answers, and pages no longer show a needless scrollbar
 
 ### Bug Fixes
+- Velocity Bot understands replies to older DMs, so "what is this" days after a ticket message explains that ticket
 - Blocked issue notifications show the real ticket IDs (like ARD-3034) instead of YouTrack's internal numbers
 
 ## 2026-10-07
