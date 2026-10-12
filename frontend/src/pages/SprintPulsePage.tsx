@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { usePersistedState, PERSIST } from '../hooks/usePersistedState'
 import api from '@/services/api'
 import { useWorkflowConfig } from '@/hooks/useWorkflowConfig'
 import { IssueDetailPanel } from '@/components/IssueDetailPanel'
@@ -31,7 +32,7 @@ export function SprintPulsePage() {
   const [activeSprint,    setActiveSprint]    = useState<YouTrackSprint | null>(null)
   const [boardData,       setBoardData]       = useState<SprintBoardStatusResponse | null>(null)
   const [loading,         setLoading]         = useState(false)
-  const [viewMode,        setViewMode]        = useState<ViewMode>('l')
+  const [viewMode,        setViewMode]        = usePersistedState<ViewMode>(PERSIST.SPRINT_PULSE_VIEW, 'l', { validate: ['a', 'c', '1', '4', 'p', 'l'] })
   const [ytDetailIssue,   setYtDetailIssue]   = useState<YouTrackIssue | null>(null)
   const [ytDetailLoading, setYtDetailLoading] = useState(false)
   const [ytBaseUrl,       setYtBaseUrl]       = useState('')

@@ -43,6 +43,8 @@ export const PERSIST = {
   SLACK_HUB_CHANNEL: 'slack_hub_channel',
   /** Slack Messages hub — per-channel last-viewed timestamp (JSON), drives unread bolding */
   SLACK_HUB_LAST_VIEWED: 'slack_hub_last_viewed',
+  /** Sprint Pulse — which view (live/kanban/priority/...) was last active */
+  SPRINT_PULSE_VIEW: 'sprint_pulse_view',
 } as const
 
 export type PersistKey = typeof PERSIST[keyof typeof PERSIST]

@@ -1958,6 +1958,11 @@
   margin-top: -0.5rem;
 }
 
+.idp-meta-by {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
 /* Divider inside sidebar */
 .idp-meta-divider {
   border: none;
