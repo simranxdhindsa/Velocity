@@ -43,12 +43,15 @@
 
 /* Wrap */
 .cal-soon-wrap {
+  /* Bleed out of .main-content's padding so the background fills the whole content area */
+  --cal-bleed: 1.75rem;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100%;
-  width: 100%;
+  margin: calc(var(--cal-bleed) * -1);
+  width: calc(100% + var(--cal-bleed) * 2);
+  min-height: calc(100vh - var(--header-height));
   overflow: hidden;
   background: transparent;
   padding: 48px 24px;
@@ -62,19 +65,19 @@
   pointer-events: none;
 }
 .cal-soon-orb--1 {
-  width: 600px; height: 600px;
+  width: clamp(380px, 55vw, 900px); aspect-ratio: 1;
   background: radial-gradient(circle, rgba(var(--color-primary-rgb),0.55) 0%, rgba(var(--color-primary-rgb),0.18) 40%, transparent 70%);
-  top: -160px; left: -160px;
+  top: -18%; left: -10%;
   animation: cal-orb-float 9s ease-in-out infinite;
 }
 .cal-soon-orb--2 {
-  width: 480px; height: 480px;
+  width: clamp(300px, 44vw, 740px); aspect-ratio: 1;
   background: radial-gradient(circle, rgba(var(--color-primary-rgb),0.40) 0%, rgba(var(--color-primary-rgb),0.12) 40%, transparent 70%);
-  bottom: -100px; right: -120px;
+  bottom: -14%; right: -8%;
   animation: cal-orb-float 12s ease-in-out infinite reverse;
 }
 .cal-soon-orb--3 {
-  width: 340px; height: 340px;
+  width: clamp(220px, 30vw, 520px); aspect-ratio: 1;
   background: radial-gradient(circle, rgba(var(--color-primary-rgb),0.30) 0%, rgba(var(--color-primary-rgb),0.08) 40%, transparent 70%);
   top: 35%; right: 12%;
   animation: cal-orb-float 7s ease-in-out infinite 2s;
@@ -258,3 +261,8 @@
   /* Hide floating tiles on small screens to reduce clutter */
   .cal-soon-tile { display: none; }
 }
+
+/* Keep the bleed in sync with .main-content padding at each breakpoint */
+@media (min-width: 769px) and (max-width: 1024px) { .cal-soon-wrap { --cal-bleed: 1.25rem; } }
+@media (max-width: 768px) { .cal-soon-wrap { --cal-bleed: 1rem; } }
+@media (max-width: 480px) { .cal-soon-wrap { --cal-bleed: 0.75rem; } }
