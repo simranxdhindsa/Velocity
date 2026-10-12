@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookOpen, Upload, StickyNote, RefreshCw, Shield, Sparkles, XCircle, CheckCircle2 } from 'lucide-react'
+import { BookOpen, Upload, StickyNote, Shield, Sparkles, XCircle, CheckCircle2 } from 'lucide-react'
 import api from '@/services/api'
 import type { KBDocument } from '@/services/api'
 import { useAuth } from '@/contexts/AuthContext'
@@ -23,7 +23,6 @@ export function KnowledgeBasePage() {
 
   const [docs, setDocs] = useState<KBDocument[]>([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [smartSearch, setSmartSearch] = useState(true)
   const [exts, setExts] = useState<string[]>(DEFAULT_EXTS)
@@ -39,8 +38,7 @@ export function KnowledgeBasePage() {
   const replaceInput = useRef<HTMLInputElement>(null)
   const replaceTarget = useRef<KBDocument | null>(null)
 
-  const load = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true)
+  const load = useCallback(async () => {
     try {
       const r = await api.getKBDocuments()
       setDocs(r.data ?? [])
@@ -52,7 +50,6 @@ export function KnowledgeBasePage() {
       setLoadError(e instanceof Error ? e.message : 'Could not load the knowledge base')
     } finally {
       setLoading(false)
-      setRefreshing(false)
     }
   }, [])
 
@@ -64,7 +61,7 @@ export function KnowledgeBasePage() {
   const processing = docs.some(d => d.status === 'processing')
   useEffect(() => {
     if (!processing) return
-    const t = setInterval(() => load(true), 2500)
+    const t = setInterval(() => load(), 2500)
     return () => clearInterval(t)
   }, [processing, load])
 
@@ -89,7 +86,7 @@ export function KnowledgeBasePage() {
           ? { kind: 'error' as const, text: `${res.filename}: ${res.error}` }
           : { kind: 'ok' as const, text: `${res.filename}: added, indexing now` }),
       ])
-      await load(true)
+      await load()
     } catch (e) {
       notify([...pre, { kind: 'error', text: e instanceof Error ? e.message : 'Upload failed' }])
     } finally {
@@ -117,7 +114,7 @@ export function KnowledgeBasePage() {
     try {
       await api.replaceKBFile(target.id, file)
       notify([{ kind: 'ok', text: `${target.title}: new version uploaded, indexing now` }])
-      load(true)
+      load()
     } catch (err) {
       notify([{ kind: 'error', text: `${target.title}: ${err instanceof Error ? err.message : 'replace failed'}` }])
     }
@@ -136,7 +133,7 @@ export function KnowledgeBasePage() {
     } catch (e) {
       setNotices([{ kind: 'error', text: `${doc.title}: ${e instanceof Error ? e.message : 'could not re-index'}` }])
     }
-    load(true)
+    load()
   }, [load])
   const handleDelete = useCallback((doc: KBDocument) => setConfirmDelete(doc), [])
 
@@ -149,7 +146,7 @@ export function KnowledgeBasePage() {
       await api.deleteKBDocument(doc.id)
     } catch (e) {
       setNotices([{ kind: 'error', text: `${doc.title}: ${e instanceof Error ? e.message : 'could not delete'}` }])
-      load(true)
+      load()
     }
   }
 
@@ -182,9 +179,6 @@ export function KnowledgeBasePage() {
           <span className={`kb-stat${smartSearch ? ' kb-stat--good' : ' kb-stat--warn'}`} title={smartSearch ? 'Finds exact names and paraphrased questions' : 'No AI key is configured, so only exact words match'}>
             <Sparkles size={12} />{smartSearch ? 'Smart search on' : 'Keyword search only'}
           </span>
-          <button className="kb-btn" onClick={() => load(true)} disabled={refreshing}>
-            <RefreshCw size={14} className={refreshing ? 'kb-spin' : ''} />Refresh
-          </button>
         </div>
       </div>
 
@@ -255,7 +249,7 @@ export function KnowledgeBasePage() {
         <KBNoteEditor
           doc={noteEditor.doc}
           onClose={() => setNoteEditor(null)}
-          onSaved={() => { setNoteEditor(null); load(true) }}
+          onSaved={() => { setNoteEditor(null); load() }}
         />
       )}
       <ConfirmModal
