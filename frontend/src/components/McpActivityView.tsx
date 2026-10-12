@@ -6,6 +6,8 @@ import {
 import api from '@/services/api'
 import type { MCPActivityEntry } from '@/services/api'
 import { Pagination } from '@/components/Pagination'
+import { PAGE_SIZE_OPTIONS } from '@/utils/pagination'
+import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import '@/styles/pages/mcp-activity.css'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -55,16 +57,19 @@ function McpActivitySkeleton() {
   )
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+// ── View ─────────────────────────────────────────────────────────────────────
+// "Claude actions" in Slack > MCP Activity (admins only): every tool call
+// Claude made through the Velocity MCP connector. Was a standalone
+// /mcp-activity page, which now redirects here (Dashboard.tsx).
 
-const PAGE_SIZE = 25
 
-export function McpActivityPage() {
+export function McpActivityView() {
   const [entries, setEntries] = useState<MCPActivityEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = usePersistedState(PERSIST.MCP_ACTIVITY_PAGE_SIZE, 10, { validate: PAGE_SIZE_OPTIONS })
   const [total, setTotal] = useState(0)
   const [failCount, setFailCount] = useState(0)
   const [paging, setPaging] = useState(false) // a page change is loading
@@ -73,7 +78,7 @@ export function McpActivityPage() {
   const load = useCallback(async (p: number, silent = false) => {
     if (silent) setRefreshing(true)
     try {
-      const res = await api.getMcpActivityPage(p, PAGE_SIZE)
+      const res = await api.getMcpActivityPage(p, pageSize)
       if (res.success && res.data) {
         setEntries(res.data)
         setTotal(res.total ?? res.data.length)
@@ -91,7 +96,7 @@ export function McpActivityPage() {
       setRefreshing(false)
       setPaging(false)
     }
-  }, [])
+  }, [pageSize])
 
   useEffect(() => {
     load(page)
@@ -100,6 +105,13 @@ export function McpActivityPage() {
     const interval = setInterval(() => load(page, true), 30000)
     return () => clearInterval(interval)
   }, [load, page])
+
+  const changePageSize = useCallback((n: number) => {
+    if (n === pageSize) return
+    setPaging(true)
+    setPageSize(n)
+    setPage(1)
+  }, [pageSize, setPageSize])
 
   const changePage = useCallback((p: number) => {
     setPaging(true)
@@ -113,7 +125,7 @@ export function McpActivityPage() {
         <div className="mcpa-header-title">
           <Activity size={20} />
           <div>
-            <h2>MCP Activity</h2>
+            <h2>Claude actions</h2>
             <p>What Claude has done through the Velocity connector, last 7 days, newest first</p>
           </div>
         </div>
@@ -170,7 +182,8 @@ export function McpActivityPage() {
               )
             })}
           </div>
-          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={changePage} disabled={paging} noun="transactions" />
+          <Pagination page={page} pageSize={pageSize} total={total} onChange={changePage} disabled={paging} noun="transactions"
+            onPageSizeChange={changePageSize} />
         </>
       )}
     </div>

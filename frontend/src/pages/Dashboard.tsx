@@ -55,7 +55,6 @@ import { UpdateRemindersTab } from './UpdateRemindersTab'
 import { ActivityPage } from './ActivityPage'
 import { DayTrackPage } from './DayTrackPage'
 import { GanttPage } from './GanttPage'
-import { McpActivityPage } from './McpActivityPage'
 import { KnowledgeBasePage } from './KnowledgeBasePage'
 import { JellySwitch } from '../components/JellySwitch'
 import { ThemeSettingsPage } from './ThemeSettingsPage'
@@ -65,7 +64,7 @@ import { useNotifications } from '../services/useNotifications'
 import ChangelogPanel from '../components/changelog/ChangelogPanel'
 import type { ChangelogEntry } from '../services/api'
 
-type Page = 'dashboard' | 'board' | 'list' | 'sprint-pulse' | 'daily-ops' | 'calendar' | 'reports' | 'ai-analysis' | 'dev-activity' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme' | 'gantt' | 'update-reminders' | 'mcp-activity' | 'knowledge-base'
+type Page = 'dashboard' | 'board' | 'list' | 'sprint-pulse' | 'daily-ops' | 'calendar' | 'reports' | 'ai-analysis' | 'dev-activity' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme' | 'gantt' | 'update-reminders' | 'knowledge-base'
 
 // Pages accessible by members/viewers (limited access)
 const MEMBER_PAGES: Page[] = ['dashboard', 'board', 'list', 'sprint-pulse', 'daily-ops', 'activity', 'calendar', 'ai-analysis', 'dev-activity', 'pm-reports', 'daytrack', 'integrations', 'gantt', 'slack', 'update-reminders', 'theme']
@@ -93,7 +92,6 @@ const PATH_TO_PAGE: Record<string, Page> = {
   'theme': 'theme',
   'gantt': 'gantt',
   'update-reminders': 'update-reminders',
-  'mcp-activity': 'mcp-activity',
   'knowledge-base': 'knowledge-base',
 }
 
@@ -144,6 +142,13 @@ export default function Dashboard() {
     if (page !== 'dashboard') localStorage.setItem(PERSIST.LAST_PAGE, page)
     navigate(`/${page}`)
   }
+
+  // The standalone /mcp-activity page moved into Slack > MCP Activity
+  // (Claude actions view). Old links and bookmarks land there.
+  useEffect(() => {
+    if (pathSegments[0] === 'mcp-activity') navigate('/slack/mcp-activity?view=claude', { replace: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname])
 
   // On fresh load at root (/), restore the last visited page
   useEffect(() => {
@@ -513,8 +518,6 @@ export default function Dashboard() {
                 <span>Access Control</span>
               </button>
             )}
-            {/* No sidebar entry on purpose — private route, admin-only, reachable
-                at /mcp-activity directly. Not meant to be a discoverable nav item. */}
             <button
               className={`sidebar-nav-item ${currentPage === 'theme' ? 'active' : ''}`}
               onClick={() => setCurrentPage('theme')}
@@ -563,7 +566,6 @@ export default function Dashboard() {
             {currentPage === 'team' && 'Team Management'}
             {currentPage === 'bots' && 'Bot Configuration'}
             {currentPage === 'settings' && 'Access Control'}
-            {currentPage === 'mcp-activity' && 'MCP Activity'}
             {currentPage === 'knowledge-base' && 'Knowledge Base'}
             {currentPage === 'integrations' && 'Integrations'}
             {currentPage === 'slack' && 'Slack Intelligence'}
@@ -743,11 +745,6 @@ export default function Dashboard() {
         {mountedTabs.has('settings') && (
           <div className={currentPage !== 'settings' ? 'dash-tab-hidden' : undefined}>
             <SettingsPage />
-          </div>
-        )}
-        {mountedTabs.has('mcp-activity') && (
-          <div className={currentPage !== 'mcp-activity' ? 'dash-tab-hidden' : undefined}>
-            <McpActivityPage />
           </div>
         )}
         {mountedTabs.has('knowledge-base') && (

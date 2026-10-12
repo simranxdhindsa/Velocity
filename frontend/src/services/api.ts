@@ -2076,6 +2076,13 @@ class ApiService {
   }
 
   // ── Slack bot conversation log ────────────────────────────────────────────
+  /** One page of bot conversations (newest first) with the total for pagination. */
+  async getSlackBotConversationsPage(page: number, pageSize = 20) {
+    return this.request<SlackBotConversation[]>(`/slack-bot-chat?page=${page}&page_size=${pageSize}`) as Promise<
+      ApiResponse<SlackBotConversation[]> & { is_admin_view?: boolean; total?: number; page?: number; page_size?: number }
+    >
+  }
+
   async getSlackBotConversations(limit = 200) {
     return this.request<SlackBotConversation[]>(`/slack-bot-chat?limit=${limit}`) as Promise<
       ApiResponse<SlackBotConversation[]> & { is_admin_view?: boolean }

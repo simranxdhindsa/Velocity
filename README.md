@@ -183,7 +183,7 @@ Connect Claude to `/api/mcp` and it can work inside Velocity on your behalf.
 | 👥 **Team & sprint** | `get_sprints` · `get_developer_load` · `get_developer_configs` |
 | 🤖 **Velocity Bot** | `get_slack_reply_config` · `update_slack_reply_config` |
 
-Every call is logged with duration and outcome, viewable in the **MCP Activity** page.
+Every call is logged with duration and outcome, viewable under **Slack > MCP Activity > Claude actions** (admins).
 
 ---
 

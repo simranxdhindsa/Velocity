@@ -1,9 +1,10 @@
-/* MCP Activity page — what's been done through the Velocity MCP connector */
+/* Slack > MCP Activity > Claude actions (components/McpActivityView.tsx):
+   what's been done through the Velocity MCP connector */
 
 .mcpa-page {
-  padding: 24px 28px 96px; /* pagination clears the floating PM Assistant bubble */
-  max-width: 960px;
-  margin: 0 auto;
+  /* same inset as the bot conversations view next to it; the bottom clears
+     the floating PM Assistant bubble */
+  padding: 0.75rem 1.25rem 96px;
 }
 
 .mcpa-header {

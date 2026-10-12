@@ -1,10 +1,13 @@
 import { memo } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { CustomDropdown } from '@/components/CustomDropdown'
+import { PAGE_SIZE_OPTIONS } from '@/utils/pagination'
 import '@/styles/components/pagination.css'
 
 // Page controls for server-paged lists: "Showing 26-50 of 143", previous /
-// next, and page numbers with gaps (1 … 4 5 6 … 12). Hidden when everything
-// fits on one page. On phones the numbers collapse to "Page 2 of 6".
+// next, and page numbers with gaps (1 … 4 5 6 … 12), plus an optional
+// "Show 10 per page" selector. Hidden when everything fits on the smallest
+// page. On phones the numbers collapse to "Page 2 of 6".
 
 interface Props {
   page: number            // 1-based
@@ -13,7 +16,11 @@ interface Props {
   onChange: (page: number) => void
   disabled?: boolean      // while a page is loading
   noun?: string           // "transactions" in "Showing 1-25 of 143 transactions"
+  /** Shows the per-page selector; the caller resets to page 1. */
+  onPageSizeChange?: (size: number) => void
+  pageSizeOptions?: number[]
 }
+
 
 /** Page numbers to show, with 0 marking a gap. */
 function pageItems(page: number, last: number): number[] {
@@ -30,9 +37,12 @@ function pageItems(page: number, last: number): number[] {
   return out
 }
 
-export const Pagination = memo(function Pagination({ page, pageSize, total, onChange, disabled, noun }: Props) {
+export const Pagination = memo(function Pagination({
+  page, pageSize, total, onChange, disabled, noun, onPageSizeChange, pageSizeOptions = PAGE_SIZE_OPTIONS,
+}: Props) {
   const last = Math.max(1, Math.ceil(total / pageSize))
-  if (total <= pageSize) return null
+  // With a size selector, stay visible while a smaller page size would page.
+  if (total <= (onPageSizeChange ? Math.min(...pageSizeOptions) : pageSize)) return null
   const from = (page - 1) * pageSize + 1
   const to = Math.min(page * pageSize, total)
   const go = (p: number) => {
@@ -41,9 +51,23 @@ export const Pagination = memo(function Pagination({ page, pageSize, total, onCh
 
   return (
     <nav className="pgn" aria-label="Pagination">
-      <span className="pgn-range">
-        Showing {from}-{to} of {total}{noun ? ` ${noun}` : ''}
-      </span>
+      <div className="pgn-info">
+        <span className="pgn-range">
+          Showing {from}-{to} of {total}{noun ? ` ${noun}` : ''}
+        </span>
+        {onPageSizeChange && (
+          <label className="pgn-size">
+            Show
+            <CustomDropdown
+              className="pgn-size-dropdown"
+              options={pageSizeOptions.map(n => ({ value: String(n), label: String(n) }))}
+              value={String(pageSize)}
+              onChange={v => onPageSizeChange(Number(v))}
+            />
+            per page
+          </label>
+        )}
+      </div>
       <div className="pgn-controls">
         <button className="pgn-btn pgn-btn--step" onClick={() => go(page - 1)} disabled={disabled || page === 1} aria-label="Previous page">
           <ChevronLeft size={15} />

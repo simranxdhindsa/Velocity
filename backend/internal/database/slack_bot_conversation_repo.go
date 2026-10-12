@@ -48,6 +48,11 @@ func (r *SlackBotConversationRepository) Log(ctx context.Context, c SlackBotConv
 // for this feature — the caller (handler) decides whether to pass a filter
 // based on the authenticated user's role, this method just applies it.
 func (r *SlackBotConversationRepository) List(ctx context.Context, userIDFilter string, limit int) ([]SlackBotConversation, error) {
+	return r.ListPage(ctx, userIDFilter, limit, 0)
+}
+
+// ListPage is List skipping offset rows, for pagination. Same filter rules.
+func (r *SlackBotConversationRepository) ListPage(ctx context.Context, userIDFilter string, limit, offset int) ([]SlackBotConversation, error) {
 	pool := GetPool()
 	if pool == nil {
 		return []SlackBotConversation{}, nil
@@ -55,14 +60,17 @@ func (r *SlackBotConversationRepository) List(ctx context.Context, userIDFilter 
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
+	if offset < 0 {
+		offset = 0
+	}
 	rows, err := pool.Query(ctx, `
 		SELECT id::text, user_id, slack_user_id, slack_user_email, channel_id, channel_label,
 		       event_type, incoming_text, reply_text, success, error_message, created_at
 		FROM slack_bot_conversations
 		WHERE ($1 = '' OR user_id = $1)
-		ORDER BY created_at DESC
-		LIMIT $2
-	`, userIDFilter, limit)
+		ORDER BY created_at DESC, id
+		LIMIT $2 OFFSET $3
+	`, userIDFilter, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +86,17 @@ func (r *SlackBotConversationRepository) List(ctx context.Context, userIDFilter 
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// Count returns how many conversations the same filter matches (see List).
+func (r *SlackBotConversationRepository) Count(ctx context.Context, userIDFilter string) (int, error) {
+	pool := GetPool()
+	if pool == nil {
+		return 0, nil
+	}
+	var n int
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM slack_bot_conversations WHERE ($1 = '' OR user_id = $1)`, userIDFilter).Scan(&n)
+	return n, err
 }
 
 // PruneOlderThan30Days deletes rows older than 30 days (longer retention than

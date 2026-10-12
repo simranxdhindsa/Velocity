@@ -14,6 +14,26 @@
   color: var(--text-muted);
 }
 
+.pgn-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* "Show [10] per page" */
+.pgn-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.pgn-size-dropdown {
+  width: 68px;
+}
+
 .pgn-controls {
   display: flex;
   align-items: center;
@@ -88,8 +108,8 @@
     gap: 10px;
   }
 
-  .pgn-range {
-    text-align: center;
+  .pgn-info {
+    justify-content: space-between;
   }
 
   .pgn-controls {

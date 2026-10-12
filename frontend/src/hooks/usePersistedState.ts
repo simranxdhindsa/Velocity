@@ -43,6 +43,11 @@ export const PERSIST = {
   SLACK_HUB_CHANNEL: 'slack_hub_channel',
   /** Slack Messages hub — per-channel last-viewed timestamp (JSON), drives unread bolding */
   SLACK_HUB_LAST_VIEWED: 'slack_hub_last_viewed',
+  /** Slack > MCP Activity — 'bot' (bot conversations) or 'claude' (Claude actions, admins) */
+  SLACK_ACTIVITY_VIEW: 'slack_activity_view',
+  /** Slack > MCP Activity — items per page in each view */
+  SLACK_BOT_CHAT_PAGE_SIZE: 'slack_bot_chat_page_size',
+  MCP_ACTIVITY_PAGE_SIZE: 'mcp_activity_page_size',
   /** Sprint Pulse — which view (live/kanban/priority/...) was last active */
   SPRINT_PULSE_VIEW: 'sprint_pulse_view',
 } as const

@@ -11,6 +11,8 @@ import { SettingsTabContent, RemindersTabContent, getPresetDate } from './SlackT
 import type { Preset } from './SlackTabs'
 import { SlackMessagesHub } from './SlackMessagesHub'
 import { BotConversationsView } from '@/components/SlackBotConversations'
+import { McpActivityView } from '@/components/McpActivityView'
+import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import { useAuth } from '@/contexts/AuthContext'
 import '../styles/pages/slack.css'
 import { CountUp } from '../components/CountUp'
@@ -34,6 +36,16 @@ export function SlackIntelligencePage({
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [tab, setTab] = useState<Tab>(initialTab)
+  // MCP Activity tab: Velocity Slack bot chats, or (admins) Claude's
+  // connector actions. ?view=claude comes from the old /mcp-activity URL.
+  const [activityView, setActivityView] = usePersistedState<'bot' | 'claude'>(
+    PERSIST.SLACK_ACTIVITY_VIEW, 'bot', { validate: ['bot', 'claude'] },
+  )
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('view') === 'claude') setActivityView('claude')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const showClaudeActions = isAdmin && activityView === 'claude'
   const [inboxView, setInboxView] = useState<InboxView>('mentions')
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>('Needs Action')
   const [search, setSearch] = useState('')
@@ -464,7 +476,19 @@ export function SlackIntelligencePage({
 
         {tab === 'messages' && <SlackMessagesHub />}
 
-        {tab === 'mcp-activity' && <BotConversationsView isAdmin={isAdmin} />}
+        {tab === 'mcp-activity' && isAdmin && (
+          <div className="si2-controls">
+            <div className="si2-view-toggle">
+              <button className={`si2-view-toggle-btn${!showClaudeActions ? ' active' : ''}`} onClick={() => setActivityView('bot')}>
+                Bot conversations
+              </button>
+              <button className={`si2-view-toggle-btn${showClaudeActions ? ' active' : ''}`} onClick={() => setActivityView('claude')}>
+                Claude actions
+              </button>
+            </div>
+          </div>
+        )}
+        {tab === 'mcp-activity' && (showClaudeActions ? <McpActivityView /> : <BotConversationsView isAdmin={isAdmin} />)}
       </div>
 
       {/* Reminder modal */}

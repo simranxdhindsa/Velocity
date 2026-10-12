@@ -270,26 +270,30 @@ Used in: Claude Queue (Update Reminders), Slack Messages hub, Slack inbox cards,
 **Use it under any list that can grow past one screen.** Page on the server (`page` + `page_size`, return `total`); never load hundreds of rows and render them all.
 
 ### Key behaviours
-- "Showing 26-50 of 143 transactions", Previous / Next, and page numbers with gaps (`1 … 4 5 6 … 12`). Hidden when everything fits on one page.
+- "Showing 26-50 of 143 transactions", Previous / Next, and page numbers with gaps (`1 … 4 5 6 … 12`).
+- Optional "Show [10] per page" selector (`CustomDropdown`, choices `PAGE_SIZE_OPTIONS` = 10, 20, 30, 40, 100 from `utils/pagination.ts`) when `onPageSizeChange` is passed. Default 10; persist the choice with `usePersistedState` and go back to page 1 on change.
+- Hidden when everything fits on one page (on the smallest page size when the selector is on).
 - At ≤768px the numbers collapse to "Page 2 of 6" between the arrows.
 - `disabled` while a page loads; keep the previous rows visible (dimmed) instead of flashing a skeleton.
 - The page using it needs ~96px bottom padding so the controls clear the floating PM Assistant bubble (UAT: Next sat under the bubble on desktop and at 390px).
 
 ### Props
 ```ts
-{ page: number /* 1-based */; pageSize: number; total: number; onChange: (page: number) => void; disabled?: boolean; noun?: string }
+{ page: number /* 1-based */; pageSize: number; total: number; onChange: (page: number) => void; disabled?: boolean; noun?: string;
+  onPageSizeChange?: (size: number) => void; pageSizeOptions?: number[] }
 ```
 
 ### Usage
 ```tsx
 import { Pagination } from '@/components/Pagination'
 
-<Pagination page={page} pageSize={25} total={total} onChange={changePage} disabled={paging} noun="transactions" />
+<Pagination page={page} pageSize={pageSize} total={total} onChange={changePage} disabled={paging} noun="transactions"
+  onPageSizeChange={changePageSize} />
 ```
 
 Server side, snap a page past the end to the last page (entries can be pruned between requests), see `handlers/mcp_activity.go`.
 
-Used in: MCP Activity.
+Used in: Slack > MCP Activity, both views (Bot conversations, Claude actions).
 
 ---
 
