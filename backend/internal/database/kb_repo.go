@@ -36,6 +36,9 @@ type KBDocument struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	Original   []byte    `json:"-"`
+	// ContextPending counts windowed chunks still waiting for their AI
+	// summary line (filled in by the list handler, not stored).
+	ContextPending int `json:"context_pending"`
 }
 
 // KBChunkInput is one chunk to store. Embedding is nil when vectors are
@@ -43,18 +46,26 @@ type KBDocument struct {
 type KBChunkInput struct {
 	Heading   string
 	Content   string
+	Windowed  bool   // cut from a wall of text, needs an AI context line
+	Context   string // kept from the previous index when the text is unchanged
 	Embedding []float32
 }
 
 // KBHit is one search result.
 type KBHit struct {
 	ChunkID    int64   `json:"chunk_id"`
+	ChunkIndex int     `json:"chunk_index"`
 	DocumentID string  `json:"document_id"`
 	DocTitle   string  `json:"document_title"`
 	Heading    string  `json:"heading"`
 	Content    string  `json:"content"`
+	Context    string  `json:"context,omitempty"` // AI one-line summary (windowed chunks)
+	Windowed   bool    `json:"windowed,omitempty"`
 	Score      float64 `json:"score"`
 }
+
+// kbHitColumns must match scanHits; the score column is appended per query.
+const kbHitColumns = `c.id, c.chunk_index, d.id::text, d.title, c.heading, c.content, c.context, c.windowed`
 
 type KBRepository struct{}
 
@@ -234,12 +245,12 @@ func (r *KBRepository) ReplaceChunks(ctx context.Context, id string, chunks []KB
 	embedded := len(chunks) > 0
 	for i, c := range chunks {
 		if c.Embedding != nil && KBVectorEnabled() {
-			_, err = tx.Exec(ctx, `INSERT INTO kb_chunks (document_id, chunk_index, heading, content, embedding)
-				VALUES ($1::uuid, $2, $3, $4, $5::vector)`, id, i, c.Heading, c.Content, vectorLiteral(c.Embedding))
+			_, err = tx.Exec(ctx, `INSERT INTO kb_chunks (document_id, chunk_index, heading, content, windowed, context, embedding)
+				VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::vector)`, id, i, c.Heading, c.Content, c.Windowed, c.Context, vectorLiteral(c.Embedding))
 		} else {
 			embedded = false
-			_, err = tx.Exec(ctx, `INSERT INTO kb_chunks (document_id, chunk_index, heading, content)
-				VALUES ($1::uuid, $2, $3, $4)`, id, i, c.Heading, c.Content)
+			_, err = tx.Exec(ctx, `INSERT INTO kb_chunks (document_id, chunk_index, heading, content, windowed, context)
+				VALUES ($1::uuid, $2, $3, $4, $5, $6)`, id, i, c.Heading, c.Content, c.Windowed, c.Context)
 		}
 		if err != nil {
 			return err
@@ -272,7 +283,7 @@ func (r *KBRepository) ListChunks(ctx context.Context, id string, limit int) ([]
 	if pool == nil {
 		return []KBHit{}, nil
 	}
-	rows, err := pool.Query(ctx, `SELECT c.id, d.id::text, d.title, c.heading, c.content, 0::float8
+	rows, err := pool.Query(ctx, `SELECT `+kbHitColumns+`, 0::float8
 		FROM kb_chunks c JOIN kb_documents d ON d.id = c.document_id
 		WHERE d.id::text = $1 ORDER BY c.chunk_index LIMIT $2`, id, limit)
 	if err != nil {
@@ -297,13 +308,14 @@ func (r *KBRepository) KeywordSearch(ctx context.Context, terms []string, limit 
 	// Exact (simple) and stemmed (english) matching, summed: a chunk matching
 	// the literal word ranks above one matching only a word form.
 	rows, err := pool.Query(ctx, `
-		SELECT c.id, d.id::text, d.title, c.heading, c.content,
-		       (ts_rank_cd(c.tsv, qs, 1) + ts_rank_cd(c.tsv_en, qe, 1))::float8 AS score
+		SELECT `+kbHitColumns+`,
+		       (ts_rank_cd(c.tsv, qs, 1) + ts_rank_cd(c.tsv_en, qe, 1) +
+		        ts_rank_cd(c.tsv_ctx, qs, 1) + ts_rank_cd(c.tsv_ctx, qe, 1))::float8 AS score
 		FROM kb_chunks c
 		JOIN kb_documents d ON d.id = c.document_id,
 		     to_tsquery('simple', $1) qs,
 		     to_tsquery('english', $1) qe
-		WHERE (c.tsv @@ qs OR c.tsv_en @@ qe) AND d.status = 'ready'
+		WHERE (c.tsv @@ qs OR c.tsv_en @@ qe OR c.tsv_ctx @@ qs OR c.tsv_ctx @@ qe) AND d.status = 'ready'
 		ORDER BY score DESC
 		LIMIT $2`, tsq, limit)
 	if err != nil {
@@ -320,7 +332,7 @@ func (r *KBRepository) VectorSearch(ctx context.Context, vec []float32, limit in
 		return []KBHit{}, nil
 	}
 	rows, err := pool.Query(ctx, `
-		SELECT c.id, d.id::text, d.title, c.heading, c.content,
+		SELECT `+kbHitColumns+`,
 		       (1 - (c.embedding <=> $1::vector))::float8 AS score
 		FROM kb_chunks c
 		JOIN kb_documents d ON d.id = c.document_id
@@ -351,7 +363,7 @@ func scanHits(rows pgx.Rows) ([]KBHit, error) {
 	hits := []KBHit{}
 	for rows.Next() {
 		var h KBHit
-		if err := rows.Scan(&h.ChunkID, &h.DocumentID, &h.DocTitle, &h.Heading, &h.Content, &h.Score); err != nil {
+		if err := rows.Scan(&h.ChunkID, &h.ChunkIndex, &h.DocumentID, &h.DocTitle, &h.Heading, &h.Content, &h.Context, &h.Windowed, &h.Score); err != nil {
 			return nil, err
 		}
 		hits = append(hits, h)

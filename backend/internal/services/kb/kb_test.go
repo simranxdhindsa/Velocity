@@ -284,9 +284,9 @@ func TestWithDocTitle(t *testing.T) {
 func TestUnglueSentences(t *testing.T) {
 	cases := map[string]string{
 		"a known fact of office life.Sandeep Kaur": "a known fact of office life. Sandeep Kaur",
-		"Done!Next up":                             "Done! Next up",
-		"see apyhub.com and e.g. this":             "see apyhub.com and e.g. this",
-		"Version 2.Released":                       "Version 2.Released", // digit before the dot: left alone
+		"Done!Next up":                 "Done! Next up",
+		"see apyhub.com and e.g. this": "see apyhub.com and e.g. this",
+		"Version 2.Released":           "Version 2.Released", // digit before the dot: left alone
 	}
 	for in, want := range cases {
 		if got := unglueSentences(in); got != want {

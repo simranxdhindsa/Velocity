@@ -2188,6 +2188,8 @@ export interface KBDocument {
   uploader_name: string
   created_at: string
   updated_at: string
+  /** Parts of a long, unstructured text still waiting for their AI summary line */
+  context_pending?: number
 }
 
 export interface KBUploadResult {
@@ -2202,6 +2204,10 @@ export interface KBHit {
   document_title: string
   heading: string
   content: string
+  /** One-line AI summary of a part cut from long, unstructured text */
+  context?: string
+  /** Cut from long text without paragraph breaks */
+  windowed?: boolean
   score: number
   matched?: 'keyword' | 'meaning' | 'both'
 }

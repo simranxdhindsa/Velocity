@@ -56,13 +56,15 @@ export function KnowledgeBasePage() {
     if (isAdmin) load()
   }, [isAdmin, load])
 
-  // Indexing runs in the background: poll while anything is processing.
+  // Indexing runs in the background: poll while anything is processing,
+  // and more slowly while AI summaries are still being written.
   const processing = docs.some(d => d.status === 'processing')
+  const summarising = docs.some(d => (d.context_pending ?? 0) > 0)
   useEffect(() => {
-    if (!processing) return
-    const t = setInterval(() => load(), 2500)
+    if (!processing && !summarising) return
+    const t = setInterval(() => load(), processing ? 2500 : 8000)
     return () => clearInterval(t)
-  }, [processing, load])
+  }, [processing, summarising, load])
 
   const notify = (n: Notice[]) => setNotices(n)
 

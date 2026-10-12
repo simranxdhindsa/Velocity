@@ -46,8 +46,11 @@ RUN npm run build
 # ─────────────────────────────────────────────────────────────
 FROM alpine:3.21
 
+# poppler-utils: pdftotext, the knowledge base's primary PDF reader
+# (backend/internal/services/kb/pdf_poppler.go); without it PDFs fall back
+# to the pure-Go reader.
 RUN for i in 1 2 3; do \
-      apk add --no-cache ca-certificates tzdata curl && break; \
+      apk add --no-cache ca-certificates tzdata curl poppler-utils && break; \
       echo "apk retry $i..."; sleep 5; \
     done
 

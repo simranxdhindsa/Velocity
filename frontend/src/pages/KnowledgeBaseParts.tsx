@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   FileText, FileSpreadsheet, FileCode, Presentation, StickyNote, Loader2, CheckCircle2, AlertTriangle,
-  XCircle, Eye, Pencil, Upload, RotateCw, Trash2, X, Search, ChevronUp,
+  XCircle, Eye, Pencil, Upload, RotateCw, Trash2, X, Search, ChevronUp, Sparkles,
 } from 'lucide-react'
 import api from '@/services/api'
 import type { KBDocument, KBHit } from '@/services/api'
@@ -87,6 +87,12 @@ export const KBDocRow = memo(function KBDocRow({ doc, onEditNote, onReplace, onR
         <div className="kb-doc-main">
           <div className="kb-doc-title">{doc.title}</div>
           <div className="kb-doc-meta">{meta.join(' · ')}</div>
+          {doc.status === 'ready' && (doc.context_pending ?? 0) > 0 && (
+            <div className="kb-doc-summarising">
+              <Loader2 size={12} className="kb-spin" />
+              Writing AI summaries, {doc.context_pending} {doc.context_pending === 1 ? 'part' : 'parts'} left
+            </div>
+          )}
           {doc.error && (
             <div className={`kb-doc-msg${doc.status === 'failed' ? ' kb-doc-msg--fail' : ''}`}>{doc.error}</div>
           )}
@@ -135,6 +141,12 @@ function ChunkPreview({ docId }: { docId: string }) {
             <span className="kb-chunk-num">#{i + 1}</span>
             {c.heading && <span className="kb-chunk-heading">{c.heading}</span>}
           </div>
+          {c.windowed && (
+            <div className={`kb-chunk-about${c.context ? '' : ' kb-chunk-about--pending'}`}>
+              <Sparkles size={12} />
+              {c.context || 'AI summary not written yet'}
+            </div>
+          )}
           <pre className="kb-chunk-body">{c.content}</pre>
         </div>
       ))}

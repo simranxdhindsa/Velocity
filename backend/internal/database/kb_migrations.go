@@ -70,6 +70,19 @@ func RunKBMigrations(ctx context.Context) {
 			setweight(to_tsvector('english', content), 'B')
 		) STORED`,
 		`CREATE INDEX IF NOT EXISTS idx_kb_chunks_tsv_en ON kb_chunks USING GIN(tsv_en)`,
+		// Chunks cut from a wall of text (no paragraph breaks) are marked
+		// windowed and get a one-line AI summary in context ("Sandeep Kaur
+		// (Harman), developer advocate at ApyHub"), filled in the background
+		// by kb's context worker. It is searchable through tsv_ctx, so a
+		// window that only says "she" is still found by the person's name.
+		`ALTER TABLE kb_chunks ADD COLUMN IF NOT EXISTS windowed BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE kb_chunks ADD COLUMN IF NOT EXISTS context TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE kb_chunks ADD COLUMN IF NOT EXISTS tsv_ctx TSVECTOR GENERATED ALWAYS AS (
+			setweight(to_tsvector('simple', context), 'A') ||
+			setweight(to_tsvector('english', context), 'A')
+		) STORED`,
+		`CREATE INDEX IF NOT EXISTS idx_kb_chunks_tsv_ctx ON kb_chunks USING GIN(tsv_ctx)`,
+		`CREATE INDEX IF NOT EXISTS idx_kb_chunks_ctx_pending ON kb_chunks(document_id, chunk_index) WHERE windowed AND context = ''`,
 	}
 	for i, s := range stmts {
 		if _, err := pool.Exec(ctx, s); err != nil {

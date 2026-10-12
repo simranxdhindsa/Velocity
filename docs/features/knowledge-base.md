@@ -11,9 +11,17 @@ Admins upload documents (or write notes in Velocity) about the team: who is who,
 
 Upload → stored as-is in `kb_documents.original` → background `Index`: `Extract` → `Split` → `EmbedDocuments` → `ReplaceChunks` (atomic swap) → status `ready`. One document is indexed at a time (avoids embedding rate limits). Documents left `processing` by a restart are resumed on startup (`kb.ResumePending` in `main.go`). Re-index re-runs the pipeline from the stored original, so parser/chunker changes never need a re-upload.
 
-**Supported files** (`extract.go`): `.md .markdown .txt .text .log .rst .yaml .yml .csv .tsv .json .xml .html .htm .pdf .docx .pptx .xlsx`, 15 MB each. Office files are parsed as zipped XML with the standard library; PDFs use `github.com/ledongthuc/pdf` (text layer only, scanned PDFs are rejected with a clear message, no OCR). Images are not supported.
+**Supported files** (`extract.go`): `.md .markdown .txt .text .log .rst .yaml .yml .csv .tsv .json .xml .html .htm .pdf .docx .pptx .xlsx`, 15 MB each. Office files are parsed as zipped XML with the standard library. PDFs are read with Poppler's `pdftotext` when installed (the Docker image adds `poppler-utils`), otherwise with `github.com/ledongthuc/pdf` (text layer only, scanned PDFs are rejected with a clear message, no OCR). Images are not supported.
 
-**PDF paragraphs** (`pdfParagraphs`): a PDF stores lines, not paragraphs. They are rebuilt from the library's row positions: a blank row, or a vertical gap over 1.6x the page's median line spacing, starts a paragraph. Lines inside a paragraph are re-joined into flowing text (a line ending in "-" joins without a space, so "fifty-" + "one" stays "fifty-one"). Without this, the Ardoise operations log PDF (9 paragraphs, one per person) came out as 3 size-cut chunks starting mid-sentence ("He also verified ...") with the person's name in another chunk. `pdftotext` (poppler) was not used: it is an external binary that would have to be installed in the Docker image.
+**Poppler first** (`pdf_poppler.go`, `pdfToText` in `pdf.go`): `pdftotext -bbox-layout` gives every line and word with coordinates, and the same gap-based paragraph detection as the Go reader (`pdfParagraphs`) rebuilds the paragraphs. Plain `pdftotext` output was not used: on the first Ardoise log it lost every paragraph break and turned "fifty-" / "one" into "fiftyone". Poppler's own blocks are not used as breaks either (every line was its own block there). Both readers run; Poppler's text wins unless it has clearly more glued words (`pickPDFText`). Without the binary (local dev without `brew install poppler`) the Go reader is used alone and the Ardoise files give the same chunks. Measured on 12 real PDFs: identical chunks for both Ardoise logs, cleaner text on the course chapters (glued-word ratio 0.008 → 0).
+
+**Letter-spaced text** (`joinBBoxWords`): designed PDFs track headings out so far that every letter is read as a word ("M e a s u r i n g t h e"). On such lines spaces go only where the gap is clearly wider than the letter gap (~2.3pt vs ~7.7pt in the Ardoise guide), giving "Measuring the operational impact".
+
+**Page breaks** (`appendPageParagraphs`): a paragraph that runs over a page break (the page ends without closing punctuation) is re-joined. Without this a long paragraph became one chunk per page, each cut mid-sentence.
+
+**Symbol-font bullets** (`pdfSymbolBullets`): lone private-use glyphs from Word's Symbol font (U+F0B7, U+F0D8) become "•".
+
+**PDF paragraphs** (`pdfParagraphs`): a PDF stores lines, not paragraphs. They are rebuilt from the library's row positions: a blank row, or a vertical gap over 1.6x the page's median line spacing, starts a paragraph. Lines inside a paragraph are re-joined into flowing text (a line ending in "-" joins without a space, so "fifty-" + "one" stays "fifty-one"). Without this, the Ardoise operations log PDF (9 paragraphs, one per person) came out as 3 size-cut chunks starting mid-sentence ("He also verified ...") with the person's name in another chunk. 
 
 **Two line readers, chosen per page** (`pdfLinesForPage`): the library's `GetTextByRow` reads most PDFs well, but on PDFs that position text with transformation matrices (the Ardoise ops log v3) it collapses ~50 lines into ~5 "rows" with no spaces between them ("priorityitem") and in the wrong order. Lines rebuilt from glyph coordinates (`pdfPageLines`) fix those PDFs but garble others with kerning quirks (the first Ardoise log). Glyph lines are used only when rows clearly collapsed (fewer than half as many rows as glyph lines).
 
@@ -27,10 +35,29 @@ Upload → stored as-is in `kb_documents.original` → background `Index`: `Extr
 - HTML and Word headings become Markdown headings; PowerPoint gets `## Slide N` per slide.
 
 **Chunking** (`chunk.go`):
-- **Plain text and PDFs: one chunk per paragraph** (a paragraph is usually one person or topic). Fragments under 100 chars (a lone heading line) merge into the next; one-sentence profiles (~150 chars) stay separate; only paragraphs over 2200 chars are split, by sentence. A short single first line (a title or "Date: 06 December 2025") becomes the heading of every chunk. The Ardoise ops log now gives 10 chunks, one per person/topic.
+- **Plain text and PDFs: one chunk per paragraph** (a paragraph is usually one person or topic). Fragments under 100 chars (a lone heading line) merge into the next; one-sentence profiles (~150 chars) stay separate; paragraphs over 1500 chars are windowed (below). A short single first line (a title or "Date: 06 December 2025") becomes the heading of every chunk. The Ardoise ops log now gives 10 chunks, one per person/topic.
 - **Markdown/HTML/Word**: split on headings, heading path kept (`Team > Backend`), paragraphs packed to ~1600 chars (2200 max, 200 overlap); tiny sibling sections are merged with their names kept as labels; headings in code fences are ignored.
 - **Tables**: one record per line, no overlap.
+- **Walls of text** (`window.go`): a paragraph over 1500 chars (some files are one paragraph for pages) is cut into sentence windows of ~900 chars (1300 max) that overlap by one sentence, marked `windowed`. A window also ends where a sentence brings in a name the window hasn't mentioned, at the start ("Sandeep Kaur, known as Harman, ...") or anywhere as a full name ("The mobile side was handled by Tarun Sekhon"), once the window has 250+ chars; sentences opening with he/she/they continue the current person, so a product named mid-profile ("He owns the Play Store checklist") doesn't split it. A new-name split does not carry the previous person's last sentence over. On a 5-page single-paragraph test file with 16 people this gives exactly one window per person.
 - Every chunk's heading is prefixed with the document title (`withDocTitle`, in `Index`), so a chunk says where it came from when read or searched on its own.
+
+## Context lines for windows (`context.go`)
+
+A window can still say only "She added a nightly job..." with the name in the window before. Every windowed chunk gets a one-line AI summary (`kb_chunks.context`, e.g. "Meher Bajwa, engineer, Voiden billing service, payments"), written in the background after indexing by a single worker (`drainContext`) in document order, so the previous window's line is available to resolve pronouns. Groq is shared with the Slack bot at ~8k tokens/minute, so calls are paced 8s apart (a 5-page wall of text takes 1-3 minutes) and a rate-limited call waits 30s; a chunk failing twice is skipped until the next run. The document is searchable by its own words meanwhile. The line is searched through `tsv_ctx` (simple + english, weight A), shown to the model as `About: ...` above the chunk, and part of the chunk's embedding when embeddings are on. Re-indexing keeps the lines of unchanged chunks (`ExistingContexts`), so "Index again" costs no AI calls. Needs an AI key; without one the warning suggests adding paragraph breaks instead. Restarts resume pending lines (`ResumePending` kicks the worker).
+
+## Neighbouring windows (`neighbors.go`)
+
+For the top 2 search hits that are windows, the windows just before and after are joined in (`withNeighbors`, overlapping sentence removed by `joinOverlap`), and a neighbour that was itself a result is dropped from the list. A fact cut across a window boundary, or a "he also deployed..." window, then reaches the model with its context. Paragraph and section chunks are whole units already and are left alone, which keeps the prompt within Groq's small budget.
+
+## Extraction quality warnings (`quality.go`)
+
+After every index, `QualityWarnings` adds an admin-facing message to the document (shown on its row, badge "Ready" with a warning icon) when the file read badly:
+- **Glued words**: 2%+ of letters-only words are 18+ letters long ("priorityitemalsoreported").
+- **Undecodable characters**: 0.5%+ U+FFFD or private-use glyphs (custom font encoding). Lone Symbol-font bullets are converted first, so a normal Word résumé doesn't trigger it.
+- **Scanned pages**: a multi-page PDF with under 200 chars per page.
+- **Wall of text, no AI key only**: 4000+ chars and half or more of the chunks are windows, suggesting paragraph breaks or headings. With an AI key it is not a warning (UAT showed an orange "⚠ Ready" for a file that was fine): the summary lines compensate, and the row's "Writing AI summaries" line says what is happening.
+
+While summaries are being written the row shows "Writing AI summaries, N parts left" (`context_pending` from `GET /api/kb/documents`, polled every 8s), and the chunk preview shows each window's line.
 
 ## Search (`service.go`, `expand.go`)
 
@@ -77,11 +104,11 @@ Left nav → Settings → **Knowledge Base** (`/knowledge-base`), shown only to 
 
 - Drag and drop or "Upload files" (multiple); "Write a note" opens a Markdown editor (notes stay editable, files get "Upload a new version").
 - Each row: status badge (Indexing / Ready / Ready with warning / Failed with reason), chunk preview ("exactly what the bot can read"), re-index, delete via `ConfirmModal`.
-- Polls every 2.5s while anything is indexing.
+- Polls every 2.5s while anything is indexing, every 8s while AI summaries are being written.
 - "Try a question" runs the real search, so admins can check coverage before anyone asks the bot. Results clear when documents change.
 - Upload card (`KnowledgeBaseUpload.tsx`, always on the page, not a modal; design adapted from 21st.dev "File Upload Card"): drag and drop or browse, one request per file via XHR for real progress (`api.uploadKBFile`), then "Splitting into chunks" until the document is ready, failed (with reason) or rejected (unsupported type, too big, duplicate). Upload state lives in `hooks/useKBUploads.ts`; ✕ cancels an upload in flight, the bin deletes a finished document through `ConfirmModal`.
 - UAT-verified in dark/light and at 390px (no horizontal scroll, last row clears the PM Assistant bubble).
 
 ## Tables (`database/kb_migrations.go`)
 
-`kb_documents` (metadata, original bytes, content hash, status, error/warning, chunk/char counts, `embedded`) and `kb_chunks` (heading, content, generated `tsv` and `tsv_en` with GIN indexes, optional `embedding vector(768)` with HNSW index). Changing the embedding model or dimensions needs a new column and a re-index of every document.
+`kb_documents` (metadata, original bytes, content hash, status, error/warning, chunk/char counts, `embedded`) and `kb_chunks` (heading, content, `windowed`, `context`, generated `tsv`, `tsv_en` and `tsv_ctx` with GIN indexes, optional `embedding vector(768)` with HNSW index). Changing the embedding model or dimensions needs a new column and a re-index of every document.

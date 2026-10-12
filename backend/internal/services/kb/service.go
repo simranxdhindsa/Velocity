@@ -61,6 +61,7 @@ func ResumePending() {
 	if len(ids) > 0 {
 		log.Printf("[kb] resumed indexing of %d document(s)", len(ids))
 	}
+	kickContext() // context lines left unfinished by a restart
 }
 
 // Index (re)builds one document's chunks. Failures are recorded on the
@@ -99,9 +100,17 @@ func Index(ctx context.Context, docID string) error {
 	for i := range chunks {
 		chunks[i].Heading = withDocTitle(doc.Title, chunks[i].Heading)
 	}
+	// Context lines of unchanged windows survive a re-index, so "Index
+	// again" doesn't spend the AI budget writing them again.
+	known := repo.ExistingContexts(ctx, docID)
 	inputs := make([]database.KBChunkInput, len(chunks))
+	pendingContext := false
 	for i, c := range chunks {
-		inputs[i] = database.KBChunkInput{Heading: c.Heading, Content: c.Content}
+		inputs[i] = database.KBChunkInput{Heading: c.Heading, Content: c.Content, Windowed: c.Windowed}
+		if c.Windowed {
+			inputs[i].Context = known[c.Heading+"\x00"+c.Content]
+			pendingContext = pendingContext || inputs[i].Context == ""
+		}
 	}
 
 	// Without embeddings (no pgvector or no GEMINI_API_KEY, the normal
@@ -110,8 +119,12 @@ func Index(ctx context.Context, docID string) error {
 	warning := ""
 	if database.KBVectorEnabled() && EmbeddingsAvailable() {
 		texts := make([]string, len(chunks))
-		for i, c := range chunks {
-			texts[i] = EmbeddingText(c.Heading, c.Content)
+		for i, c := range inputs {
+			body := c.Content
+			if c.Context != "" {
+				body = c.Context + "\n" + body
+			}
+			texts[i] = EmbeddingText(c.Heading, body)
 		}
 		vecs, eerr := EmbedDocuments(ctx, doc.Title, texts)
 		if eerr != nil {
@@ -125,11 +138,17 @@ func Index(ctx context.Context, docID string) error {
 		}
 	}
 
+	if q := QualityWarnings(ex, chunks, expansionAvailable()); q != "" {
+		warning = strings.TrimSpace(q + " " + warning)
+	}
 	if err := repo.ReplaceChunks(ctx, docID, inputs, len(ex.Text), warning); err != nil {
 		return fail("could not save chunks: " + err.Error())
 	}
 	embedded := len(inputs) > 0 && inputs[0].Embedding != nil
 	log.Printf("[kb] indexed %q: %d chunks, %d chars, embedded=%v", doc.Title, len(inputs), len(ex.Text), embedded)
+	if pendingContext {
+		kickContext()
+	}
 	return nil
 }
 
@@ -296,8 +315,24 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 			}
 		}
 	}
-	if len(all) > limit {
-		all = all[:limit]
+	// A word only one candidate contains ("dhol" in "what is the dhol
+	// player's job?") is the most specific thing asked: keep that chunk
+	// second at worst. Measured live, Groq only: common words ("job" in
+	// "nightly job", "background jobs") outranked it and the bot said it
+	// didn't know. Embeddings had covered this; the Groq-only setup has none.
+	for _, id := range rareTermMatches(kwHits, terms) {
+		for i, f := range all {
+			if f.hit.ChunkID == id && i > 1 {
+				copy(all[2:i+1], all[1:i])
+				all[1] = f
+				break
+			}
+		}
+	}
+	// A few spare results, since withNeighbors folds neighbouring windows
+	// into the top hits and drops them from the list.
+	if len(all) > limit+2*neighborHits {
+		all = all[:limit+2*neighborHits]
 	}
 	out := make([]Hit, 0, len(all))
 	for _, f := range all {
@@ -313,7 +348,50 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 		}
 		out = append(out, h)
 	}
+	out = withNeighbors(ctx, out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	return out, nil
+}
+
+// rareTermMatches returns keyword hits that are the only candidate
+// containing one of the query words (at most two), when there are enough
+// candidates for "only one" to mean something.
+func rareTermMatches(hits []database.KBHit, terms []string) []int64 {
+	if len(hits) < 3 {
+		return nil
+	}
+	var ids []int64
+	for _, t := range terms {
+		if len(t) < 3 {
+			continue
+		}
+		stem := stemPrefix(t)
+		var only int64
+		n := 0
+		for _, h := range hits {
+			if strings.Contains(strings.ToLower(h.Heading+" "+h.Context+" "+h.Content), stem) {
+				only = h.ChunkID
+				if n++; n > 1 {
+					break
+				}
+			}
+		}
+		if n == 1 && len(ids) < 2 && !containsID(ids, only) {
+			ids = append(ids, only)
+		}
+	}
+	return ids
+}
+
+func containsID(ids []int64, id int64) bool {
+	for _, x := range ids {
+		if x == id {
+			return true
+		}
+	}
+	return false
 }
 
 // rankByCoverage reorders expansion hits by how many distinct expanded
@@ -430,11 +508,18 @@ func FormatForPrompt(hits []Hit, maxChars int) string {
 	}
 	var b strings.Builder
 	for _, h := range hits {
+		// Headings already start with the document title (see withDocTitle).
 		src := h.DocTitle
-		if h.Heading != "" {
+		if strings.HasPrefix(h.Heading, h.DocTitle) {
+			src = h.Heading
+		} else if h.Heading != "" {
 			src += " > " + h.Heading
 		}
-		entry := fmt.Sprintf("[Source: %s]\n%s\n\n", src, strings.TrimSpace(h.Content))
+		about := ""
+		if h.Context != "" {
+			about = "About: " + h.Context + "\n"
+		}
+		entry := fmt.Sprintf("[Source: %s]\n%s%s\n\n", src, about, strings.TrimSpace(h.Content))
 		if b.Len()+len(entry) > maxChars {
 			if b.Len() == 0 {
 				b.WriteString(entry[:maxChars])

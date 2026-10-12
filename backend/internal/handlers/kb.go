@@ -38,6 +38,10 @@ func (h *KBHandler) List(w http.ResponseWriter, r *http.Request) {
 		kbFail(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	pending := h.repo.PendingContextCount(r.Context())
+	for i := range docs {
+		docs[i].ContextPending = pending[docs[i].ID]
+	}
 	sendJSON(w, http.StatusOK, map[string]interface{}{
 		"success":              true,
 		"data":                 docs,

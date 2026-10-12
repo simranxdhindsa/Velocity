@@ -16,8 +16,9 @@ const (
 
 // Chunk is one searchable piece of a document.
 type Chunk struct {
-	Heading string // section path, e.g. "Team > Backend"
-	Content string
+	Heading  string // section path, e.g. "Team > Backend"
+	Content  string
+	Windowed bool // cut from an oversized paragraph (see windowText), gets an AI context line
 }
 
 var (
@@ -76,8 +77,8 @@ func splitParagraphs(paras []string) []Chunk {
 			pending = p
 			continue
 		}
-		if len(p) > ChunkMaxChars {
-			out = append(out, pack(heading, splitLong(p), true)...)
+		if len(p) > WindowFromChars {
+			out = append(out, windowText(heading, p)...)
 			continue
 		}
 		out = append(out, Chunk{Heading: heading, Content: p})

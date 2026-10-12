@@ -324,6 +324,16 @@
   color: var(--color-danger);
 }
 
+/* AI summaries for long, unstructured text being written in the background */
+.kb-doc-summarising {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--color-primary-light);
+  margin-top: 4px;
+}
+
 .kb-doc-actions {
   display: flex;
   align-items: center;
@@ -400,6 +410,29 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--color-primary-light);
+}
+
+/* One-line AI summary of a part cut from long text */
+.kb-chunk-about {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-bottom: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.kb-chunk-about svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-primary);
+}
+
+.kb-chunk-about--pending {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--text-muted);
 }
 
 .kb-chunk-body {
