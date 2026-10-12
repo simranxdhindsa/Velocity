@@ -1,0 +1,7 @@
+/* KPI row + delivery pipeline loading skeletons (mirror .pm-tracking-kpi / .spl-pipe-stage sizes) */
+.kpi-sk-card { display: flex; flex-direction: column; gap: 0; }
+.kpi-sk-lbl  { height: 10px; width: 45%; border-radius: 4px; margin-bottom: 12px; }
+.kpi-sk-val  { height: 32px; width: 38%; border-radius: 8px; margin-bottom: 10px; }
+.kpi-sk-bar  { height: 4px; width: 100%; border-radius: 4px; margin-bottom: 10px; }
+.kpi-sk-note { height: 11px; border-radius: 4px; }
+.kpi-sk-stage { width: 56px; height: 36px; border-radius: 6px; }

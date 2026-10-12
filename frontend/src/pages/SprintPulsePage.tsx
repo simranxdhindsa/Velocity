@@ -25,6 +25,7 @@ import { PulseSwimKanban, PrioritySwimKanban } from './SprintPulseKanban'
 import { ViewC, View1, View4, SkBoard, SkSignal } from './SprintPulseOtherViews'
 import { VIEW_MODES, ViewLive, SkLive } from './SprintPulseLive'
 import { CountUp } from '@/components/CountUp'
+import { KpiRowSkeleton, PipelineSkeleton } from '@/components/KpiRowSkeleton'
 
 export function SprintPulsePage() {
   const { config: wfConfig } = useWorkflowConfig()
@@ -189,7 +190,7 @@ export function SprintPulsePage() {
       </SprintControlsBar>
 
       <div className="db-content spl-content">
-        {summary && (
+        {loading ? <KpiRowSkeleton /> : summary && (
           <div className="pm-tracking-kpi-row">
             <div className="pm-tracking-kpi pm-tracking-kpi--green">
               <div className="pm-tracking-kpi-lbl">Completion</div>
@@ -232,36 +233,38 @@ export function SprintPulsePage() {
           </div>
         )}
 
-        <div className="spl-pipeline">
-          <span className="spl-pipeline-label">Delivery</span>
-          <div className="spl-pipe-stages">
-            <div className="spl-pipe-stage spl-pipe-stage--active">
-              <div className="spl-pipe-count"><CountUp value={stageCounts.active} /></div>
-              <div className="spl-pipe-lbl">Active</div>
+        {loading ? <PipelineSkeleton /> : (
+          <div className="spl-pipeline">
+            <span className="spl-pipeline-label">Delivery</span>
+            <div className="spl-pipe-stages">
+              <div className="spl-pipe-stage spl-pipe-stage--active">
+                <div className="spl-pipe-count"><CountUp value={stageCounts.active} /></div>
+                <div className="spl-pipe-lbl">Active</div>
+              </div>
+              <ChevronRight size={12} className="spl-pipe-arrow" />
+              <div className="spl-pipe-stage spl-pipe-stage--devdone">
+                <div className="spl-pipe-count"><CountUp value={stageCounts.devDone} /></div>
+                <div className="spl-pipe-lbl">Dev Done</div>
+              </div>
+              <ChevronRight size={12} className="spl-pipe-arrow" />
+              <div className="spl-pipe-stage spl-pipe-stage--stage">
+                <div className="spl-pipe-count"><CountUp value={stageCounts.stage} /></div>
+                <div className="spl-pipe-lbl">Stage</div>
+              </div>
+              <ChevronRight size={12} className="spl-pipe-arrow" />
+              <div className="spl-pipe-stage spl-pipe-stage--deployed">
+                <div className="spl-pipe-count"><CountUp value={stageCounts.deployed} /></div>
+                <div className="spl-pipe-lbl">Deployed</div>
+              </div>
             </div>
-            <ChevronRight size={12} className="spl-pipe-arrow" />
-            <div className="spl-pipe-stage spl-pipe-stage--devdone">
-              <div className="spl-pipe-count"><CountUp value={stageCounts.devDone} /></div>
-              <div className="spl-pipe-lbl">Dev Done</div>
-            </div>
-            <ChevronRight size={12} className="spl-pipe-arrow" />
-            <div className="spl-pipe-stage spl-pipe-stage--stage">
-              <div className="spl-pipe-count"><CountUp value={stageCounts.stage} /></div>
-              <div className="spl-pipe-lbl">Stage</div>
-            </div>
-            <ChevronRight size={12} className="spl-pipe-arrow" />
-            <div className="spl-pipe-stage spl-pipe-stage--deployed">
-              <div className="spl-pipe-count"><CountUp value={stageCounts.deployed} /></div>
-              <div className="spl-pipe-lbl">Deployed</div>
-            </div>
+            {stageCounts.blocked > 0 && (
+              <div className="spl-pipe-blocked">
+                <span className="spl-pipe-blocked-count"><CountUp value={stageCounts.blocked} /></span>
+                <span className="spl-pipe-blocked-lbl">blocked</span>
+              </div>
+            )}
           </div>
-          {stageCounts.blocked > 0 && (
-            <div className="spl-pipe-blocked">
-              <span className="spl-pipe-blocked-count"><CountUp value={stageCounts.blocked} /></span>
-              <span className="spl-pipe-blocked-lbl">blocked</span>
-            </div>
-          )}
-        </div>
+        )}
 
         {!activeSprint && !loading && (
           <div className="sp-no-sprint">

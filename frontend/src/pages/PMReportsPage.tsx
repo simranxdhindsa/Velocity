@@ -47,6 +47,7 @@ import FeatureGroupsView from '../components/FeatureGroupsView'
 import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import { useAuth } from '../contexts/AuthContext'
 import { CountUp } from '../components/CountUp'
+import { KpiRowSkeleton } from '../components/KpiRowSkeleton'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -2756,7 +2757,7 @@ function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: s
       </div>
 
       {/* ── KPI cards ── */}
-      {summary && (
+      {sprintId && loading ? <KpiRowSkeleton /> : summary && (
         <div className="pm-tracking-kpi-row">
           {/* Completion */}
           <button className={`pm-tracking-kpi pm-tracking-kpi--green pm-tracking-kpi--clickable${kpiDrawer === 'completion' ? ' pm-tracking-kpi--active' : ''}`}
