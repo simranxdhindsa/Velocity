@@ -413,7 +413,10 @@ func (s *Service) checkBlockedIssues(ctx context.Context) {
 				Summary  string
 				Assignee string
 			}{
-				ID:       issue.ID,
+				// IDReadable is the ticket ID people use (ARD-7279); issue.ID is
+				// YouTrack's internal database ID (3-7279) and meant nothing in
+				// the notification.
+				ID:       readableIssueID(issue),
 				Summary:  issue.Summary,
 				Assignee: assigneeName,
 			})
@@ -737,4 +740,13 @@ func (s *Service) getSetting(key, defaultValue string) string {
 		return defaultValue
 	}
 	return val
+}
+
+// readableIssueID returns the human ticket ID (e.g. ARD-7279), falling back
+// to YouTrack's internal ID only if the readable one is missing.
+func readableIssueID(issue youtrack.Issue) string {
+	if issue.IDReadable != "" {
+		return issue.IDReadable
+	}
+	return issue.ID
 }
