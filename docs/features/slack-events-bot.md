@@ -23,7 +23,7 @@ Handler: `internal/handlers/slack_events.go` (`SlackEventsHandler.Handle`).
 The bot used to answer every message in isolation. Now, before each reply, `buildSlackBotContext` re-reads the conversation from Slack and replays it to the model as prior turns. Slack is the memory, nothing is stored on our side.
 
 - **Thread reply** (DM or channel): the whole thread via `conversations.replies`. Root plus the newest 29 replies are kept.
-- **DM, not in a thread**: top-level messages from the 6 hours before the message being answered.
+- **DM, not in a thread**: the last 6 messages always (however old), plus any others from the 6 hours before the message being answered. When the previous message is older than 6 hours, a note tells the model how long ago it was. Measured live: with a time window alone, "what is this" three days after a "New ticket assigned to you: ARD-3033" DM got no history and a clueless reply.
 - **Fresh @mention in a channel**: no history on purpose (no unrelated channel chatter in replies).
 - Own messages are matched by `BotIdentity` (auth.test `user_id`/`bot_id`, cached per token) and become `assistant` turns; humans and other apps become `user` turns (prefixed with the author name outside DMs).
 - Budget: ~12k chars of history, newest first, thread root always kept (cap 3k chars), 1.5k per message.

@@ -25,6 +25,7 @@ const (
 	slackCtxMsgMaxChars  = 1500            // per message cap
 	slackCtxRootMax      = 3000            // thread root cap (often a long MCP-sent update)
 	slackCtxDMWindow     = 6 * time.Hour   // DM history window when not in a thread
+	slackCtxDMAlwaysKeep = 6               // latest DM messages kept regardless of age
 	slackCtxFetchTimeout = 8 * time.Second // never let history fetching stall a reply
 )
 
@@ -91,11 +92,36 @@ func buildSlackBotContext(ctx context.Context, client *slacksvc.Client, ev slack
 		if latest == 0 {
 			latest = time.Now().Unix()
 		}
-		// Window is measured back from the message being answered.
+		// The last few messages are always kept, however old: a reply is
+		// about whatever came right before it. Measured live: "what is this"
+		// three days after a "New ticket assigned to you: ARD-3033" DM got no
+		// history at all from a time window alone, and a clueless reply.
+		// Beyond those, only messages within slackCtxDMWindow are added.
+		newestFirst, _, err = client.GetHistoryPaged(ctx, ev.Channel, 0, latest, slackCtxMaxMessages)
 		oldest := latest - int64(slackCtxDMWindow/time.Second)
-		newestFirst, _, err = client.GetHistoryPaged(ctx, ev.Channel, oldest, latest, slackCtxMaxMessages)
+		kept := 0
+		for i, m := range newestFirst {
+			if i >= slackCtxDMAlwaysKeep && slackTSUnix(m.TS) < oldest {
+				break
+			}
+			kept = i + 1
+		}
+		newestFirst = newestFirst[:kept]
 		for i := len(newestFirst) - 1; i >= 0; i-- {
 			msgs = append(msgs, newestFirst[i])
+		}
+		// Say how old the context is, so a days-old message is not treated
+		// as if it was just said.
+		// newestFirst ends before ev.TS (latest bound), so [0] is the
+		// message right before the one being answered.
+		if len(newestFirst) > 0 {
+			prev := newestFirst[0]
+			if prev.TS == ev.TS && len(newestFirst) > 1 {
+				prev = newestFirst[1]
+			}
+			if gap := latest - slackTSUnix(prev.TS); prev.TS != ev.TS && gap > int64(slackCtxDMWindow/time.Second) {
+				out.Notes = append(out.Notes, "The message before this one was sent "+humanGap(gap)+" ago, so this may be a late reply to it.")
+			}
 		}
 	default:
 		// A fresh @mention in a channel: no history on purpose, so the bot
@@ -305,4 +331,16 @@ func systemPromptWithContext(base string, c slackBotContext, extra ...string) st
 		}
 	}
 	return b.String()
+}
+
+// humanGap renders a duration in seconds as "3 days" / "5 hours".
+func humanGap(sec int64) string {
+	h := sec / 3600
+	if h >= 48 {
+		return fmt.Sprintf("%d days", h/24)
+	}
+	if h >= 2 {
+		return fmt.Sprintf("%d hours", h)
+	}
+	return fmt.Sprintf("%d minutes", sec/60)
 }

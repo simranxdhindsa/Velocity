@@ -41,3 +41,11 @@ func TestSystemPromptWithContext(t *testing.T) {
 		}
 	}
 }
+
+func TestHumanGap(t *testing.T) {
+	for sec, want := range map[int64]string{3 * 86400: "3 days", 5 * 3600: "5 hours", 600: "10 minutes"} {
+		if got := humanGap(sec); got != want {
+			t.Fatalf("humanGap(%d) = %q, want %q", sec, got, want)
+		}
+	}
+}
