@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -80,6 +81,42 @@ func (c *Client) WorkspaceURL(ctx context.Context) (string, error) {
 		return "", slackReadError(resp.Error, resp.Needed)
 	}
 	return resp.URL, nil
+}
+
+// BotIdentity is the bot's own Slack user ID and bot ID, used to tell the
+// bot's own past messages apart from other people and other apps.
+type BotIdentity struct {
+	UserID string
+	BotID  string
+}
+
+var botIdentityCache sync.Map // bot token -> BotIdentity
+
+// BotIdentity returns the identity behind this client's bot token
+// (auth.test), cached per token for the life of the process since it never
+// changes for a given token.
+func (c *Client) BotIdentity(ctx context.Context) (BotIdentity, error) {
+	if v, ok := botIdentityCache.Load(c.botToken); ok {
+		return v.(BotIdentity), nil
+	}
+	body, err := c.doRequest(ctx, http.MethodPost, "/auth.test", nil)
+	if err != nil {
+		return BotIdentity{}, err
+	}
+	var resp struct {
+		readResponse
+		UserID string `json:"user_id"`
+		BotID  string `json:"bot_id"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return BotIdentity{}, fmt.Errorf("failed to unmarshal auth.test: %w", err)
+	}
+	if !resp.OK {
+		return BotIdentity{}, slackReadError(resp.Error, resp.Needed)
+	}
+	id := BotIdentity{UserID: resp.UserID, BotID: resp.BotID}
+	botIdentityCache.Store(c.botToken, id)
+	return id, nil
 }
 
 // GetConversationInfo returns basic info about a conversation

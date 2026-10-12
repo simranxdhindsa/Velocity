@@ -174,9 +174,12 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 	velocityUserID := resolveVelocityUser(ctx, senderEmail)
 
 	actorLabel := slackActorLabel(ev)
-	systemPrompt := slackReplyPrompt(ctx, h.botRepo)
 	start := time.Now()
-	reply, err := groqFunnyReply(ctx, systemPrompt, ev.Text, actorLabel)
+	// Conversation memory: replay the thread / recent DM so follow-ups like
+	// "what is this?" have context (see slack_bot_context.go).
+	convo := buildSlackBotContext(ctx, client, ev)
+	systemPrompt := systemPromptWithContext(slackReplyPrompt(ctx, h.botRepo), convo)
+	reply, err := groqFunnyReply(ctx, systemPrompt, convo.History, convo.framedUserText(ev.Text), actorLabel)
 	elapsed := time.Since(start).Round(time.Millisecond)
 	logSlackBotReply(actorLabel, ev.Text, reply, err, elapsed)
 
@@ -209,8 +212,9 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 	}
 
 	// In a channel (@mention), reply in-thread so it doesn't spam the channel;
-	// in a DM, just post normally.
-	if isMentionEvent := ev.Type == "app_mention"; isMentionEvent {
+	// in a DM, post normally unless the person replied inside a thread, then
+	// answer in that same thread.
+	if isMentionEvent := ev.Type == "app_mention"; isMentionEvent || ev.ThreadTS != "" {
 		threadTS := ev.ThreadTS
 		if threadTS == "" {
 			threadTS = ev.TS
@@ -305,15 +309,17 @@ func logSlackBotReply(actorLabel, incoming, reply string, err error, elapsed tim
 // report generation (temperature 0); a funny auto-reply wants actual variety.
 // Supports one round of tool-calling so the model can look up real YouTrack
 // ticket data via slackBotTools instead of inventing it.
-func groqFunnyReply(ctx context.Context, systemPrompt, userText, actorLabel string) (string, error) {
+// history is the earlier conversation (oldest first, from
+// buildSlackBotContext), replayed before the new message.
+func groqFunnyReply(ctx context.Context, systemPrompt string, history []groqMessage, userText, actorLabel string) (string, error) {
 	if strings.TrimSpace(userText) == "" {
 		userText = "(sent an empty message)"
 	}
 
-	messages := []groqMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userText},
-	}
+	messages := make([]groqMessage, 0, len(history)+2)
+	messages = append(messages, groqMessage{Role: "system", Content: systemPrompt})
+	messages = append(messages, history...)
+	messages = append(messages, groqMessage{Role: "user", Content: userText})
 
 	res, err := callGroqChatCompletion(ctx, messages, true)
 	if err != nil {

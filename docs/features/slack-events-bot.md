@@ -16,7 +16,22 @@ Handler: `internal/handlers/slack_events.go` (`SlackEventsHandler.Handle`).
 2. For `type: "event_callback"`, Velocity acks with `200 OK` immediately (Slack requires a response within 3s and retries aggressively on timeout, which would otherwise cause duplicate replies), then handles the event in a goroutine.
 3. Only `message` events with `channel_type: "im"` (a real 1:1 DM) or `app_mention` events are handled. Anything with `bot_id` set, `subtype: "bot_message"`, or no `user` is ignored — this is what stops Velocity from replying to its own messages and looping forever.
 4. The bot token to reply with is resolved via `IntegrationRepository.GetSlackIntegrationByTeamID(teamID)` — Velocity's Slack integration is stored per-Velocity-user, but everyone in a workspace pastes the same bot token, so any one connected row for that `team_id` works as "the" credential for a workspace-wide inbound event (which has no Velocity user context of its own).
-5. `slackReplyPrompt(ctx, botRepo)` fetches the persona/system prompt from `bot_configs` (see "Configurable persona" below), then `groqFunnyReply(ctx, systemPrompt, userText)` calls Groq (`openai/gpt-oss-20b`) and posts the reply back — a DM gets a plain reply, an `app_mention` gets a thread reply (so it doesn't spam the channel).
+5. `slackReplyPrompt(ctx, botRepo)` fetches the persona/system prompt from `bot_configs` (see "Configurable persona" below), the conversation context is built (see below), then `groqFunnyReply(ctx, systemPrompt, history, userText, actor)` calls Groq (`openai/gpt-oss-20b`) and posts the reply back — a DM gets a plain reply, an `app_mention` gets a thread reply (so it doesn't spam the channel).
+
+## Conversation memory (`slack_bot_context.go`)
+
+The bot used to answer every message in isolation. Now, before each reply, `buildSlackBotContext` re-reads the conversation from Slack and replays it to the model as prior turns. Slack is the memory, nothing is stored on our side.
+
+- **Thread reply** (DM or channel): the whole thread via `conversations.replies`. Root plus the newest 29 replies are kept.
+- **DM, not in a thread**: top-level messages from the 6 hours before the message being answered.
+- **Fresh @mention in a channel**: no history on purpose (no unrelated channel chatter in replies).
+- Own messages are matched by `BotIdentity` (auth.test `user_id`/`bot_id`, cached per token) and become `assistant` turns; humans and other apps become `user` turns (prefixed with the author name outside DMs).
+- Budget: ~12k chars of history, newest first, thread root always kept (cap 3k chars), 1.5k per message.
+- **Origin note**: for the bot message being discussed (thread root, or the bot's latest DM message), `database.FindSlackMessageOrigin` checks `pending_slack_messages` (Claude Queue and instant MCP sends, including DMs, which store no channel) and `sent_slack_messages`, and the system prompt says e.g. "sent through Claude on behalf of Simran". Ticket IDs in it are listed with an instruction to `get_ticket` them.
+- **Thread frame**: in a thread, a short "(Context: this message is a reply in a thread that X started with ...)" is prepended to the incoming message itself, not the system prompt. Tested live: `gpt-oss-20b` weighs the last turn far more than system text, and with the note only in the system prompt it kept roasting "what is this?" as vague.
+- The context section also overrides the persona's "roast vague messages" rule for follow-ups that have context.
+- Every fetch failure (missing `im:history`/`channels:history` scope, timeout of 8s) degrades to the old single-message behaviour.
+- A DM reply inside a thread is now posted into that thread.
 
 ## Configurable persona (not hardcoded)
 
