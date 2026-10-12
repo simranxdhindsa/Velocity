@@ -507,8 +507,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
             <h2 className="idp-title">{issue.summary}</h2>
 
             <div className="idp-meta-line">
-              {issue.created ? <span>Created {fmtDateTime(issue.created)}</span> : null}
-              {issue.updated ? <span>· Updated {fmtDateTime(issue.updated)}</span> : null}
+              {issue.created ? <span>Created {fmtDateTime(issue.created)}{issue.created_by ? ` by ${issue.created_by}` : ''}</span> : null}
+              {issue.updated ? <span>· Updated {fmtDateTime(issue.updated)}{issue.updated_by ? ` by ${issue.updated_by}` : ''}</span> : null}
             </div>
 
             {issue.description && (
@@ -974,11 +974,15 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
 
               <div className="idp-meta-row">
                 <span className="idp-meta-label">Created</span>
-                <span className="idp-meta-value idp-meta-value--sm">{fmtDateTime(issue.created)}</span>
+                <span className="idp-meta-value idp-meta-value--sm">
+                  {fmtDateTime(issue.created)}{issue.created_by ? <><br />by {issue.created_by}</> : null}
+                </span>
               </div>
               <div className="idp-meta-row">
                 <span className="idp-meta-label">Updated</span>
-                <span className="idp-meta-value idp-meta-value--sm">{fmtDateTime(issue.updated)}</span>
+                <span className="idp-meta-value idp-meta-value--sm">
+                  {fmtDateTime(issue.updated)}{issue.updated_by ? <><br />by {issue.updated_by}</> : null}
+                </span>
               </div>
               {transitions.length > 0 && (
                 <div className="idp-meta-row">

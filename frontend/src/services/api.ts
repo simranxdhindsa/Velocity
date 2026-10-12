@@ -2338,6 +2338,8 @@ export interface YouTrackIssue {
   assignee?: YouTrackUser
   created: number
   updated: number
+  created_by?: string
+  updated_by?: string
   attachments?: YouTrackAttachment[]
   permalink?: string
   section?: string

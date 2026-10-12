@@ -801,6 +801,8 @@ func (h *YouTrackHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 			"assignee":    assignee,
 			"created":     issue.Created,
 			"updated":     issue.Updated,
+			"created_by":  userDisplayName(issue.Reporter),
+			"updated_by":  userDisplayName(issue.Updater),
 			"attachments": issue.Attachments,
 			"sprint":      sprintName,
 			"board":       boardName,
@@ -5790,4 +5792,15 @@ func (h *YouTrackHandler) GetCarryover(w http.ResponseWriter, r *http.Request) {
 			"today_date":     today,
 		},
 	})
+}
+
+// userDisplayName returns a YouTrack user's full name, falling back to login.
+func userDisplayName(u *youtrack.User) string {
+	if u == nil {
+		return ""
+	}
+	if u.FullName != "" {
+		return u.FullName
+	}
+	return u.Login
 }
