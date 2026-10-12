@@ -480,3 +480,9 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - Velocity: long Slack messages split across multiple messages instead of being truncated
 - Velocity: Slack send/queue/delete tools accept raw conversation IDs for group DMs and other unnamed destinations
 
+
+### 2026-10-12
+- Velocity: Slack bot conversation memory, replays the thread / recent DM from Slack and explains messages sent through Claude (`slack_bot_context.go`)
+- Velocity: team knowledge base backend, file extraction (md/pdf/docx/pptx/xlsx/csv/json/html/txt), heading-aware chunking, Gemini embeddings + pgvector, hybrid search with calibrated cutoff, per-document visibility (`services/kb/`)
+- Velocity: Slack bot answers from the knowledge base, admins-only docs only for admins; `search_knowledge_base` MCP tool
+- Velocity: admin Knowledge Base page (upload, notes, visibility, chunk preview, try-a-question), UAT-verified
