@@ -9,6 +9,8 @@
 
 
 ### Enhancements
+- Every message in Velocity now shows formatted, including the Slack inbox, Velocity Bot conversations, notifications, reminder notes and saved templates
+- Messages in Update Reminders and Slack Messages now show formatted, with real tables, bold text and names instead of raw Markdown
 - Knowledge base splits PDFs and text documents by paragraph, one person or topic per chunk, so answers about who did what are accurate
 - Remove the Refresh button from the Knowledge Base page, it updates on its own
 - Knowledge base works with Groq alone, understanding reworded questions without a Gemini key, gives everyone the same answers, and pages no longer show a needless scrollbar
