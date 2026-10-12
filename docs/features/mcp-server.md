@@ -33,7 +33,7 @@ Per-user integration board, then the org-wide `youtrack_board_id` setting, then 
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered), `generate_deployment_report` (read-only deployment report for chosen columns, with exclusions).
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments and images), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `search_knowledge_base` (read-only: the admin team knowledge base, admins-only docs only for admin callers), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered), `generate_deployment_report` (read-only deployment report for chosen columns, with exclusions).
 
 ### `read_slack_messages` / `get_slack_mentions` notes (read-only)
 
@@ -177,6 +177,10 @@ Read-only view of a user's DayTrack log. Files: `mcp_tool_get_daytrack.go` (sche
 - Totals count top-level entries only. Subtasks are nested under their parent and not added again, same as the DayTrack page export. Duration is `duration_mins`, or end minus start when only times were saved (`duration_from_times: true`). Entries with neither count as 0.
 - Times are normalised to 12-hour (`9:03 AM`), including legacy `HH:MM` values. Emoji comes from `categoryEmoji` (built-in map, then the user's custom category icon, then `▪️`).
 - `ticket_ids` combines `youtrack_issue_id`, `external_ref` (`yt-tested-ARD-1-prod`, `yt-create-ARD-1`) and any `ABC-123` IDs in the name or notes.
+
+### `search_knowledge_base` notes
+
+Params: `query` (required), `limit` (1-10, default 5). Hybrid keyword + meaning search over the admin knowledge base, same `kb.Search` the Slack bot uses. Admins-only documents are included only when the caller's Velocity role is admin. File: `mcp_tool_search_knowledge_base.go`. Full feature: [`knowledge-base.md`](knowledge-base.md).
 
 ### `whoami` notes
 

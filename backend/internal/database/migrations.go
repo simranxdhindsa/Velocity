@@ -1786,6 +1786,8 @@ STRICT RULES
 		}
 	}
 
+	RunKBMigrations(ctx)
+
 	log.Println("Database migrations completed successfully")
 	return nil
 }

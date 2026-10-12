@@ -33,6 +33,10 @@ The bot used to answer every message in isolation. Now, before each reply, `buil
 - Every fetch failure (missing `im:history`/`channels:history` scope, timeout of 8s) degrades to the old single-message behaviour.
 - A DM reply inside a thread is now posted into that thread.
 
+## Team knowledge base
+
+Each reply also searches the admin knowledge base with the incoming message (`slack_bot_kb.go`) and adds matching excerpts to the system prompt as reference data, plus a `search_knowledge_base` bot tool. Admins-only documents are used only when the Slack sender maps to a Velocity admin. Details: [`knowledge-base.md`](knowledge-base.md).
+
 ## Configurable persona (not hardcoded)
 
 The system prompt is a `bot_configs` row (`bot_type = 'slack_reply'`), reusing the same generic bot-config system that already powers Daily Report/Stage Report/Ticket Parser etc. — not a string constant in Go. Seeded once by a migration in `migrations.go` (`WHERE NOT EXISTS (SELECT 1 FROM bot_configs WHERE bot_type = 'slack_reply')`, same pattern every other bot type uses), then read fresh on every reply via `slackReplyPrompt()` (`slack_events.go`), so an edit takes effect on the very next DM/mention with no redeploy or restart.

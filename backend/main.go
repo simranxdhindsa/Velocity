@@ -14,6 +14,7 @@ import (
 	"github.com/dhindsa/project-management/internal/handlers"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
+	"github.com/dhindsa/project-management/internal/services/kb"
 	"github.com/dhindsa/project-management/internal/services/scheduler"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -564,6 +565,26 @@ func main() {
 	slackBotConvRoutes.HandleFunc("", slackBotConvHandler.List).Methods("GET")
 	// Keep only the last 30 days of Slack bot conversation history
 	handlers.RunSlackBotConversationPruner(database.NewSlackBotConversationRepository())
+
+	// Team knowledge base (admin only). Answers reach everyone through the
+	// Slack bot and MCP, filtered by each document's visibility.
+	kbHandler := handlers.NewKBHandler()
+	kbRoutes := api.PathPrefix("/kb").Subrouter()
+	kbRoutes.Use(middleware.AuthMiddleware)
+	kbRoutes.Use(middleware.AdminOnly)
+	kbRoutes.HandleFunc("/documents", kbHandler.List).Methods("GET")
+	kbRoutes.HandleFunc("/documents", kbHandler.Upload).Methods("POST")
+	kbRoutes.HandleFunc("/documents/{id}", kbHandler.Update).Methods("PATCH")
+	kbRoutes.HandleFunc("/documents/{id}", kbHandler.Delete).Methods("DELETE")
+	kbRoutes.HandleFunc("/documents/{id}/file", kbHandler.ReplaceFile).Methods("PUT")
+	kbRoutes.HandleFunc("/documents/{id}/reindex", kbHandler.Reindex).Methods("POST")
+	kbRoutes.HandleFunc("/documents/{id}/chunks", kbHandler.Chunks).Methods("GET")
+	kbRoutes.HandleFunc("/documents/{id}/text", kbHandler.Text).Methods("GET")
+	kbRoutes.HandleFunc("/notes", kbHandler.CreateNote).Methods("POST")
+	kbRoutes.HandleFunc("/notes/{id}", kbHandler.UpdateNote).Methods("PUT")
+	kbRoutes.HandleFunc("/search", kbHandler.Search).Methods("GET")
+	// Finish indexing anything a restart interrupted
+	go kb.ResumePending()
 
 	// Start pending-messages scheduler (fires due Slack messages every 60s)
 	handlers.RunPendingMessagesScheduler(notifHandler)

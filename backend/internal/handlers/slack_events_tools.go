@@ -137,6 +137,8 @@ func slackBotToolActionLabel(name string) string {
 		return "Slack Bot fetched ticket"
 	case "check_message_history":
 		return "Slack Bot checked message history"
+	case "search_knowledge_base":
+		return "Slack Bot searched knowledge base"
 	default:
 		return "Slack Bot tool call"
 	}
@@ -146,6 +148,11 @@ func slackBotToolActionLabel(name string) string {
 // reports an explicit success flag based on what actually happened, rather
 // than leaving the caller to infer success/failure from the result string.
 func executeSlackBotToolInner(ctx context.Context, name string, argsJSON string) (string, bool) {
+	// The knowledge base doesn't need YouTrack, so it must work even when
+	// YouTrack isn't configured (see slack_bot_kb.go).
+	if name == "search_knowledge_base" {
+		return runSlackBotKBTool(ctx, argsJSON)
+	}
 	client := slackYTClient(ctx)
 	if client == nil {
 		return "YouTrack is not configured, ticket lookups are unavailable right now.", false
