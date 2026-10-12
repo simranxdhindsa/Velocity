@@ -236,14 +236,14 @@ func TestSoleFullMatch(t *testing.T) {
 func TestPDFParagraphsFromBlankRowsAndGaps(t *testing.T) {
 	// Blank-row breaks (like the Ardoise ops log) and a gap-only break.
 	lines := []pdfLine{
-		{800, "Date: 06 December 2025"},
-		{776, ""},
-		{753, "Arpit, the DevOps engineer, rebooted a staging node at 2:42 PM. A total of fifty-"},
-		{732, "one employees attended."},
-		{711, ""},
-		{690, "Parv tested the onboarding flow."},
-		{640, "Amrinder visited the team."}, // 50 vs typical 21: paragraph gap
-		{619, "He reviewed integration results."},
+		{y: 800, text: "Date: 06 December 2025"},
+		{y: 776, text: ""},
+		{y: 753, text: "Arpit, the DevOps engineer, rebooted a staging node at 2:42 PM. A total of fifty-"},
+		{y: 732, text: "one employees attended."},
+		{y: 711, text: ""},
+		{y: 690, text: "Parv tested the onboarding flow."},
+		{y: 640, text: "Amrinder visited the team."}, // 50 vs typical 21: paragraph gap
+		{y: 619, text: "He reviewed integration results."},
 	}
 	got := pdfParagraphs(lines)
 	want := []string{
@@ -278,5 +278,19 @@ func TestWithDocTitle(t *testing.T) {
 	if withDocTitle("Ops Log", "") != "Ops Log" || withDocTitle("Ops Log", "Date: 6 Dec") != "Ops Log > Date: 6 Dec" ||
 		withDocTitle("Team", "Team > Backend") != "Team > Backend" {
 		t.Fatal("withDocTitle wrong")
+	}
+}
+
+func TestUnglueSentences(t *testing.T) {
+	cases := map[string]string{
+		"a known fact of office life.Sandeep Kaur": "a known fact of office life. Sandeep Kaur",
+		"Done!Next up":                             "Done! Next up",
+		"see apyhub.com and e.g. this":             "see apyhub.com and e.g. this",
+		"Version 2.Released":                       "Version 2.Released", // digit before the dot: left alone
+	}
+	for in, want := range cases {
+		if got := unglueSentences(in); got != want {
+			t.Fatalf("unglueSentences(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

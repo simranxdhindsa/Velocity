@@ -13,7 +13,13 @@ Upload → stored as-is in `kb_documents.original` → background `Index`: `Extr
 
 **Supported files** (`extract.go`): `.md .markdown .txt .text .log .rst .yaml .yml .csv .tsv .json .xml .html .htm .pdf .docx .pptx .xlsx`, 15 MB each. Office files are parsed as zipped XML with the standard library; PDFs use `github.com/ledongthuc/pdf` (text layer only, scanned PDFs are rejected with a clear message, no OCR). Images are not supported.
 
-**PDF paragraphs** (`pdfParagraphs`): a PDF stores lines, not paragraphs. They are rebuilt from the library's row positions: a blank row, or a vertical gap over 1.6x the page's median line spacing, starts a paragraph. Lines inside a paragraph are re-joined into flowing text (a line ending in "-" joins without a space, so "fifty-" + "one" stays "fifty-one"). Without this, the Ardoise operations log PDF (9 paragraphs, one per person) came out as 3 size-cut chunks starting mid-sentence ("He also verified ...") with the person's name in another chunk. `pdftotext` (poppler) was not used: it is an external binary that would have to be installed in the Docker image, for the same result.
+**PDF paragraphs** (`pdfParagraphs`): a PDF stores lines, not paragraphs. They are rebuilt from the library's row positions: a blank row, or a vertical gap over 1.6x the page's median line spacing, starts a paragraph. Lines inside a paragraph are re-joined into flowing text (a line ending in "-" joins without a space, so "fifty-" + "one" stays "fifty-one"). Without this, the Ardoise operations log PDF (9 paragraphs, one per person) came out as 3 size-cut chunks starting mid-sentence ("He also verified ...") with the person's name in another chunk. `pdftotext` (poppler) was not used: it is an external binary that would have to be installed in the Docker image.
+
+**Two line readers, chosen per page** (`pdfLinesForPage`): the library's `GetTextByRow` reads most PDFs well, but on PDFs that position text with transformation matrices (the Ardoise ops log v3) it collapses ~50 lines into ~5 "rows" with no spaces between them ("priorityitem") and in the wrong order. Lines rebuilt from glyph coordinates (`pdfPageLines`) fix those PDFs but garble others with kerning quirks (the first Ardoise log). Glyph lines are used only when rows clearly collapsed (fewer than half as many rows as glyph lines).
+
+**Paragraph breaks** in PDFs: a blank row, a gap over 1.6x the page's line spacing (25th percentile of gaps, not the median: pages full of short profiles pushed the median up until real gaps stopped clearing it), or a bold line after normal text (a heading like "Kanav, Developer Advocate, ApyHub").
+
+**Unglued sentences** (`unglueSentences`): "life.Sandeep" becomes "life. Sandeep". Measured on production: Postgres indexed the glued form as one host-like token `life.sandeep`, so the bot's search for "Sandeep" found nothing and it said it didn't know.
 
 **Structure-aware extraction:**
 - CSV/TSV/XLSX rows become `Header: value; Header: value` lines, so a roster row stays meaningful alone.
@@ -21,7 +27,7 @@ Upload → stored as-is in `kb_documents.original` → background `Index`: `Extr
 - HTML and Word headings become Markdown headings; PowerPoint gets `## Slide N` per slide.
 
 **Chunking** (`chunk.go`):
-- **Plain text and PDFs: one chunk per paragraph** (a paragraph is usually one person or topic). Paragraphs under 200 chars merge into the next; only paragraphs over 2200 chars are split, by sentence. A short single first line (a title or "Date: 06 December 2025") becomes the heading of every chunk. The Ardoise ops log now gives 10 chunks, one per person/topic.
+- **Plain text and PDFs: one chunk per paragraph** (a paragraph is usually one person or topic). Fragments under 100 chars (a lone heading line) merge into the next; one-sentence profiles (~150 chars) stay separate; only paragraphs over 2200 chars are split, by sentence. A short single first line (a title or "Date: 06 December 2025") becomes the heading of every chunk. The Ardoise ops log now gives 10 chunks, one per person/topic.
 - **Markdown/HTML/Word**: split on headings, heading path kept (`Team > Backend`), paragraphs packed to ~1600 chars (2200 max, 200 overlap); tiny sibling sections are merged with their names kept as labels; headings in code fences are ignored.
 - **Tables**: one record per line, no overlap.
 - Every chunk's heading is prefixed with the document title (`withDocTitle`, in `Index`), so a chunk says where it came from when read or searched on its own.
@@ -73,6 +79,7 @@ Left nav → Settings → **Knowledge Base** (`/knowledge-base`), shown only to 
 - Each row: status badge (Indexing / Ready / Ready with warning / Failed with reason), chunk preview ("exactly what the bot can read"), re-index, delete via `ConfirmModal`.
 - Polls every 2.5s while anything is indexing.
 - "Try a question" runs the real search, so admins can check coverage before anyone asks the bot. Results clear when documents change.
+- Upload card (`KnowledgeBaseUpload.tsx`, always on the page, not a modal; design adapted from 21st.dev "File Upload Card"): drag and drop or browse, one request per file via XHR for real progress (`api.uploadKBFile`), then "Splitting into chunks" until the document is ready, failed (with reason) or rejected (unsupported type, too big, duplicate). Upload state lives in `hooks/useKBUploads.ts`; ✕ cancels an upload in flight, the bin deletes a finished document through `ConfirmModal`.
 - UAT-verified in dark/light and at 390px (no horizontal scroll, last row clears the PM Assistant bubble).
 
 ## Tables (`database/kb_migrations.go`)

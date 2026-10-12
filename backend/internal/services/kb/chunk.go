@@ -50,7 +50,7 @@ func Split(kind Kind, text string) []Chunk {
 // the size target instead cut a real operations log mid-paragraph, leaving
 // chunks that started "He also verified ..." with the name in another chunk.
 const (
-	ChunkMinChars   = 200 // smaller paragraphs merge into the next one
+	ChunkMinChars   = 100 // smaller fragments (a lone heading line) merge into the next paragraph
 	titleLineMaxLen = 100
 )
 
