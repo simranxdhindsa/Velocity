@@ -2089,6 +2089,34 @@ class ApiService {
     return this.sendForm<KBUploadResult[]>('/kb/documents', 'POST', fd)
   }
 
+  // One file with real upload progress (XHR, since fetch has no upload
+  // progress events). Used by the Knowledge Base upload dialog.
+  uploadKBFile(file: File, onProgress: (pct: number) => void): { promise: Promise<KBUploadResult>; abort: () => void } {
+    const xhr = new XMLHttpRequest()
+    const promise = new Promise<KBUploadResult>((resolve, reject) => {
+      const fd = new FormData()
+      fd.append('files', file, file.name)
+      xhr.open('POST', `${API_URL}/kb/documents`)
+      if (this.token) xhr.setRequestHeader('Authorization', `Bearer ${this.token}`)
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+      xhr.onload = () => {
+        let data: { message?: string; data?: KBUploadResult[] } = {}
+        try { data = JSON.parse(xhr.responseText) } catch { /* handled below */ }
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(data.message || `Upload failed (${xhr.status})`))
+          return
+        }
+        resolve(data.data?.[0] ?? { filename: file.name, error: 'No response from server' })
+      }
+      xhr.onerror = () => reject(new Error('Network error, check your connection'))
+      xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'))
+      xhr.send(fd)
+    })
+    return { promise, abort: () => xhr.abort() }
+  }
+
   async replaceKBFile(id: string, file: File) {
     const fd = new FormData()
     fd.append('file', file, file.name)

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookOpen, Upload, StickyNote, Shield, Sparkles, XCircle, CheckCircle2 } from 'lucide-react'
+import { BookOpen, Shield, Sparkles, XCircle, CheckCircle2 } from 'lucide-react'
 import api from '@/services/api'
 import type { KBDocument } from '@/services/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { KBDocRow, KBNoteEditor, KBTrySearch, KnowledgeBaseSkeleton } from './KnowledgeBaseParts'
-import { formatBytes } from './knowledge-base-types'
+import { KBUploadCard } from './KnowledgeBaseUpload'
+import { useKBUploads } from '@/hooks/useKBUploads'
+import type { KBUploadItem } from '@/hooks/useKBUploads'
 import '@/styles/pages/knowledge-base.css'
 
 const DEFAULT_EXTS = ['.md', '.txt', '.csv', '.json', '.html', '.pdf', '.docx', '.pptx', '.xlsx']
@@ -28,13 +30,10 @@ export function KnowledgeBasePage() {
   const [exts, setExts] = useState<string[]>(DEFAULT_EXTS)
   const [maxBytes, setMaxBytes] = useState(15 * 1024 * 1024)
 
-  const [uploading, setUploading] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
   const [notices, setNotices] = useState<Notice[]>([])
   const [noteEditor, setNoteEditor] = useState<{ doc: KBDocument | null } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<KBDocument | null>(null)
 
-  const fileInput = useRef<HTMLInputElement>(null)
   const replaceInput = useRef<HTMLInputElement>(null)
   const replaceTarget = useRef<KBDocument | null>(null)
 
@@ -67,43 +66,16 @@ export function KnowledgeBasePage() {
 
   const notify = (n: Notice[]) => setNotices(n)
 
-  const uploadFiles = async (files: File[]) => {
-    if (files.length === 0) return
-    const tooBig = files.filter(f => f.size > maxBytes)
-    const ok = files.filter(f => f.size <= maxBytes)
-    const pre: Notice[] = tooBig.map(f => ({ kind: 'error', text: `${f.name}: larger than ${formatBytes(maxBytes)}` }))
-    if (ok.length === 0) {
-      notify(pre)
-      return
-    }
-    setUploading(true)
-    try {
-      const r = await api.uploadKBDocuments(ok)
-      const results = r.data ?? []
-      notify([
-        ...pre,
-        ...results.map(res => res.error
-          ? { kind: 'error' as const, text: `${res.filename}: ${res.error}` }
-          : { kind: 'ok' as const, text: `${res.filename}: added, indexing now` }),
-      ])
-      await load()
-    } catch (e) {
-      notify([...pre, { kind: 'error', text: e instanceof Error ? e.message : 'Upload failed' }])
-    } finally {
-      setUploading(false)
-    }
-  }
+  // Upload queue lives in the page; the card below renders it.
+  const { items: uploads, add: addUploads, dismiss: dismissUpload } =
+    useKBUploads({ docs, maxBytes, exts, onUploaded: load })
 
-  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? [])
-    e.target.value = ''
-    uploadFiles(files)
-  }
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setDragOver(false)
-    uploadFiles(Array.from(e.dataTransfer.files))
+  // The bin on a finished upload removes the document, via the same
+  // confirmation as the list's delete button.
+  const deleteUploaded = (item: KBUploadItem) => {
+    const doc = docs.find(d => d.id === item.docId)
+    if (doc) setConfirmDelete(doc)
+    else dismissUpload(item.id)
   }
 
   const onReplacePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -182,30 +154,16 @@ export function KnowledgeBasePage() {
         </div>
       </div>
 
-      <div
-        className={`kb-drop${dragOver ? ' kb-drop--over' : ''}`}
-        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-      >
-        <div className="kb-drop-text">
-          <Upload size={22} />
-          <div>
-            <strong>{uploading ? 'Uploading…' : 'Drop files here'}</strong>
-            <span className="kb-muted">{exts.join(' ')} up to {formatBytes(maxBytes)} each. Text is split into chunks automatically.</span>
-          </div>
-        </div>
-        <div className="kb-drop-actions">
-          <button className="kb-btn kb-btn--primary" onClick={() => fileInput.current?.click()} disabled={uploading}>
-            <Upload size={14} />Upload files
-          </button>
-          <button className="kb-btn" onClick={() => setNoteEditor({ doc: null })}>
-            <StickyNote size={14} />Write a note
-          </button>
-        </div>
-        <input ref={fileInput} type="file" multiple accept={exts.join(',')} hidden onChange={onPick} />
-        <input ref={replaceInput} type="file" accept={exts.join(',')} hidden onChange={onReplacePick} />
-      </div>
+      <KBUploadCard
+        items={uploads}
+        onAdd={addUploads}
+        onDismiss={i => dismissUpload(i.id)}
+        onDelete={deleteUploaded}
+        exts={exts}
+        maxBytes={maxBytes}
+        onWriteNote={() => setNoteEditor({ doc: null })}
+      />
+      <input ref={replaceInput} type="file" accept={exts.join(',')} hidden onChange={onReplacePick} />
 
       {notices.length > 0 && (
         <div className="kb-notices">

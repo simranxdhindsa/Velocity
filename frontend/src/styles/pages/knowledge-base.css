@@ -210,59 +210,6 @@
 }
 
 
-/* ── Drop zone ──────────────────────────────────────────────────────────── */
-
-.kb-drop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 18px 20px;
-  border: 1.5px dashed var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  margin-bottom: 14px;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.kb-drop--over {
-  border-color: var(--color-primary);
-  background: rgba(var(--color-primary-rgb), 0.08);
-}
-
-.kb-drop-text {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--color-primary);
-  min-width: 0;
-}
-
-.kb-drop-text > svg {
-  flex-shrink: 0;
-}
-
-.kb-drop-text > div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.kb-drop-text strong {
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.kb-drop-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-
 /* ── Notices ────────────────────────────────────────────────────────────── */
 
 .kb-notices {
@@ -484,8 +431,7 @@
 
 /* ── Light theme ────────────────────────────────────────────────────────── */
 
-[data-theme="light"] .kb-doc,
-[data-theme="light"] .kb-drop {
+[data-theme="light"] .kb-doc {
   background: var(--bg-elevated);
 }
 
@@ -508,15 +454,7 @@
     display: none !important;
   }
 
-  .kb-drop {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 14px;
-  }
 
-  .kb-drop-actions {
-    justify-content: flex-start;
-  }
 
   /* Row: icon + text on top, visibility/status/actions wrap below */
   .kb-doc-row {
