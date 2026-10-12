@@ -9,6 +9,7 @@
 
 
 ### Enhancements
+- MCP Activity has pages (25 per page) with the real total and failed counts, instead of one long list capped at 200
 - Knowledge Base understands messy, unstructured files: long text without paragraphs is split per person with an AI summary for each part, PDFs read more cleanly, and files that read badly get a warning
 - Knowledge Base page has an always-visible upload card with drag and drop, live upload progress and indexing status for each file
 - Top KPI cards show a loading skeleton, and the number count-up is slower and smoother
