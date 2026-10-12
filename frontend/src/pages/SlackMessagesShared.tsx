@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { Pencil, Trash2, ExternalLink, MoreHorizontal, Copy, Check, X, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { SlackMessageText } from '@/components/SlackMessageText'
 import type { LiveSlackMessage } from '@/services/api'
 import {
   tsTimeLabel, parseMrkdwn, channelIcon,
@@ -231,7 +232,7 @@ export function MessageRow({
             </div>
           </div>
         ) : (
-          <div className="smh-msg-text"><MrkdwnText text={message.text} userMap={userMap} /></div>
+          <SlackMessageText className="smh-msg-text" text={message.text} userMap={userMap} />
         )}
 
         {!editing && (message.reply_count ?? 0) > 0 && onOpenThread && (

@@ -12,6 +12,7 @@ import { usePersistedState, PERSIST } from '../hooks/usePersistedState'
 import { ClockTimePicker, displayTime, upperAmPm } from '../components/ClockTimePicker'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { ConfirmModal } from '../components/ConfirmModal'
+import { SlackMessageText } from '../components/SlackMessageText'
 import '../styles/pages/claude-queue.css'
 
 const MCP_BASE_URL = (() => {
@@ -30,20 +31,6 @@ const MCP_BASE_URL = (() => {
 export function toYMD(d: Date): string {
   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
-}
-
-// ── Mention rendering — replace <@UXXXX> tokens with highlighted display names ─
-
-function renderMentionedText(text: string, userNames: Map<string, string>): React.ReactNode {
-  const parts = text.split(/(<@[A-Z0-9]+>)/g)
-  return parts.map((part, i) => {
-    const match = part.match(/^<@([A-Z0-9]+)>$/)
-    if (!match) return part
-    const name = userNames.get(match[1])
-    return (
-      <span key={i} className="cq-mention">@{name ?? match[1]}</span>
-    )
-  })
 }
 
 // ── Compact connection status + manage panel ──────────────────────────────────
@@ -511,7 +498,7 @@ function QueuedMessageCard({
         </div>
       ) : (
         <>
-          <p className="cq-msg-text">{renderMentionedText(msg.message, userNames)}</p>
+          <SlackMessageText className="cq-msg-text" text={msg.message} userMap={userNames} />
           {isFailed && msg.error_message && (
             <div className="cq-msg-error"><AlertCircle size={11} />{msg.error_message}</div>
           )}
