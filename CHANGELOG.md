@@ -9,6 +9,12 @@
 
 
 ### Enhancements
+- Top KPI cards show a loading skeleton, and the number count-up is slower and smoother
+- Dashboard numbers now count up smoothly when they load or change
+- Ticket detail no longer shifts or jumps while the details finish loading
+- Ticket detail box opens with a loading skeleton and no longer flashes when the details finish loading
+- Ticket creator and updater names stand out in the accent colour, and Sprint Pulse remembers your selected view after a refresh
+- Ticket detail now shows who created the ticket and who last updated it, next to the dates
 - Every message in Velocity now shows formatted, including the Slack inbox, Velocity Bot conversations, notifications, reminder notes and saved templates
 - Messages in Update Reminders and Slack Messages now show formatted, with real tables, bold text and names instead of raw Markdown
 - Knowledge base splits PDFs and text documents by paragraph, one person or topic per chunk, so answers about who did what are accurate
