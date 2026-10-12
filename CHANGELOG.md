@@ -9,6 +9,7 @@
 
 
 ### Enhancements
+- Calendar page background gradient now fills the whole screen and scales on all screen sizes
 - Slack > MCP Activity shows both Velocity Bot conversations and Claude's connector actions with a switch, each with pages and a 10/20/30/40/100 per-page choice; the old /mcp-activity page now opens there
 - MCP Activity has pages (25 per page) with the real total and failed counts, instead of one long list capped at 200
 - Knowledge Base understands messy, unstructured files: long text without paragraphs is split per person with an AI summary for each part, PDFs read more cleanly, and files that read badly get a warning
