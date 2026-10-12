@@ -269,9 +269,13 @@ func xmlText(data []byte) string {
 	return b.String()
 }
 
-// pdfToText reads a PDF's text layer page by page. Scanned PDFs (images
-// only, no text layer) come back empty and are reported as such, since OCR
-// is not supported.
+// pdfToText reads a PDF's text layer and rebuilds its paragraphs, which a
+// PDF does not store: a paragraph break is a blank row, or a vertical gap
+// clearly larger than the page's normal line spacing (pdfParagraphGap).
+// Lines inside a paragraph are re-joined into flowing text, so a fact is not
+// cut by the line wrap and words hyphenated across lines ("fifty-" / "one")
+// stay searchable. Scanned PDFs (images only, no text layer) come back empty
+// and are reported as such, since OCR is not supported.
 func pdfToText(data []byte) (ex Extracted, err error) {
 	defer func() {
 		if r := recover(); r != nil { // the parser panics on some malformed files
@@ -282,7 +286,7 @@ func pdfToText(data []byte) (ex Extracted, err error) {
 	if err != nil {
 		return Extracted{}, fmt.Errorf("could not read PDF: %w", err)
 	}
-	var pages []string
+	var paras []string
 	for i := 1; i <= r.NumPage(); i++ {
 		p := r.Page(i)
 		if p.V.IsNull() {
@@ -292,25 +296,84 @@ func pdfToText(data []byte) (ex Extracted, err error) {
 		if rerr != nil {
 			continue
 		}
-		var lines []string
+		var lines []pdfLine
 		for _, row := range rows {
-			var words []string
+			var b strings.Builder
 			for _, w := range row.Content {
-				words = append(words, w.S)
+				b.WriteString(w.S)
 			}
-			if line := strings.TrimSpace(strings.Join(words, "")); line != "" {
-				lines = append(lines, line)
-			}
+			lines = append(lines, pdfLine{y: row.Position, text: strings.TrimSpace(b.String())})
 		}
-		if len(lines) > 0 {
-			pages = append(pages, strings.Join(lines, "\n"))
-		}
+		paras = append(paras, pdfParagraphs(lines)...)
 	}
-	text := cleanText(strings.Join(pages, "\n\n"))
+	text := cleanText(strings.Join(paras, "\n\n"))
 	if text == "" {
 		return Extracted{}, errors.New("this PDF has no selectable text (probably a scan). Export it with text or upload the source document instead")
 	}
 	return Extracted{Text: text, Kind: KindText}, nil
+}
+
+type pdfLine struct {
+	y    int64 // baseline, larger is higher on the page
+	text string
+}
+
+// pdfParagraphGap: a gap this many times the page's typical line spacing
+// starts a new paragraph (normal spacing varies by about 10%, a paragraph
+// gap is usually 1.5x or more).
+const pdfParagraphGap = 1.6
+
+// pdfParagraphs groups one page's rows (top to bottom) into paragraphs.
+func pdfParagraphs(lines []pdfLine) []string {
+	// Typical line spacing: median gap between consecutive non-blank rows.
+	var gaps []int64
+	var prevY int64 = -1
+	for _, l := range lines {
+		if l.text == "" {
+			prevY = -1 // a blank row is itself a break, don't measure across it
+			continue
+		}
+		if prevY >= 0 && prevY > l.y {
+			gaps = append(gaps, prevY-l.y)
+		}
+		prevY = l.y
+	}
+	var typical int64
+	if len(gaps) > 0 {
+		sort.Slice(gaps, func(i, j int) bool { return gaps[i] < gaps[j] })
+		typical = gaps[len(gaps)/2]
+	}
+
+	var paras []string
+	var cur strings.Builder
+	flush := func() {
+		if t := strings.TrimSpace(cur.String()); t != "" {
+			paras = append(paras, t)
+		}
+		cur.Reset()
+	}
+	prevY = -1
+	for _, l := range lines {
+		if l.text == "" {
+			flush()
+			prevY = -1
+			continue
+		}
+		if prevY >= 0 && typical > 0 && float64(prevY-l.y) > pdfParagraphGap*float64(typical) {
+			flush()
+		}
+		switch s := cur.String(); {
+		case s == "":
+		case strings.HasSuffix(s, "-"):
+			// hyphen at a line end: keep it, join without a space
+		default:
+			cur.WriteString(" ")
+		}
+		cur.WriteString(l.text)
+		prevY = l.y
+	}
+	flush()
+	return paras
 }
 
 // readZipFile returns one member of an Office (zip) file.

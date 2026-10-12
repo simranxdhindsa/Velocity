@@ -40,8 +40,56 @@ func Split(kind Kind, text string) []Chunk {
 	case KindTable:
 		return pack("", strings.Split(text, "\n"), false)
 	default:
-		return pack("", paragraphs(text), true)
+		return splitParagraphs(paragraphs(text))
 	}
+}
+
+// Plain text and PDFs are chunked paragraph-first: a paragraph is usually
+// one person or one topic ("Arpit, the DevOps engineer, ..."), so keeping
+// each whole keeps every fact next to its subject. Packing paragraphs up to
+// the size target instead cut a real operations log mid-paragraph, leaving
+// chunks that started "He also verified ..." with the name in another chunk.
+const (
+	ChunkMinChars   = 200 // smaller paragraphs merge into the next one
+	titleLineMaxLen = 100
+)
+
+func splitParagraphs(paras []string) []Chunk {
+	if len(paras) == 0 {
+		return nil
+	}
+	// A short single first line ("Date: 06 December 2025", a title) is
+	// context for the whole document: make it the heading of every chunk.
+	heading := ""
+	if len(paras) > 1 && len(paras[0]) <= titleLineMaxLen && !strings.Contains(paras[0], "\n") {
+		heading = paras[0]
+		paras = paras[1:]
+	}
+	var out []Chunk
+	var pending string // tiny paragraphs waiting to join the next one
+	for _, p := range paras {
+		if pending != "" {
+			p = pending + "\n\n" + p
+			pending = ""
+		}
+		if len(p) < ChunkMinChars {
+			pending = p
+			continue
+		}
+		if len(p) > ChunkMaxChars {
+			out = append(out, pack(heading, splitLong(p), true)...)
+			continue
+		}
+		out = append(out, Chunk{Heading: heading, Content: p})
+	}
+	if pending != "" {
+		if n := len(out); n > 0 && len(out[n-1].Content)+len(pending) <= ChunkMaxChars {
+			out[n-1].Content += "\n\n" + pending
+		} else {
+			out = append(out, Chunk{Heading: heading, Content: pending})
+		}
+	}
+	return out
 }
 
 type section struct {

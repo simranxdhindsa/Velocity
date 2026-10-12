@@ -216,3 +216,67 @@ func TestParseExpansion(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestSoleFullMatch(t *testing.T) {
+	hits := []database.KBHit{
+		{ChunkID: 1, Content: "Harpinder worked on the Lessons Page"},
+		{ChunkID: 2, Content: "Suryansh, the backend developer, worked on Nova"},
+	}
+	if id, ok := soleFullMatch(hits, []string{"suryansh", "working"}); !ok || id != 2 {
+		t.Fatalf("want chunk 2, got %d %v", id, ok)
+	}
+	if _, ok := soleFullMatch(hits, []string{"worked"}); ok {
+		t.Fatal("two full matches must not pin either")
+	}
+	if _, ok := soleFullMatch(hits, []string{"handles", "refunds"}); ok {
+		t.Fatal("partial matches must not pin")
+	}
+}
+
+func TestPDFParagraphsFromBlankRowsAndGaps(t *testing.T) {
+	// Blank-row breaks (like the Ardoise ops log) and a gap-only break.
+	lines := []pdfLine{
+		{800, "Date: 06 December 2025"},
+		{776, ""},
+		{753, "Arpit, the DevOps engineer, rebooted a staging node at 2:42 PM. A total of fifty-"},
+		{732, "one employees attended."},
+		{711, ""},
+		{690, "Parv tested the onboarding flow."},
+		{640, "Amrinder visited the team."}, // 50 vs typical 21: paragraph gap
+		{619, "He reviewed integration results."},
+	}
+	got := pdfParagraphs(lines)
+	want := []string{
+		"Date: 06 December 2025",
+		"Arpit, the DevOps engineer, rebooted a staging node at 2:42 PM. A total of fifty-one employees attended.",
+		"Parv tested the onboarding flow.",
+		"Amrinder visited the team. He reviewed integration results.",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSplitTextOneChunkPerParagraphWithTitleHeading(t *testing.T) {
+	p := func(name string) string { return name + " " + strings.Repeat("worked on the platform today. ", 9) }
+	text := "Date: 06 December 2025\n\n" + p("Arpit") + "\n\n" + p("Parv") + "\n\nShort note.\n\n" + p("Vishal")
+	chunks := Split(KindText, text)
+	if len(chunks) != 3 {
+		t.Fatalf("want one chunk per paragraph (tiny one merged), got %d: %+v", len(chunks), chunks)
+	}
+	for i, name := range []string{"Arpit", "Parv", "Short note."} {
+		if !strings.HasPrefix(chunks[i].Content, name) || chunks[i].Heading != "Date: 06 December 2025" {
+			t.Fatalf("chunk %d wrong: %+v", i, chunks[i])
+		}
+	}
+	if !strings.Contains(chunks[2].Content, "Vishal") {
+		t.Fatal("tiny paragraph should merge into the next one")
+	}
+}
+
+func TestWithDocTitle(t *testing.T) {
+	if withDocTitle("Ops Log", "") != "Ops Log" || withDocTitle("Ops Log", "Date: 6 Dec") != "Ops Log > Date: 6 Dec" ||
+		withDocTitle("Team", "Team > Backend") != "Team > Backend" {
+		t.Fatal("withDocTitle wrong")
+	}
+}

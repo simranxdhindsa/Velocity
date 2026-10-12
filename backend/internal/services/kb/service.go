@@ -93,6 +93,12 @@ func Index(ctx context.Context, docID string) error {
 		return fail(fmt.Sprintf("file is too large (%d chunks, limit %d). Split it into smaller documents", len(chunks), maxChunks))
 	}
 
+	// Every chunk carries the document title in its heading, so a chunk
+	// still says where it came from ("Ardoise Internal Operations > Date:
+	// 06 December 2025") when it is read, searched or embedded on its own.
+	for i := range chunks {
+		chunks[i].Heading = withDocTitle(doc.Title, chunks[i].Heading)
+	}
 	inputs := make([]database.KBChunkInput, len(chunks))
 	for i, c := range chunks {
 		inputs[i] = database.KBChunkInput{Heading: c.Heading, Content: c.Content}
@@ -122,8 +128,24 @@ func Index(ctx context.Context, docID string) error {
 	if err := repo.ReplaceChunks(ctx, docID, inputs, len(ex.Text), warning); err != nil {
 		return fail("could not save chunks: " + err.Error())
 	}
-	log.Printf("[kb] indexed %q: %d chunks, %d chars, embedded=%v", doc.Title, len(inputs), len(ex.Text), warning == "")
+	embedded := len(inputs) > 0 && inputs[0].Embedding != nil
+	log.Printf("[kb] indexed %q: %d chunks, %d chars, embedded=%v", doc.Title, len(inputs), len(ex.Text), embedded)
 	return nil
+}
+
+// withDocTitle prefixes a chunk heading with the document title unless the
+// heading already starts with it (Markdown docs often repeat it as # Title).
+func withDocTitle(title, heading string) string {
+	title = strings.TrimSpace(title)
+	switch {
+	case title == "":
+		return heading
+	case heading == "":
+		return title
+	case strings.HasPrefix(strings.ToLower(heading), strings.ToLower(title)):
+		return heading
+	}
+	return title + " > " + heading
 }
 
 // ── Search ──────────────────────────────────────────────────────────────────
@@ -174,9 +196,9 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 	}
 
 	var (
-		kwHits, vecHits []database.KBHit
-		kwErr, vecErr   error
-		wg              sync.WaitGroup
+		kwHits, vecHits, expHits []database.KBHit
+		kwErr, vecErr, expErr    error
+		wg                       sync.WaitGroup
 	)
 	terms := QueryTerms(query)
 	wg.Add(1)
@@ -184,10 +206,12 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 		defer wg.Done()
 		kwHits, kwErr = repo.KeywordSearch(ctx, terms, candidatePool)
 	}()
-	// Second channel: meaning-based. Vectors when an embedding provider is
-	// configured, otherwise Groq query expansion run as a keyword search.
-	// Either way its hits are fused with the plain keyword hits below.
-	expanded := false
+	// Meaning channels, each fused with the plain keyword hits below:
+	// vectors when an embedding provider is configured, and AI query
+	// expansion whenever an AI key exists. Expansion runs even alongside
+	// vectors: measured live, "who is the QA lead?" missed a chunk saying
+	// "Quality Assurance Lead" with embeddings alone (cosine below the
+	// cutoff), while the expansion supplied "quality assurance".
 	if database.KBVectorEnabled() && EmbeddingsAvailable() {
 		wg.Add(1)
 		go func() {
@@ -199,30 +223,32 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 			}
 			vecHits, vecErr = repo.VectorSearch(ctx, vec, candidatePool)
 		}()
-	} else {
-		expanded = true
+	}
+	if expansionAvailable() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if extra := expandQuery(ctx, query, terms); len(extra) > 0 {
-				vecHits, vecErr = repo.KeywordSearch(ctx, extra, candidatePool)
-				rankByCoverage(vecHits, extra)
+				expHits, expErr = repo.KeywordSearch(ctx, extra, candidatePool)
+				rankByCoverage(expHits, extra)
 			}
 		}()
 	}
 	wg.Wait()
-	if kwErr != nil && (vecErr != nil || len(vecHits) == 0) {
+	if kwErr != nil && len(vecHits) == 0 && len(expHits) == 0 {
 		return nil, kwErr
 	}
 	if vecErr != nil {
-		log.Printf("[kb] vector search unavailable, keyword only: %v", vecErr)
+		log.Printf("[kb] vector search unavailable: %v", vecErr)
+	}
+	if expErr != nil {
+		log.Printf("[kb] expansion search failed: %v", expErr)
 	}
 
 	type fused struct {
-		hit      database.KBHit
-		score    float64
-		kw, vec  bool
-		vecScore float64
+		hit     database.KBHit
+		score   float64
+		kw, sem bool
 	}
 	byID := map[int64]*fused{}
 	for rank, h := range kwHits {
@@ -230,28 +256,46 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 		f.score += 1.0 / float64(rrfK+rank+1)
 		byID[h.ChunkID] = f
 	}
-	median := medianScore(vecHits)
-	for rank, h := range vecHits {
-		f, ok := byID[h.ChunkID]
-		if !ok {
-			// The cosine cutoff only applies to vectors; expansion hits are
-			// keyword matches the model already judged relevant.
-			if !expanded && (h.Score < minVectorScore || h.Score-median < minVectorLead) {
-				continue // meaning-only match that doesn't stand out: likely unrelated
+	addSemantic := func(hits []database.KBHit, filter func(database.KBHit) bool) {
+		for rank, h := range hits {
+			f, ok := byID[h.ChunkID]
+			if !ok {
+				if filter != nil && !filter(h) {
+					continue
+				}
+				f = &fused{hit: h}
+				byID[h.ChunkID] = f
 			}
-			f = &fused{hit: h}
-			byID[h.ChunkID] = f
+			f.sem = true
+			f.score += 1.0 / float64(rrfK+rank+1)
 		}
-		f.vec = true
-		f.vecScore = h.Score
-		f.score += 1.0 / float64(rrfK+rank+1)
 	}
+	// The cosine cutoff only applies to vectors; expansion hits are keyword
+	// matches the model already judged relevant.
+	median := medianScore(vecHits)
+	addSemantic(vecHits, func(h database.KBHit) bool {
+		return h.Score >= minVectorScore && h.Score-median >= minVectorLead
+	})
+	addSemantic(expHits, nil)
 
 	all := make([]*fused, 0, len(byID))
 	for _, f := range byID {
 		all = append(all, f)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].score > all[j].score })
+	// The words the asker typed beat guessed synonyms: if exactly one chunk
+	// contains every query word (e.g. a name plus "working"), it goes first.
+	// Measured live: "what is Suryansh working on" was outvoted by Groq's
+	// generic expansion (project, task, sprint) for a name it didn't know.
+	if id, ok := soleFullMatch(kwHits, terms); ok {
+		for i, f := range all {
+			if f.hit.ChunkID == id && i > 0 {
+				copy(all[1:i+1], all[:i])
+				all[0] = f
+				break
+			}
+		}
+	}
 	if len(all) > limit {
 		all = all[:limit]
 	}
@@ -260,7 +304,7 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 		h := Hit{KBHit: f.hit}
 		h.Score = f.score
 		switch {
-		case f.kw && f.vec:
+		case f.kw && f.sem:
 			h.Matched = "both"
 		case f.kw:
 			h.Matched = "keyword"
@@ -297,14 +341,41 @@ func rankByCoverage(hits []database.KBHit, terms []string) {
 	})
 }
 
-// stemPrefix is a cheap stand-in for stemming when counting coverage:
-// "invoices" -> "invoic", "payments" -> "paymen", short words unchanged.
-func stemPrefix(t string) string {
-	r := []rune(t)
-	if len(r) <= 5 {
-		return t
+// soleFullMatch returns the one keyword hit that contains every query term,
+// if exactly one does.
+func soleFullMatch(hits []database.KBHit, terms []string) (int64, bool) {
+	if len(terms) == 0 {
+		return 0, false
 	}
-	return string(r[:len(r)-2])
+	var id int64
+	n := 0
+	for _, h := range hits {
+		text := strings.ToLower(h.Heading + " " + h.Content)
+		all := true
+		for _, t := range terms {
+			if !strings.Contains(text, stemPrefix(t)) {
+				all = false
+				break
+			}
+		}
+		if all {
+			id = h.ChunkID
+			n++
+		}
+	}
+	return id, n == 1
+}
+
+// stemPrefix is a cheap stand-in for stemming when checking whether a
+// chunk contains a term: one common suffix is stripped so "working" finds
+// "worked", "invoices" finds "invoice" and "payments" finds "payment".
+func stemPrefix(t string) string {
+	for _, suf := range []string{"ing", "ed", "es", "er", "ly", "s"} {
+		if strings.HasSuffix(t, suf) && len(t)-len(suf) >= 4 {
+			return t[:len(t)-len(suf)]
+		}
+	}
+	return t
 }
 
 // stopwords are dropped from keyword queries so "who is working on the
