@@ -321,11 +321,19 @@ Full rules live in [`CLAUDE.md`](./CLAUDE.md).
 
 ---
 
+## 🙌 Credits
+
+Velocity is designed and built by **[Simran Dhindsa](https://github.com/simranxdhindsa)**.
+
+---
+
 <div align="center">
 
 <img src="frontend/public/loader-velocity-bars.svg" width="48" alt="" />
 
 **COMMAND · PRECISION · FLOW**
+
+<sub>Built by <a href="https://github.com/simranxdhindsa">Simran Dhindsa</a></sub>
 
 <sub><a href="#">⬆ Back to top</a></sub>
 
