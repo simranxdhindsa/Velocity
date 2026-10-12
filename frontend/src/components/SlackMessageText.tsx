@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { renderSlackMessage } from '@/utils/slackMarkdown'
 import '@/styles/components/slack-message-text.css'
 
@@ -8,11 +8,24 @@ import '@/styles/components/slack-message-text.css'
 // <@U123> mentions as @Name. Used wherever Velocity shows a message it sent
 // or queued (Claude Queue, Slack Messages hub).
 
-export function SlackMessageText({ text, userMap, className }: {
+// compact: for card previews (Slack inbox, notifications). Same formatting,
+// capped at about three lines with a fade instead of growing the card.
+export function SlackMessageText({ text, userMap, className, compact, onClick }: {
   text: string
   userMap?: Map<string, string>
   className?: string
+  compact?: boolean
+  onClick?: () => void
 }) {
   const html = useMemo(() => renderSlackMessage(text, userMap), [text, userMap])
-  return <div className={`smt-body${className ? ` ${className}` : ''}`} dangerouslySetInnerHTML={{ __html: html }} />
+  const ref = useRef<HTMLDivElement>(null)
+  // Fade only when a compact preview is actually cut off, so short messages
+  // don't get a dimmed last line.
+  const [clipped, setClipped] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (compact && el) setClipped(el.scrollHeight > el.clientHeight + 1)
+  }, [compact, html])
+  const cls = ['smt-body', compact ? 'smt-compact' : '', clipped ? 'smt-clipped' : '', className ?? ''].filter(Boolean).join(' ')
+  return <div ref={ref} className={cls} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />
 }

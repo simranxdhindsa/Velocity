@@ -21,6 +21,7 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { SlackMessageText } from '@/components/SlackMessageText'
 
 interface SlackStatus {
   connected: boolean
@@ -1628,7 +1629,7 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                             <span className="int-msg-user"><User size={11} /> {msg.user_name}</span>
                             <span className="int-msg-time"><Clock size={11} /> {new Date(msg.timestamp).toLocaleString()}</span>
                           </div>
-                          <div className="int-msg-text">{msg.text}</div>
+                          <SlackMessageText className="int-msg-text" text={msg.text} />
                         </div>
                       ))}
                     </div>

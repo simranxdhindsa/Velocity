@@ -6,6 +6,7 @@ import {
   CheckCheck, X, BellOff, Trash2,
 } from 'lucide-react'
 import type { NotificationItem } from '../../services/api'
+import { SlackMessageText } from '@/components/SlackMessageText'
 
 // ── Slack glyph (reused across slack-ish notification types) ──────────────────
 
@@ -139,7 +140,7 @@ function NotifRow({ row, exiting, onOpen, onDelete }: {
               {row.title}
             </div>
             {row.body && (
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{row.body}</div>
+              <SlackMessageText compact className="np-row-body" text={row.body} />
             )}
           </div>
           <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, fontFamily: 'monospace', marginTop: 1 }}>{row.time}</span>

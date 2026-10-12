@@ -6,6 +6,8 @@ import {
 import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import api from '../services/api'
 import type { SlackMention, SlackThread } from '../services/api'
+import { SlackMessageText } from '@/components/SlackMessageText'
+import { slackPlainText } from '@/utils/slackMarkdown'
 
 // ── Slack SVG icon ────────────────────────────────────────────────────────────
 export function SlackIcon({ size = 20 }: { size?: number }) {
@@ -35,39 +37,10 @@ export function timeAgo(ts: string) {
   return d < 7 ? `${d}d ago` : new Date(ts).toLocaleDateString()
 }
 
+// Plain one-line text for snippets and search; on-screen message bodies use
+// SlackMessageText (formatted). Kept as a named export for existing callers.
 export function cleanSlackText(text: string, userMap?: Map<string, string>): string {
-  return text
-    .replace(/<@([A-Z0-9]+)>/g, (_, id) => `@${userMap?.get(id) ?? 'user'}`)
-    .replace(/<#C[A-Z0-9]+\|([^>]+)>/g, '#$1')
-    .replace(/<#C[A-Z0-9]+>/g, '#channel')
-    .replace(/<([^|>]+)\|([^>]+)>/g, '$2')
-    .replace(/<https?:[^>]+>/g, '[link]')
-    .replace(/\n+/g, ' ')
-    .trim()
-}
-
-// Same cleanup as cleanSlackText, but resolves <@USERID> mentions to the real
-// display name (via userMap) instead of the flat "@user" placeholder, and
-// renders it as a highlighted span — matches how mentions render in Messages.
-// Use for on-screen text; keep cleanSlackText for plain-string uses (search).
-export function SlackText({ text, userMap }: { text: string; userMap?: Map<string, string> }) {
-  const cleaned = text
-    .replace(/<#C[A-Z0-9]+\|([^>]+)>/g, '#$1')
-    .replace(/<#C[A-Z0-9]+>/g, '#channel')
-    .replace(/<([^|>]+)\|([^>]+)>/g, '$2')
-    .replace(/<https?:[^>]+>/g, '[link]')
-    .replace(/\n+/g, ' ')
-    .trim()
-  const parts = cleaned.split(/(<@[A-Z0-9]+>)/g)
-  return (
-    <>
-      {parts.map((part, i) => {
-        const match = part.match(/^<@([A-Z0-9]+)>$/)
-        if (!match) return part
-        return <span key={i} className="smh-mention">@{userMap?.get(match[1]) ?? 'user'}</span>
-      })}
-    </>
-  )
+  return slackPlainText(text, userMap)
 }
 
 export function extractIssueIds(text: string): string[] {
@@ -313,7 +286,7 @@ export function MentionCard({ m, slackTeamId, channelName, savedTemplates, onDis
           </button>
         </div>
 
-        <p className="si2-card-text" onClick={openSlack}><SlackText text={m.message_text} userMap={userMap} /></p>
+        <SlackMessageText compact className="si2-card-text" onClick={openSlack} text={m.message_text} userMap={userMap} />
 
         {!isDone && !snoozed && <SLABar createdAt={m.created_at} />}
 
@@ -426,7 +399,7 @@ export function ThreadCard({ t, slackTeamId, channelName, savedTemplates, onDism
           <span style={{ flex: 1 }} />
           <span className="si2-card-time">{timeAgo(t.created_at)}</span>
         </div>
-        <p className="si2-card-text" onClick={openSlack}><SlackText text={t.message_text} userMap={userMap} /></p>
+        <SlackMessageText compact className="si2-card-text" onClick={openSlack} text={t.message_text} userMap={userMap} />
         <ThreadPreviewInline channelId={t.channel_id} threadTs={t.thread_ts} replyCount={t.reply_count} userMap={userMap} />
         {!isDone && (
         <div className="si2-card-actions">

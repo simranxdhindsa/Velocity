@@ -25,7 +25,10 @@ div.smt-body {
   padding-left: 1.4em;
 }
 
-.smt-body li { margin: 0.1em 0; }
+/* The app's global reset removes list markers; messages need them back */
+.smt-body ul { list-style: disc; }
+.smt-body ol { list-style: decimal; }
+.smt-body li { margin: 0.1em 0; display: list-item; }
 
 .smt-body a {
   color: var(--color-primary);
@@ -117,4 +120,33 @@ div.smt-body {
 
 [data-theme="light"] .smt-body tbody tr:nth-child(even) td {
   background: rgba(15, 23, 42, 0.03);
+}
+
+/* Compact previews: about three lines, faded at the bottom. Overrides the
+   -webkit-box line clamp some card text classes use, which does not work on
+   block content like paragraphs and tables. */
+div.smt-compact {
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: 4.65em;
+  overflow: hidden;
+}
+
+/* Fade set by SlackMessageText only when content overflows */
+div.smt-compact.smt-clipped {
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent);
+}
+
+div.smt-compact p,
+div.smt-compact ul,
+div.smt-compact ol,
+div.smt-compact pre,
+div.smt-compact .smt-table-wrap {
+  margin-bottom: 0.25em;
+}
+
+div.smt-compact th,
+div.smt-compact td {
+  padding: 1px 6px;
 }

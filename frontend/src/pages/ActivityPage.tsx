@@ -6,6 +6,7 @@ import {
 import api from '@/services/api'
 import type { NotificationItem } from '@/services/api'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { SlackMessageText } from '@/components/SlackMessageText'
 
 type Filter = 'all' | 'unread' | 'task' | 'slack' | 'system'
 
@@ -203,9 +204,7 @@ function NotifCard({
 
         {/* ── Expanded detail (only when open) ── */}
         {expanded && hasDetail && (
-          <div className="act2-card-detail">
-            {notif.message}
-          </div>
+          <SlackMessageText className="act2-card-detail" text={notif.message} />
         )}
 
       </div>

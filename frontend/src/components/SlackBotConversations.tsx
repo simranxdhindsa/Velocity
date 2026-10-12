@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { MessagesSquare, RefreshCw, XCircle } from 'lucide-react'
 import api from '@/services/api'
 import type { SlackBotConversation } from '@/services/api'
+import { SlackMessageText } from '@/components/SlackMessageText'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -124,13 +125,15 @@ export function BotConversationsView({ isAdmin }: { isAdmin: boolean }) {
               <div className="sbc-bubble-row sbc-bubble-row--in">
                 <div className="sbc-bubble sbc-bubble--in">
                   <div className="sbc-bubble-label">{isAdmin ? (c.slack_user_email || 'Sender') : 'You'}</div>
-                  {c.incoming_text || '(empty message)'}
+                  {c.incoming_text ? <SlackMessageText text={c.incoming_text} /> : '(empty message)'}
                 </div>
               </div>
               <div className="sbc-bubble-row sbc-bubble-row--out">
                 <div className={`sbc-bubble sbc-bubble--out ${!c.success ? 'sbc-bubble--error' : ''}`}>
                   <div className="sbc-bubble-label">Velocity</div>
-                  {c.success ? (c.reply_text || '(no reply)') : `Failed to reply: ${c.error_message || 'unknown error'}`}
+                  {c.success
+                    ? (c.reply_text ? <SlackMessageText text={c.reply_text} /> : '(no reply)')
+                    : `Failed to reply: ${c.error_message || 'unknown error'}`}
                 </div>
               </div>
             </div>

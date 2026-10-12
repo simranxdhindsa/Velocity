@@ -45,3 +45,29 @@ export function renderSlackMessage(text: string, userMap?: Map<string, string>):
     .replace(/<\/table>/g, '</table></div>')
     .replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ')
 }
+
+/**
+ * One-line plain text for short snippets and search (cut-off previews where
+ * rendering half a table would look broken): mentions and links resolved,
+ * Markdown markers (*, _, ~, `) removed, table rows flattened to
+ * "a · b · c" with separator rows dropped, whitespace collapsed.
+ */
+export function slackPlainText(text: string, userMap?: Map<string, string>): string {
+  return text
+    .replace(/<@([A-Z0-9]+)(?:\|([^>]+))?>/g, (_, id: string, label?: string) => `@${userMap?.get(id) || label || 'user'}`)
+    .replace(/<#C[A-Z0-9]+\|([^>]+)>/g, '#$1')
+    .replace(/<#C[A-Z0-9]+>/g, '#channel')
+    .replace(/<!(here|channel|everyone)(?:\|[^>]*)?>/g, '@$1')
+    .replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, '$2')
+    .replace(/<https?:[^>]+>/g, '[link]')
+    .split('\n')
+    .filter(line => !/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line)) // table separator rows
+    .map(line => /^\s*\|.*\|\s*$/.test(line)
+      ? line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()).filter(Boolean).join(' · ')
+      : line)
+    .join(' ')
+    .replace(/```/g, '')
+    .replace(/(\*\*|__|~~|[*_~`])(?=\S)([^*_~`]*?\S)\1/g, '$2')
+    .replace(/\s+/g, ' ')
+    .trim()
+}

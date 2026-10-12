@@ -230,6 +230,38 @@ Use for all date-range displays.
 
 ---
 
+## SlackMessageText
+
+**File:** `frontend/src/components/SlackMessageText.tsx`  
+**Helpers:** `frontend/src/utils/slackMarkdown.ts` (`renderSlackMessage`, `slackToMarkdown`, `slackPlainText`)  
+**CSS:** `frontend/src/styles/components/slack-message-text.css` (imported by the component)
+
+**Use it everywhere Velocity shows a message's text** (anything sent to or read from Slack, bot replies, notifications, templates). Never print message text raw: messages carry Markdown and Slack mrkdwn (tables, `*bold*`, `<@U123>` mentions) that show as junk otherwise.
+
+### Key behaviours
+- Renders the way Slack shows it: Markdown tables as bordered tables sized to their content (wide ones scroll inside their own box), Slack `*bold*` and `**bold**`, `_italic_`, `~strike~`, code, code blocks, lists, links (new tab), `<@U123>` → `@Name` via `userMap`, `<#C123|name>` → `#name`.
+- Uses `marked` + `DOMPurify` (sanitized HTML).
+- `compact` prop: card previews capped at about three lines; fades out only when the text is actually cut off.
+- Wins over a container's `white-space: pre-wrap` (uses `div.smt-body`), so it can take an existing text class via `className`.
+- For short cut-off snippets and search strings (e.g. a 90-char preview) use `slackPlainText()` instead: rendering half a table looks broken, so snippets stay plain with markers stripped and table rows flattened to `a · b · c`.
+
+### Props
+```ts
+{ text: string; userMap?: Map<string, string>; className?: string; compact?: boolean; onClick?: () => void }
+```
+
+### Usage
+```tsx
+import { SlackMessageText } from '@/components/SlackMessageText'
+
+<SlackMessageText text={msg.message} userMap={userNames} />              // full message
+<SlackMessageText compact text={m.message_text} userMap={userMap} />     // card preview
+```
+
+Used in: Claude Queue (Update Reminders), Slack Messages hub, Slack inbox cards, Velocity Bot conversation log, Integrations message list, Slack reminder notes and saved templates, notification panel and Activity page.
+
+---
+
 ## Global CSS component files
 
 All imported in `index.css` under `/* Shared component overlays */`:

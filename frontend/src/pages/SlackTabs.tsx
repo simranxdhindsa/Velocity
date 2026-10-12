@@ -7,6 +7,7 @@ import {
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import type { ReminderItem } from '../services/api'
 import { timeAgo } from './SlackCards'
+import { SlackMessageText } from '@/components/SlackMessageText'
 
 // ── Types shared by tab components ───────────────────────────────────────────
 export type ReminderSubTab = 'Upcoming' | 'Sent'
@@ -190,7 +191,7 @@ export function RemindersTabContent({
                     {r.related_issue_id && <span className="si2-issue-chip">{r.related_issue_id}</span>}
                   </div>
                   <p className="si2-card-text">{r.title}</p>
-                  {r.message && <p className="si2-card-note">{r.message}</p>}
+                  {r.message && <SlackMessageText className="si2-card-note" text={r.message} />}
                 </div>
                 <div className="si2-card-actions">
                   <button className="si2-act-btn si2-act-done" onClick={() => onDismiss(r.id)}><X size={12} /></button>
@@ -267,7 +268,7 @@ export function RemindersTabContent({
           <div className="si2-template-list">
             {savedTemplates.map(t => (
               <div key={t.id} className="si2-template-row">
-                <span className="si2-template-body">{t.body}</span>
+                <SlackMessageText compact className="si2-template-body" text={t.body} />
                 <button className="si2-template-del" onClick={() => onDeleteTemplate(t.id)}><X size={12} /></button>
               </div>
             ))}

@@ -402,3 +402,10 @@
     overflow-y: auto !important;
   }
 }
+
+/* Notification body in the right panel (formatted via SlackMessageText) */
+.np-row-body {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}

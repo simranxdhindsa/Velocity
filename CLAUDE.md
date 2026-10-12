@@ -398,6 +398,7 @@ If the same UI pattern is needed in 2+ places, extract it into a shared componen
 | `ClockTimePicker` | Analog clock-face time picker (modal dialog). Use in rule editors/settings; `TimePicker` for compact inline pickers |
 | `ConfirmModal` | Portal confirmation dialog (danger/warning/info variants). **Never use `window.confirm()`** |
 | `HoverCard` | Portal hover overlay |
+| `SlackMessageText` | Any message text (Slack, bot, notifications): tables, bold, mentions, links. Never print message text raw |
 | `IssueDetailPanel` | YouTrack issue detail slide-in |
 | `CalendarView` | Date-range calendar |
 
