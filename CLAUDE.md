@@ -487,3 +487,13 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - Velocity: team knowledge base backend, file extraction (md/pdf/docx/pptx/xlsx/csv/json/html/txt), heading-aware chunking, Gemini embeddings + pgvector, hybrid search with calibrated cutoff, per-document visibility (`services/kb/`)
 - Velocity: Slack bot answers from the knowledge base, admins-only docs only for admins; `search_knowledge_base` MCP tool
 - Velocity: admin Knowledge Base page (upload, notes, visibility, chunk preview, try-a-question), UAT-verified
+- Velocity: ticket detail shows who created and who last updated the ticket, names in the accent colour
+- Velocity: ticket detail opens instantly with a loading skeleton, no flash or layout shift when content loads
+- Velocity: Sprint Pulse remembers the selected view (Live, Kanban, Priority...) after refresh
+- Velocity: KPI numbers count up (shared `CountUp`), replay when a tab is opened, slowed to 2.2s
+- Velocity: skeleton loaders for the top KPI cards and Delivery strip on Sprint Pulse and PM Reports
+- Velocity: Slack bot understands replies to older DMs (keeps the last 6 messages, not just the last 6 hours)
+- Velocity: Knowledge Base always-visible upload card (drag and drop, live upload progress, indexing status)
+- Velocity: KB finds people in PDFs with glued text ("life.Sandeep"), one person per chunk
+- Velocity: KB handles messy/unstructured files: Poppler PDF reader, walls of text split per person with AI summary lines (daily Groq budget), neighbouring windows in search, extraction quality warnings
+- Velocity: Slack > MCP Activity shows Bot conversations and Claude actions (switch), paginated with a 10/20/30/40/100 per-page choice; standalone /mcp-activity redirects there
