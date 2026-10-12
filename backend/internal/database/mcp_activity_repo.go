@@ -46,6 +46,11 @@ func (r *MCPActivityRepository) Log(ctx context.Context, e MCPActivityEntry) err
 // List returns the most recent activity entries (latest first), joined with
 // the acting user's display name. limit is capped to a sane maximum.
 func (r *MCPActivityRepository) List(ctx context.Context, limit int) ([]MCPActivityEntry, error) {
+	return r.ListPage(ctx, limit, 0)
+}
+
+// ListPage returns one page of activity (latest first), skipping offset rows.
+func (r *MCPActivityRepository) ListPage(ctx context.Context, limit, offset int) ([]MCPActivityEntry, error) {
 	pool := GetPool()
 	if pool == nil {
 		return []MCPActivityEntry{}, nil
@@ -53,14 +58,17 @@ func (r *MCPActivityRepository) List(ctx context.Context, limit int) ([]MCPActiv
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
+	if offset < 0 {
+		offset = 0
+	}
 	rows, err := pool.Query(ctx, `
 		SELECT l.id, COALESCE(l.user_id, ''), COALESCE(u.name, 'Unknown user'),
 		       l.tool_name, l.action_label, l.summary, l.success, l.duration_ms, l.created_at
 		FROM mcp_activity_log l
 		LEFT JOIN users u ON u.id = l.user_id
-		ORDER BY l.created_at DESC
-		LIMIT $1
-	`, limit)
+		ORDER BY l.created_at DESC, l.id
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +84,17 @@ func (r *MCPActivityRepository) List(ctx context.Context, limit int) ([]MCPActiv
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// Counts returns how many entries are logged in total and how many failed,
+// for the page header and pagination.
+func (r *MCPActivityRepository) Counts(ctx context.Context) (total, failed int, err error) {
+	pool := GetPool()
+	if pool == nil {
+		return 0, 0, nil
+	}
+	err = pool.QueryRow(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE NOT success) FROM mcp_activity_log`).Scan(&total, &failed)
+	return total, failed, err
 }
 
 // PruneOlderThanWeek deletes activity log rows older than 7 days. Called

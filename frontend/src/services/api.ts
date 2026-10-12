@@ -2068,6 +2068,13 @@ class ApiService {
     return this.request<MCPActivityEntry[]>(`/mcp/activity?limit=${limit}`)
   }
 
+  /** One page of MCP activity (newest first) with totals for pagination. */
+  async getMcpActivityPage(page: number, pageSize = 25) {
+    return this.request<MCPActivityEntry[]>(`/mcp/activity?page=${page}&page_size=${pageSize}`) as Promise<
+      ApiResponse<MCPActivityEntry[]> & { total?: number; failed?: number; page?: number; page_size?: number }
+    >
+  }
+
   // ── Slack bot conversation log ────────────────────────────────────────────
   async getSlackBotConversations(limit = 200) {
     return this.request<SlackBotConversation[]>(`/slack-bot-chat?limit=${limit}`) as Promise<

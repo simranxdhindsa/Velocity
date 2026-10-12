@@ -1,7 +1,7 @@
 /* MCP Activity page — what's been done through the Velocity MCP connector */
 
 .mcpa-page {
-  padding: 24px 28px;
+  padding: 24px 28px 96px; /* pagination clears the floating PM Assistant bubble */
   max-width: 960px;
   margin: 0 auto;
 }
@@ -192,7 +192,7 @@
 
 @media (max-width: 768px) {
   .mcpa-page {
-    padding: 16px;
+    padding: 16px 16px 96px;
   }
 
   .mcpa-row {
@@ -210,4 +210,11 @@
     width: 100%;
     justify-content: space-between;
   }
+}
+
+/* Previous page stays visible while the next one loads */
+.mcpa-list--paging {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.15s;
 }

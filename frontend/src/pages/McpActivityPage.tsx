@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Activity, RefreshCw, CheckCircle2, XCircle, Ticket, MessageSquare,
   Search, Link2, Paperclip, ListTree, Users, Zap,
 } from 'lucide-react'
 import api from '@/services/api'
 import type { MCPActivityEntry } from '@/services/api'
+import { Pagination } from '@/components/Pagination'
 import '@/styles/pages/mcp-activity.css'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -56,18 +57,29 @@ function McpActivitySkeleton() {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 25
+
 export function McpActivityPage() {
   const [entries, setEntries] = useState<MCPActivityEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [failCount, setFailCount] = useState(0)
+  const [paging, setPaging] = useState(false) // a page change is loading
+  const listTop = useRef<HTMLDivElement>(null)
 
-  const load = useCallback(async (silent = false) => {
+  const load = useCallback(async (p: number, silent = false) => {
     if (silent) setRefreshing(true)
     try {
-      const res = await api.getMcpActivity(200)
+      const res = await api.getMcpActivityPage(p, PAGE_SIZE)
       if (res.success && res.data) {
         setEntries(res.data)
+        setTotal(res.total ?? res.data.length)
+        setFailCount(res.failed ?? 0)
+        // The server snaps a page past the end (old entries pruned) to the last one.
+        if (res.page && res.page !== p) setPage(res.page)
         setError(null)
       } else {
         setError(res.message || 'Failed to load MCP activity')
@@ -77,21 +89,26 @@ export function McpActivityPage() {
     } finally {
       setLoading(false)
       setRefreshing(false)
+      setPaging(false)
     }
   }, [])
 
   useEffect(() => {
-    load()
+    load(page)
     // MCP calls come from Claude asynchronously (not user-initiated in this
     // tab), so poll rather than relying on a manual refresh only.
-    const interval = setInterval(() => load(true), 30000)
+    const interval = setInterval(() => load(page, true), 30000)
     return () => clearInterval(interval)
-  }, [load])
+  }, [load, page])
 
-  const failCount = entries.filter(e => !e.success).length
+  const changePage = useCallback((p: number) => {
+    setPaging(true)
+    setPage(p)
+    listTop.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
 
   return (
-    <div className="mcpa-page">
+    <div className="mcpa-page" ref={listTop}>
       <div className="mcpa-header">
         <div className="mcpa-header-title">
           <Activity size={20} />
@@ -101,9 +118,9 @@ export function McpActivityPage() {
           </div>
         </div>
         <div className="mcpa-header-stats">
-          <span className="mcpa-stat mcpa-stat--total">{entries.length} transactions</span>
+          <span className="mcpa-stat mcpa-stat--total">{total} {total === 1 ? 'transaction' : 'transactions'}</span>
           {failCount > 0 && <span className="mcpa-stat mcpa-stat--fail">{failCount} failed</span>}
-          <button className="mcpa-refresh-btn" onClick={() => load(true)} disabled={refreshing}>
+          <button className="mcpa-refresh-btn" onClick={() => load(page, true)} disabled={refreshing}>
             <RefreshCw size={14} className={refreshing ? 'mcpa-spin' : ''} />
             Refresh
           </button>
@@ -123,35 +140,38 @@ export function McpActivityPage() {
           <p>No MCP activity yet. Actions Claude takes through the Velocity connector will show up here.</p>
         </div>
       ) : (
-        <div className="mcpa-list">
-          {entries.map(e => {
-            const Icon = toolIcon(e.tool_name)
-            return (
-              <div className="mcpa-row" key={e.id}>
-                <div className={`mcpa-row-icon ${e.success ? 'mcpa-row-icon--ok' : 'mcpa-row-icon--fail'}`}>
-                  <Icon size={16} />
-                </div>
-                <div className="mcpa-row-main">
-                  <div className="mcpa-row-top">
-                    <span className="mcpa-row-action">{e.action_label}</span>
-                    {e.success ? (
-                      <CheckCircle2 size={13} className="mcpa-status-icon mcpa-status-icon--ok" />
-                    ) : (
-                      <XCircle size={13} className="mcpa-status-icon mcpa-status-icon--fail" />
-                    )}
+        <>
+          <div className={`mcpa-list${paging ? ' mcpa-list--paging' : ''}`}>
+            {entries.map(e => {
+              const Icon = toolIcon(e.tool_name)
+              return (
+                <div className="mcpa-row" key={e.id}>
+                  <div className={`mcpa-row-icon ${e.success ? 'mcpa-row-icon--ok' : 'mcpa-row-icon--fail'}`}>
+                    <Icon size={16} />
                   </div>
-                  <p className="mcpa-row-summary">{e.summary}</p>
-                  <div className="mcpa-row-meta">
-                    <span>{e.user_name}</span>
-                    <span className="mcpa-dot">•</span>
-                    <span>{e.duration_ms}ms</span>
+                  <div className="mcpa-row-main">
+                    <div className="mcpa-row-top">
+                      <span className="mcpa-row-action">{e.action_label}</span>
+                      {e.success ? (
+                        <CheckCircle2 size={13} className="mcpa-status-icon mcpa-status-icon--ok" />
+                      ) : (
+                        <XCircle size={13} className="mcpa-status-icon mcpa-status-icon--fail" />
+                      )}
+                    </div>
+                    <p className="mcpa-row-summary">{e.summary}</p>
+                    <div className="mcpa-row-meta">
+                      <span>{e.user_name}</span>
+                      <span className="mcpa-dot">•</span>
+                      <span>{e.duration_ms}ms</span>
+                    </div>
                   </div>
+                  <span className="mcpa-row-time">{timeAgo(e.created_at)}</span>
                 </div>
-                <span className="mcpa-row-time">{timeAgo(e.created_at)}</span>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={changePage} disabled={paging} noun="transactions" />
+        </>
       )}
     </div>
   )

@@ -1,0 +1,107 @@
+/* Pagination (components/Pagination.tsx): page controls under a server-paged list */
+
+.pgn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.pgn-range {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.pgn-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pgn-pages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pgn-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.pgn-btn:hover:not(:disabled) {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.pgn-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pgn-btn--active,
+.pgn-btn--active:disabled {
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.14);
+  border-color: rgba(var(--color-primary-rgb), 0.5);
+  opacity: 1;
+}
+
+.pgn-btn--step {
+  padding: 0 10px;
+}
+
+.pgn-gap {
+  min-width: 20px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.pgn-compact {
+  display: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+@media (max-width: 768px) {
+  .pgn {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .pgn-range {
+    text-align: center;
+  }
+
+  .pgn-controls {
+    justify-content: space-between;
+  }
+
+  /* Numbers don't fit on a phone: "Page 2 of 6" between the arrows */
+  .pgn-pages {
+    display: none;
+  }
+
+  .pgn-compact {
+    display: inline;
+  }
+}
