@@ -7,6 +7,7 @@ import api from '@/services/api'
 import type { NotificationItem } from '@/services/api'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { SlackMessageText } from '@/components/SlackMessageText'
+import { CountUp } from '../components/CountUp'
 
 type Filter = 'all' | 'unread' | 'task' | 'slack' | 'system'
 
@@ -297,7 +298,7 @@ export function ActivityPage() {
           <div key={k.label} className="act2-kpi-card">
             <div className="act2-kpi-glow" style={{ background: `radial-gradient(circle at 30% 40%, ${k.glow} 0%, transparent 70%)` }} />
             <span className="act2-kpi-label">{k.label}</span>
-            <span className="act2-kpi-value" style={{ color: k.color }}>{k.value}</span>
+            <span className="act2-kpi-value" style={{ color: k.color }}><CountUp value={k.value} /></span>
           </div>
         ))}
       </div>

@@ -46,6 +46,7 @@ import type { DevTimeVariant } from '../components/DevTimeView'
 import FeatureGroupsView from '../components/FeatureGroupsView'
 import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { CountUp } from '../components/CountUp'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -2762,7 +2763,7 @@ function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: s
             onClick={() => setKpiDrawer(kpiDrawer === 'completion' ? null : 'completion')}>
             <div className="pm-tracking-kpi-lbl">Completion</div>
             <div className="pm-tracking-kpi-val">
-              {Math.round(summary.completion_pct)}<span className="pm-tracking-kpi-unit">%</span>
+              <CountUp value={Math.round(summary.completion_pct)} /><span className="pm-tracking-kpi-unit">%</span>
             </div>
             <div className="pm-tracking-kpi-prog">
               <div className="pm-tracking-kpi-prog-f" style={{ width: `${Math.round(summary.completion_pct)}%` }} />
@@ -2773,21 +2774,21 @@ function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: s
           <button className={`pm-tracking-kpi pm-tracking-kpi--blue pm-tracking-kpi--clickable${kpiDrawer === 'in-progress' ? ' pm-tracking-kpi--active' : ''}`}
             onClick={() => setKpiDrawer(kpiDrawer === 'in-progress' ? null : 'in-progress')}>
             <div className="pm-tracking-kpi-lbl">In Progress</div>
-            <div className="pm-tracking-kpi-val">{summary.in_progress_count}</div>
+            <div className="pm-tracking-kpi-val"><CountUp value={summary.in_progress_count} /></div>
             <div className="pm-tracking-kpi-note">{summary.overdue_count} overdue · {summary.blocked_count} blocked</div>
           </button>
           {/* Blocked */}
           <button className={`pm-tracking-kpi pm-tracking-kpi--red pm-tracking-kpi--clickable${kpiDrawer === 'blocked' ? ' pm-tracking-kpi--active' : ''}`}
             onClick={() => setKpiDrawer(kpiDrawer === 'blocked' ? null : 'blocked')}>
             <div className="pm-tracking-kpi-lbl">Blocked</div>
-            <div className="pm-tracking-kpi-val">{summary.blocked_count}</div>
+            <div className="pm-tracking-kpi-val"><CountUp value={summary.blocked_count} /></div>
             <div className="pm-tracking-kpi-note">{summary.in_progress_count} in progress · {summary.overdue_count} overdue</div>
           </button>
           {/* Bounced */}
           <button className={`pm-tracking-kpi pm-tracking-kpi--amber pm-tracking-kpi--clickable${kpiDrawer === 'bounced' ? ' pm-tracking-kpi--active' : ''}`}
             onClick={() => setKpiDrawer(kpiDrawer === 'bounced' ? null : 'bounced')}>
             <div className="pm-tracking-kpi-lbl">Bounced</div>
-            <div className="pm-tracking-kpi-val">{summary.bounced_count}</div>
+            <div className="pm-tracking-kpi-val"><CountUp value={summary.bounced_count} /></div>
             <div className="pm-tracking-kpi-note">{summary.hotfix_count} hotfix{summary.hotfix_count !== 1 ? 'es' : ''} · backward moves</div>
           </button>
           {/* Sprint Ends */}
@@ -2795,7 +2796,7 @@ function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: s
             onClick={() => setKpiDrawer(kpiDrawer === 'sprint' ? null : 'sprint')}>
             <div className="pm-tracking-kpi-lbl">Sprint Ends</div>
             <div className={`pm-tracking-kpi-val${sprintDeadlineLabel === 'OVERDUE' ? ' pm-tracking-kpi-val--danger' : ''}`}>
-              {sprintDeadlineLabel ?? '—'}
+              <CountUp value={sprintDeadlineLabel ?? '—'} />
             </div>
             <div className="pm-tracking-kpi-note">{summary.overdue_count} ticket{summary.overdue_count !== 1 ? 's' : ''} overdue</div>
           </button>

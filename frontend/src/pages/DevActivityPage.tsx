@@ -17,6 +17,7 @@ import '../styles/pages/dev-activity-cards.css'
 import '../styles/pages/dev-activity-log.css'
 import '../styles/pages/dev-activity-heatmap.css'
 import '../styles/pages/dev-activity-report.css'
+import { CountUp } from '../components/CountUp'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -259,7 +260,7 @@ function DaSummaryBar({ timelines }: { timelines: IssueTimeline[] }) {
       {chips.map(c => (
         <div key={c.label} className="da-kpi-chip">
           <span style={{ fontSize: 13 }}>{c.icon}</span>
-          <span className="da-kpi-value" style={{ color: c.color }}>{c.value}</span>
+          <span className="da-kpi-value" style={{ color: c.color }}><CountUp value={c.value} /></span>
           <span className="da-kpi-label">{c.label}</span>
         </div>
       ))}

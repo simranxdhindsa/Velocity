@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
 import type { IssueTimeline, IssueStint, SprintBoardIssue } from '../services/api'
+import { CountUp } from './CountUp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -241,7 +242,7 @@ function KPIBar({ timelines, right }: { timelines: IssueTimeline[]; right?: Reac
     <div className="pm-tt-kpi-bar">
       {chips.map((c, i) => (
         <div key={i} className="pm-tt-kpi-chip" style={{ animationDelay: `${i * 60}ms` }}>
-          <span className={`pm-tt-kpi-value ${c.cls}`}>{c.val}</span>
+          <span className={`pm-tt-kpi-value ${c.cls}`}><CountUp value={c.val} /></span>
           <span className="pm-tt-kpi-label">{c.label}</span>
         </div>
       ))}

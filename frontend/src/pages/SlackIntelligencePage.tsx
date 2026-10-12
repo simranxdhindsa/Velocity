@@ -13,6 +13,7 @@ import { SlackMessagesHub } from './SlackMessagesHub'
 import { BotConversationsView } from '@/components/SlackBotConversations'
 import { useAuth } from '@/contexts/AuthContext'
 import '../styles/pages/slack.css'
+import { CountUp } from '../components/CountUp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Tab = 'inbox' | 'messages' | 'mcp-activity'
@@ -342,7 +343,7 @@ export function SlackIntelligencePage({
           >
             <div className="si2-kpi-glow" style={{ background: `radial-gradient(circle, ${k.glow} 0%, transparent 70%)` }} />
             <div className="si2-kpi-label">{k.label}</div>
-            <div className="si2-kpi-value" style={{ color: k.color }}>{k.value}</div>
+            <div className="si2-kpi-value" style={{ color: k.color }}><CountUp value={k.value} /></div>
             <div className="si2-kpi-sub">{k.sub}</div>
           </div>
         ))}

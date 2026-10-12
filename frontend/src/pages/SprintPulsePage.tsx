@@ -24,6 +24,7 @@ import {
 import { PulseSwimKanban, PrioritySwimKanban } from './SprintPulseKanban'
 import { ViewC, View1, View4, SkBoard, SkSignal } from './SprintPulseOtherViews'
 import { VIEW_MODES, ViewLive, SkLive } from './SprintPulseLive'
+import { CountUp } from '@/components/CountUp'
 
 export function SprintPulsePage() {
   const { config: wfConfig } = useWorkflowConfig()
@@ -193,7 +194,7 @@ export function SprintPulsePage() {
             <div className="pm-tracking-kpi pm-tracking-kpi--green">
               <div className="pm-tracking-kpi-lbl">Completion</div>
               <div className="pm-tracking-kpi-val">
-                {Math.round(summary.completion_pct)}<span className="pm-tracking-kpi-unit">%</span>
+                <CountUp value={Math.round(summary.completion_pct)} /><span className="pm-tracking-kpi-unit">%</span>
               </div>
               <div className="pm-tracking-kpi-prog">
                 <div className="pm-tracking-kpi-prog-f" style={{ width: `${Math.round(summary.completion_pct)}%` }} />
@@ -202,28 +203,28 @@ export function SprintPulsePage() {
             </div>
             <div className="pm-tracking-kpi pm-tracking-kpi--blue">
               <div className="pm-tracking-kpi-lbl">In Progress</div>
-              <div className="pm-tracking-kpi-val">{summary.in_progress_count}</div>
+              <div className="pm-tracking-kpi-val"><CountUp value={summary.in_progress_count} /></div>
               <div className="pm-tracking-kpi-note">
                 {summary.overdue_count} overdue · {summary.blocked_count} blocked
               </div>
             </div>
             <div className="pm-tracking-kpi pm-tracking-kpi--red">
               <div className="pm-tracking-kpi-lbl">Blocked</div>
-              <div className="pm-tracking-kpi-val">{summary.blocked_count}</div>
+              <div className="pm-tracking-kpi-val"><CountUp value={summary.blocked_count} /></div>
               <div className="pm-tracking-kpi-note">
                 {summary.hotfix_count} hotfix{summary.hotfix_count !== 1 ? 'es' : ''} · {summary.overdue_count} overdue
               </div>
             </div>
             <div className="pm-tracking-kpi pm-tracking-kpi--amber">
               <div className="pm-tracking-kpi-lbl">Bounced</div>
-              <div className="pm-tracking-kpi-val">{summary.bounced_count}</div>
+              <div className="pm-tracking-kpi-val"><CountUp value={summary.bounced_count} /></div>
               <div className="pm-tracking-kpi-note">backward moves</div>
             </div>
             {activeSprint?.finish && (
               <div className={`pm-tracking-kpi ${sprintLabel === 'OVERDUE' ? 'pm-tracking-kpi--red' : 'pm-tracking-kpi--amber'}`}>
                 <div className="pm-tracking-kpi-lbl">Sprint Ends</div>
                 <div className={`pm-tracking-kpi-val${sprintLabel === 'OVERDUE' ? ' pm-tracking-kpi-val--danger' : ''}`}>
-                  {sprintLabel}
+                  <CountUp value={sprintLabel} />
                 </div>
                 <div className="pm-tracking-kpi-note">{fmtSprintDate(activeSprint.finish)}</div>
               </div>
@@ -235,28 +236,28 @@ export function SprintPulsePage() {
           <span className="spl-pipeline-label">Delivery</span>
           <div className="spl-pipe-stages">
             <div className="spl-pipe-stage spl-pipe-stage--active">
-              <div className="spl-pipe-count">{stageCounts.active}</div>
+              <div className="spl-pipe-count"><CountUp value={stageCounts.active} /></div>
               <div className="spl-pipe-lbl">Active</div>
             </div>
             <ChevronRight size={12} className="spl-pipe-arrow" />
             <div className="spl-pipe-stage spl-pipe-stage--devdone">
-              <div className="spl-pipe-count">{stageCounts.devDone}</div>
+              <div className="spl-pipe-count"><CountUp value={stageCounts.devDone} /></div>
               <div className="spl-pipe-lbl">Dev Done</div>
             </div>
             <ChevronRight size={12} className="spl-pipe-arrow" />
             <div className="spl-pipe-stage spl-pipe-stage--stage">
-              <div className="spl-pipe-count">{stageCounts.stage}</div>
+              <div className="spl-pipe-count"><CountUp value={stageCounts.stage} /></div>
               <div className="spl-pipe-lbl">Stage</div>
             </div>
             <ChevronRight size={12} className="spl-pipe-arrow" />
             <div className="spl-pipe-stage spl-pipe-stage--deployed">
-              <div className="spl-pipe-count">{stageCounts.deployed}</div>
+              <div className="spl-pipe-count"><CountUp value={stageCounts.deployed} /></div>
               <div className="spl-pipe-lbl">Deployed</div>
             </div>
           </div>
           {stageCounts.blocked > 0 && (
             <div className="spl-pipe-blocked">
-              <span className="spl-pipe-blocked-count">{stageCounts.blocked}</span>
+              <span className="spl-pipe-blocked-count"><CountUp value={stageCounts.blocked} /></span>
               <span className="spl-pipe-blocked-lbl">blocked</span>
             </div>
           )}

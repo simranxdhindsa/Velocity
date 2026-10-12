@@ -15,6 +15,7 @@ import type {
   CapacityRow, DependencyLink, BlockerSLAItem, EscalationConfig,
   YouTrackSprint,
 } from '../services/api'
+import { CountUp } from './CountUp'
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared tiny helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,11 +113,11 @@ export function VelocityTab({ hideControls }: { hideControls?: boolean } = {}) {
         <>
           <div className="pmf-kpi-row">
             <div className="pmf-kpi">
-              <span className="pmf-kpi-value">{avg}</span>
+              <span className="pmf-kpi-value"><CountUp value={avg} /></span>
               <span className="pmf-kpi-label">Avg completed / sprint</span>
             </div>
             <div className="pmf-kpi">
-              <span className="pmf-kpi-value">{data.filter(p => p.is_completed).length}</span>
+              <span className="pmf-kpi-value"><CountUp value={data.filter(p => p.is_completed).length} /></span>
               <span className="pmf-kpi-label">Sprints completed</span>
             </div>
             <div className="pmf-kpi">
@@ -235,19 +236,19 @@ export function BurndownTab({ sprints, activeSprint }: BurndownTabProps) {
           {totalCount > 0 && (
             <div className="pmf-kpi-row">
               <div className="pmf-kpi">
-                <span className="pmf-kpi-value">{totalCount}</span>
+                <span className="pmf-kpi-value"><CountUp value={totalCount} /></span>
                 <span className="pmf-kpi-label">Sprint total</span>
               </div>
               <div className="pmf-kpi">
-                <span className="pmf-kpi-value">{doneCount}</span>
+                <span className="pmf-kpi-value"><CountUp value={doneCount} /></span>
                 <span className="pmf-kpi-label">Completed so far</span>
               </div>
               <div className="pmf-kpi">
-                <span className="pmf-kpi-value">{totalCount - doneCount}</span>
+                <span className="pmf-kpi-value"><CountUp value={totalCount - doneCount} /></span>
                 <span className="pmf-kpi-label">Remaining</span>
               </div>
               <div className={`pmf-kpi ${doneCount / totalCount >= 0.5 ? '' : 'pmf-kpi-warn'}`}>
-                <span className="pmf-kpi-value">{totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0}%</span>
+                <span className="pmf-kpi-value"><CountUp value={`${totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0}%`} /></span>
                 <span className="pmf-kpi-label">Completion</span>
               </div>
             </div>
@@ -638,15 +639,15 @@ export function BlockerEscalationTab() {
         <>
           <div className="pmf-kpi-row">
             <div className="pmf-kpi pmf-kpi-danger">
-              <span className="pmf-kpi-value">{breached.length}</span>
+              <span className="pmf-kpi-value"><CountUp value={breached.length} /></span>
               <span className="pmf-kpi-label">SLA breached</span>
             </div>
             <div className="pmf-kpi pmf-kpi-warn">
-              <span className="pmf-kpi-value">{warning.length}</span>
+              <span className="pmf-kpi-value"><CountUp value={warning.length} /></span>
               <span className="pmf-kpi-label">Near SLA (≥75%)</span>
             </div>
             <div className="pmf-kpi">
-              <span className="pmf-kpi-value">{items.length}</span>
+              <span className="pmf-kpi-value"><CountUp value={items.length} /></span>
               <span className="pmf-kpi-label">Total blocked</span>
             </div>
           </div>

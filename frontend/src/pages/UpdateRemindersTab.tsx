@@ -18,6 +18,7 @@ import { ConfirmModal } from '../components/ConfirmModal'
 import { ClaudeQueueCard, toYMD } from './ClaudeQueueCard'
 import { CalendarPicker } from '../components/CalendarPicker'
 import '../styles/pages/slack-update-reminders.css'
+import { CountUp } from '../components/CountUp'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -999,19 +1000,19 @@ export function UpdateRemindersTab({
         <div className="ur-kpi-card" onClick={() => handleTabChange('claude-queue')} style={{ cursor: 'pointer' }}>
           <div className="ur-kpi-glow" />
           <div className="ur-kpi-label">QUEUE</div>
-          <div className="ur-kpi-value ur-kpi-value--primary">{queueStats.pending}</div>
+          <div className="ur-kpi-value ur-kpi-value--primary"><CountUp value={queueStats.pending} /></div>
           <div className="ur-kpi-sub">pending messages</div>
         </div>
         <div className="ur-kpi-card">
           <div className="ur-kpi-glow ur-kpi-glow--success" />
           <div className="ur-kpi-label">ACTIVE RULES</div>
-          <div className="ur-kpi-value ur-kpi-value--success">{activeRules}</div>
+          <div className="ur-kpi-value ur-kpi-value--success"><CountUp value={activeRules} /></div>
           <div className="ur-kpi-sub">of {rules.length} total</div>
         </div>
         <div className="ur-kpi-card" onClick={() => handleTabChange('claude-queue')} style={{ cursor: 'pointer' }}>
           <div className="ur-kpi-glow ur-kpi-glow--warning" />
           <div className="ur-kpi-label">SENT TODAY</div>
-          <div className="ur-kpi-value ur-kpi-value--warning">{queueStats.sentToday}</div>
+          <div className="ur-kpi-value ur-kpi-value--warning"><CountUp value={queueStats.sentToday} /></div>
           <div className="ur-kpi-sub">via Claude queue</div>
         </div>
       </div>
