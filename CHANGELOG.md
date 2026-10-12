@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-12
+
+### Features
+- Knowledge Base page for admins, to upload team documents or write notes, see how each one was split and test what Velocity Bot would answer
+- Team knowledge base, so Velocity Bot and Claude can answer questions about who is who and how the team works from documents admins upload (Markdown, PDF, Word, Excel, PowerPoint, CSV, text and more)
+- Velocity Bot remembers the conversation, so follow-ups like "what is this?" in a thread or DM get a real answer, including replies to messages sent through Claude
+
+
+### Enhancements
+- Knowledge base splits PDFs and text documents by paragraph, one person or topic per chunk, so answers about who did what are accurate
+- Remove the Refresh button from the Knowledge Base page, it updates on its own
+- Knowledge base works with Groq alone, understanding reworded questions without a Gemini key, gives everyone the same answers, and pages no longer show a needless scrollbar
+
 ## 2026-10-07
 
 > 🧰 **10 new MCP tools and 2 upgraded ones.** Claude can now read ticket comments and screenshots, move tickets in bulk, create sprints, read Slack, check your DayTrack and build deployment reports.
