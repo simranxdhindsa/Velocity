@@ -40,6 +40,7 @@ import {
 } from '../services/pmDataService'
 import { StandupCompilerPage } from './StandupCompilerPage'
 import { IssueDetailPanel } from '../components/IssueDetailPanel'
+import { IssueDetailSkeleton } from '../components/IssueDetailSkeleton'
 import DevTimeView from '../components/DevTimeView'
 import type { DevTimeVariant } from '../components/DevTimeView'
 import FeatureGroupsView from '../components/FeatureGroupsView'
@@ -4294,6 +4295,7 @@ function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: s
       )}
 
       {/* ── YouTrack issue detail panel ── */}
+      {ytDetailLoading && !ytDetailIssue && <IssueDetailSkeleton onClose={() => setYtDetailLoading(false)} />}
       {ytDetailIssue && (
         <IssueDetailPanel
           issue={ytDetailIssue}

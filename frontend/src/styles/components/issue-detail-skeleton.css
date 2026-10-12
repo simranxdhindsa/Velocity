@@ -1,0 +1,28 @@
+/* Loading skeleton for IssueDetailPanel — mirrors the real panel layout */
+.idp-modal--loading { height: 76vh; }
+
+.idp-sk-line,
+.idp-sk-block,
+.idp-sk-chip { flex-shrink: 0; }
+
+.idp-sk-line  { height: 13px; border-radius: 4px; }
+.idp-sk-title { height: 22px; border-radius: 6px; }
+.idp-sk-chip  { height: 22px; width: 76px; border-radius: var(--radius-full); }
+.idp-sk-id    { height: 16px; width: 74px; border-radius: 4px; }
+.idp-sk-btn   { height: 28px; width: 130px; border-radius: 8px; }
+.idp-sk-value { height: 30px; width: 70%; border-radius: 8px; }
+.idp-sk-w-30  { width: 30%; }
+.idp-sk-w-45  { width: 45%; }
+.idp-sk-w-60  { width: 60%; }
+.idp-sk-w-75  { width: 75%; }
+.idp-sk-w-90  { width: 90%; }
+.idp-sk-w-100 { width: 100%; }
+.idp-sk-w-40  { width: 40%; }
+.idp-sk-w-55  { width: 55%; }
+
+@media (max-width: 768px) {
+  .idp-modal--loading .idp-sidebar { display: none; }
+}
+
+/* Real panel replacing the skeleton: no re-played open animation */
+.idp-no-anim { animation: none !important; }

@@ -12,6 +12,7 @@ import type { YouTrackIssue, YouTrackComment, IssueStateLogEntry, YouTrackUser, 
 import { getActiveSource } from '@/services/pmDataService'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
 import { LinkTypeahead } from '@/components/LinkTypeahead'
+import { isSkeletonActive } from './issue-detail-handoff'
 import { useYouTrackBaseUrl } from '@/hooks/useYouTrackBaseUrl'
 
 interface IssueDetailPanelProps {
@@ -222,6 +223,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
 
   // Comments
   const [comments, setComments] = useState<YouTrackComment[]>([])
+  // Taking over from the loading skeleton: skip the open animation so it doesn't flash
+  const [fromSkeleton] = useState(isSkeletonActive)
   const [commentsLoading, setCommentsLoading] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [posting, setPosting] = useState(false)
@@ -475,8 +478,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
 
   return createPortal(
     <>
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="idp-modal" onClick={e => e.stopPropagation()}>
+    <div className={`modal-overlay${fromSkeleton ? ' idp-no-anim' : ''}`} onClick={onClose}>
+      <div className={`idp-modal${fromSkeleton ? ' idp-no-anim' : ''}`} onClick={e => e.stopPropagation()}>
 
         {/* ── Top bar ── */}
         <div className="idp-topbar">

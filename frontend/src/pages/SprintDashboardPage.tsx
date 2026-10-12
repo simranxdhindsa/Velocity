@@ -11,6 +11,7 @@ import type {
   FeatureGroup, PriorityTag,
 } from '@/services/api'
 import { IssueDetailPanel } from '@/components/IssueDetailPanel'
+import { IssueDetailSkeleton } from '@/components/IssueDetailSkeleton'
 import { SprintControlsBar } from '@/components/SprintControlsBar'
 import type { ModeOption } from '@/components/SprintControlsBar'
 import { SprintPulseView } from './SprintRadarPage'
@@ -2229,6 +2230,7 @@ export function SprintDashboardPage() {
       )}
 
       {/* Ticket detail panel */}
+      {ytDetailLoading && !ytDetailIssue && <IssueDetailSkeleton onClose={() => setYtDetailLoading(false)} />}
       {ytDetailIssue && (
         <IssueDetailPanel
           issue={ytDetailIssue}

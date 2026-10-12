@@ -12,6 +12,7 @@ import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import { getActiveSource } from '../services/pmDataService'
 import HoverCard, { HCRow, HCDivider, HCBadge, HCBar } from '../components/HoverCard'
 import { IssueDetailPanel } from '../components/IssueDetailPanel'
+import { IssueDetailSkeleton } from '../components/IssueDetailSkeleton'
 import { useSprintsCache } from '@/contexts/VelocityDataContext'
 import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
@@ -763,6 +764,7 @@ export default function DailyOpsTab({ onBlockersChange, sprintId }: Props) {
     </div>
 
     {/* YouTrack issue detail panel */}
+    {ytDetailLoading && !ytDetailIssue && <IssueDetailSkeleton onClose={() => setYtDetailLoading(false)} />}
     {ytDetailIssue && (
       <IssueDetailPanel
         issue={ytDetailIssue}

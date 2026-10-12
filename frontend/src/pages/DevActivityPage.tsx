@@ -8,6 +8,7 @@ import api from '../services/api'
 import { getActiveSource } from '../services/pmDataService'
 import type { IssueTimeline, IssueStint, YouTrackSprint, TimeTrackingRow } from '../services/api'
 import { IssueDetailPanel } from '../components/IssueDetailPanel'
+import { IssueDetailSkeleton } from '../components/IssueDetailSkeleton'
 import { CustomDropdown } from '../components/CustomDropdown'
 import { CalendarPicker } from '../components/CalendarPicker'
 import '../styles/pages/dev-activity-base.css'
@@ -1339,6 +1340,7 @@ export function DevActivityPage({ initialView }: Props) {
   const [loading, setLoading] = useState(false)
   const [assigneeFilter, setAssigneeFilter] = useState('')
   const [detailIssue, setDetailIssue] = useState<import('../services/api').YouTrackIssue | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [ytBaseUrl, setYtBaseUrl] = useState('')
   const [dateRange, setDateRange] = usePersistedState<DateRange>(PERSIST.DEV_ACTIVITY_DATE, 'Today', { validate: [...DATE_OPTS] })
   const [customFrom, setCustomFrom] = useState('')
@@ -1414,11 +1416,13 @@ export function DevActivityPage({ initialView }: Props) {
 
   // ── Open issue detail ─────────────────────────────────────────────────────
   const handleOpenDetail = useCallback(async (issueId: string) => {
+    setDetailLoading(true)
     try {
       const res = await api.getYouTrackIssue(issueId)
       const issue = (res as any).data as import('../services/api').YouTrackIssue
       if (issue) setDetailIssue(issue)
     } catch { /* ignore */ }
+    finally { setDetailLoading(false) }
   }, [])
 
   const sortedSprints = useMemo(() => [...sprints].sort((a, b) => b.finish - a.finish), [sprints])
@@ -1526,6 +1530,7 @@ export function DevActivityPage({ initialView }: Props) {
       </div>
 
       {/* ── Issue detail panel ── */}
+      {detailLoading && !detailIssue && <IssueDetailSkeleton onClose={() => setDetailLoading(false)} />}
       {detailIssue && (
         <IssueDetailPanel
           issue={detailIssue}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { IssueDetailPanel } from '@/components/IssueDetailPanel'
+import { IssueDetailSkeleton } from '@/components/IssueDetailSkeleton'
 import { GanttGrid, ROW_H, HDR_H } from '@/components/gantt/GanttGrid'
 import { GanttArrows } from '@/components/gantt/GanttArrows'
 import {
@@ -384,6 +385,7 @@ export function GanttPage() {
         </div>
       )}
 
+      {detailLoading && !detailIssue && <IssueDetailSkeleton onClose={() => setDetailLoading(false)} />}
       {detailIssue && (
         <IssueDetailPanel
           issue={detailIssue}

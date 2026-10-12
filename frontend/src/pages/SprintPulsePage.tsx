@@ -3,6 +3,7 @@ import { usePersistedState, PERSIST } from '../hooks/usePersistedState'
 import api from '@/services/api'
 import { useWorkflowConfig } from '@/hooks/useWorkflowConfig'
 import { IssueDetailPanel } from '@/components/IssueDetailPanel'
+import { IssueDetailSkeleton } from '@/components/IssueDetailSkeleton'
 import { SprintControlsBar } from '@/components/SprintControlsBar'
 import { useIgnoredBlocked } from '@/contexts/IgnoredBlockedContext'
 import type {
@@ -337,6 +338,7 @@ export function SprintPulsePage() {
         )}
       </div>
 
+      {ytDetailLoading && !ytDetailIssue && <IssueDetailSkeleton onClose={() => setYtDetailLoading(false)} />}
       {ytDetailIssue && (
         <IssueDetailPanel
           issue={ytDetailIssue}
