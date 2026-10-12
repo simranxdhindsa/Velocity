@@ -38,8 +38,11 @@ export function IssueDetailSkeleton({ onClose, idReadable }: IssueDetailSkeleton
 
         <div className="idp-body">
           <div className="idp-main">
-            <div className="skeleton idp-sk-title idp-sk-w-90" />
-            <div className="skeleton idp-sk-line idp-sk-w-60" />
+            <div className="idp-sk-title-box">
+              <div className="skeleton idp-sk-title idp-sk-w-100" />
+              <div className="skeleton idp-sk-title idp-sk-w-60" />
+            </div>
+            <div className="skeleton idp-sk-meta idp-sk-w-60" />
             <div className="idp-section">
               <div className="skeleton idp-sk-line idp-sk-w-30" />
               {DESC_WIDTHS.map((w, i) => (
@@ -54,12 +57,14 @@ export function IssueDetailSkeleton({ onClose, idReadable }: IssueDetailSkeleton
           </div>
 
           <div className="idp-sidebar">
-            {SIDEBAR_LABELS.map((w, i) => (
-              <div key={i} className="idp-meta-row">
-                <div className={`skeleton idp-sk-line ${w}`} />
-                <div className="skeleton idp-sk-value" />
-              </div>
-            ))}
+            <div className="idp-meta-group">
+              {SIDEBAR_LABELS.map((w, i) => (
+                <div key={i} className="idp-meta-row">
+                  <div className={`skeleton idp-sk-label ${w}`} />
+                  <div className="skeleton idp-sk-value" />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

@@ -146,6 +146,18 @@ function fmt_file_size(bytes: number): string {
 }
 
 // ── Inline select dropdown ─────────────────────────────────────────────────
+/** Same look and size as InlineSelect's trigger, shown while its options are still loading so rows don't shift. */
+function StaticField({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="idp-inline-select">
+      <span className="idp-editable-field idp-editable-field--static">
+        <span>{children}</span>
+        <ChevronDown size={11} style={{ opacity: 0.5 }} />
+      </span>
+    </div>
+  )
+}
+
 function InlineSelect({
   value, options, onSelect, saving,
 }: {
@@ -827,6 +839,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                     onSelect={handleStateChange}
                     saving={saving['status']}
                   />
+                ) : isYouTrack ? (
+                  <StaticField>{localStatus || '—'}</StaticField>
                 ) : (
                   <span className="idp-status-badge">{localStatus || '—'}</span>
                 )}
@@ -842,6 +856,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                     onSelect={handlePriorityChange}
                     saving={saving['priority']}
                   />
+ ) : isYouTrack ? (
+                  <StaticField>{localPriority || '—'}</StaticField>
                 ) : (
                   localPriority
                     ? <span className="idp-priority-badge" style={priStyle}>{localPriority}</span>
@@ -900,6 +916,22 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                       </div>
                     )}
                   </div>
+                ) : isYouTrack ? (
+                  <div className="idp-inline-select">
+                    <span className="idp-editable-field idp-editable-field--static idp-assignee-btn">
+                      {localAssignee ? (
+                        <>
+                          <div className="idp-assignee-avatar idp-assignee-avatar--sm">
+                            {localAssignee.avatarUrl
+                              ? <img src={localAssignee.avatarUrl} alt={localAssignee.fullName} />
+                              : <span>{getInitials(localAssignee.fullName || localAssignee.login)}</span>}
+                          </div>
+                          <span>{localAssignee.fullName || localAssignee.login}</span>
+                        </>
+                      ) : <span>Unassigned</span>}
+                      <ChevronDown size={11} style={{ opacity: 0.5 }} />
+                    </span>
+                  </div>
                 ) : localAssignee ? (
                   <div className="idp-assignee">
                     <div className="idp-assignee-avatar">
@@ -953,6 +985,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                     onSelect={handleBoardChange}
                     saving={saving['board']}
                   />
+                ) : isYouTrack ? (
+                  <StaticField>{localBoard || '—'}</StaticField>
                 ) : (
                   <span className="idp-meta-value">{localBoard || '—'}</span>
                 )}
@@ -968,6 +1002,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                     onSelect={handleSprintChange}
                     saving={saving['sprint']}
                   />
+                ) : isYouTrack ? (
+                  <StaticField>{localSprint || '—'}</StaticField>
                 ) : (
                   <span className="idp-meta-value">{localSprint || '—'}</span>
                 )}

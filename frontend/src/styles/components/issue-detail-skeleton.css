@@ -6,11 +6,14 @@
 .idp-sk-chip { flex-shrink: 0; }
 
 .idp-sk-line  { height: 13px; border-radius: 4px; }
-.idp-sk-title { height: 22px; border-radius: 6px; }
+.idp-sk-title-box { display: flex; flex-direction: column; gap: 6px; }
+.idp-sk-title { height: 23px; border-radius: 6px; }
+.idp-sk-meta  { height: 18px; margin-top: -0.5rem; border-radius: 4px; flex-shrink: 0; }
+.idp-sk-label { height: 17px; border-radius: 4px; flex-shrink: 0; }
 .idp-sk-chip  { height: 22px; width: 76px; border-radius: var(--radius-full); }
 .idp-sk-id    { height: 16px; width: 74px; border-radius: 4px; }
 .idp-sk-btn   { height: 28px; width: 130px; border-radius: 8px; }
-.idp-sk-value { height: 30px; width: 70%; border-radius: 8px; }
+.idp-sk-value { height: 29px; width: 70%; border-radius: 8px; }
 .idp-sk-w-30  { width: 30%; }
 .idp-sk-w-45  { width: 45%; }
 .idp-sk-w-60  { width: 60%; }

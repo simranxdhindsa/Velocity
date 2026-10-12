@@ -2141,6 +2141,7 @@
 }
 
 .idp-assignee-btn { gap: 0.4rem; }
+.idp-editable-field--static { cursor: default; }
 .idp-assignee-avatar--sm { width: 20px; height: 20px; font-size: 0.58rem; }
 
 /* Saving spinner dot */
