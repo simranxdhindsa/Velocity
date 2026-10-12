@@ -15,6 +15,9 @@
 - Remove the Refresh button from the Knowledge Base page, it updates on its own
 - Knowledge base works with Groq alone, understanding reworded questions without a Gemini key, gives everyone the same answers, and pages no longer show a needless scrollbar
 
+### Bug Fixes
+- Blocked issue notifications show the real ticket IDs (like ARD-3034) instead of YouTrack's internal numbers
+
 ## 2026-10-07
 
 > 🧰 **10 new MCP tools and 2 upgraded ones.** Claude can now read ticket comments and screenshots, move tickets in bulk, create sprints, read Slack, check your DayTrack and build deployment reports.
