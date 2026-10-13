@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-13
+
+### Bug Fixes
+- Velocity Bot can look up YouTrack tickets in Slack again, using the YouTrack connection of the person messaging it instead of saying the integration is down
+
+
 ## 2026-10-12
 
 ### Features
