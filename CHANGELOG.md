@@ -3,6 +3,7 @@
 ## 2026-10-13
 
 ### Bug Fixes
+- Velocity Bot answers how many tickets are blocked, in progress or done in the current sprint, counted the same way as the navbar (it used to search ticket titles and say none were blocked)
 - Velocity Bot can look up YouTrack tickets in Slack again, using the YouTrack connection of the person messaging it instead of saying the integration is down
 
 
