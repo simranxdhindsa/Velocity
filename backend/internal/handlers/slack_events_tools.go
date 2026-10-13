@@ -23,13 +23,13 @@ var slackBotTools = []map[string]interface{}{
 		"type": "function",
 		"function": map[string]interface{}{
 			"name":        "search_tickets",
-			"description": "Search YouTrack tickets by free-text keyword, assignee name, or status. Use when asked about tickets in general, not a single known ID.",
+			"description": "Search YouTrack tickets by free-text keyword or assignee name. Not for status questions (blocked, in progress, done): use sprint_tickets_by_status for those.",
 			"parameters": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"query": map[string]interface{}{
 						"type":        "string",
-						"description": "Free text search terms, e.g. a title keyword, assignee name, or status like 'open'",
+						"description": "Free text search terms, e.g. a title keyword or assignee name",
 					},
 				},
 			},
@@ -151,6 +151,8 @@ func slackBotToolActionLabel(name string) string {
 		return "Slack Bot checked message history"
 	case "search_knowledge_base":
 		return "Slack Bot searched knowledge base"
+	case "sprint_tickets_by_status":
+		return "Slack Bot counted sprint tickets"
 	default:
 		return "Slack Bot tool call"
 	}
@@ -171,6 +173,8 @@ func executeSlackBotToolInner(ctx context.Context, name string, argsJSON string)
 	}
 
 	switch name {
+	case "sprint_tickets_by_status":
+		return runSlackBotSprintTool(ctx, client, argsJSON)
 	case "search_tickets":
 		var args struct {
 			Query string `json:"query"`
