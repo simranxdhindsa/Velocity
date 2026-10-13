@@ -181,7 +181,8 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 	// Team knowledge base (see slack_bot_kb.go).
 	kbSection := slackBotKBSection(ctx, ev.Text, convo.History)
 	systemPrompt := systemPromptWithContext(slackReplyPrompt(ctx, h.botRepo), convo, kbSection)
-	reply, err := groqFunnyReply(ctx, systemPrompt, convo.History, convo.framedUserText(ev.Text), actorLabel)
+	// Ticket tools use the sender's own YouTrack connection (slackYTClient).
+	reply, err := groqFunnyReply(withSlackBotUser(ctx, velocityUserID), systemPrompt, convo.History, convo.framedUserText(ev.Text), actorLabel)
 	elapsed := time.Since(start).Round(time.Millisecond)
 	logSlackBotReply(actorLabel, ev.Text, reply, err, elapsed)
 

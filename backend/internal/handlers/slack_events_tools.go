@@ -88,12 +88,24 @@ type groqToolCall struct {
 	} `json:"function"`
 }
 
+// slackBotUserKey carries the Velocity user behind a Slack message (matched
+// by the sender's email, see resolveVelocityUser) to the bot's tools.
+type slackBotUserKey struct{}
+
+// withSlackBotUser attaches the sender's Velocity user ID ("" if unknown).
+func withSlackBotUser(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, slackBotUserKey{}, userID)
+}
+
 // slackYTClient resolves a YouTrack client the same way the MCP tools do
-// (mcpYTClient in mcp.go), minus the per-user integration lookup since the
-// Slack bot has no authenticated user context — falls through to global
-// settings, then env vars.
+// (mcpYTClient in mcp.go): the sender's own YouTrack connection in
+// Velocity first, then org-wide settings, then env vars. Without the
+// sender's connection, production had neither of the others and every
+// ticket lookup failed ("YouTrack is not configured"), which the model
+// relayed as "YouTrack integration is down".
 func slackYTClient(ctx context.Context) *youtrack.Client {
-	return mcpYTClient(ctx, "")
+	userID, _ := ctx.Value(slackBotUserKey{}).(string)
+	return mcpYTClient(ctx, userID)
 }
 
 // executeSlackBotTool runs one Groq-requested tool call against the real
