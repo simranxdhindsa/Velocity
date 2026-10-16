@@ -48,6 +48,8 @@ export const PERSIST = {
   /** Slack > MCP Activity — items per page in each view */
   SLACK_BOT_CHAT_PAGE_SIZE: 'slack_bot_chat_page_size',
   MCP_ACTIVITY_PAGE_SIZE: 'mcp_activity_page_size',
+  /** Gantt — timeline scale (day/week/month) */
+  GANTT_VIEW: 'gantt_view',
   /** Sprint Pulse — which view (live/kanban/priority/...) was last active */
   SPRINT_PULSE_VIEW: 'sprint_pulse_view',
 } as const

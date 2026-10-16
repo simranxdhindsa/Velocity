@@ -1,5 +1,5 @@
 import React from 'react'
-import { type GanttIssue, type GanttDependency, type GanttView, DAY_PX, barRect } from '../../pages/gantt-types'
+import { type GanttIssue, type GanttDependency, type GanttView, type GanttRow, DAY_PX, barRect } from '../../pages/gantt-types'
 import { ROW_H } from './GanttGrid'
 
 interface ArrowPoint { x: number; y: number }
@@ -26,7 +26,7 @@ function cubicPath(from: ArrowPoint, to: ArrowPoint): string {
 }
 
 interface Props {
-  issues: GanttIssue[]
+  rows: GanttRow[]
   dependencies: GanttDependency[]
   viewStart: Date
   view: GanttView
@@ -40,13 +40,18 @@ interface Props {
 }
 
 export function GanttArrows({
-  issues, dependencies, viewStart, view, totalDays, editMode,
+  rows, dependencies, viewStart, view, totalDays, editMode,
   connectingFrom, connectMousePos, onConnectEnd, onRemoveDep,
 }: Props) {
   const dayPx = DAY_PX[view]
-  const totalH = issues.length * ROW_H
-  // Dependencies use gantt member IDs — index by memberId
-  const idxMap = new Map(issues.map((iss, i) => [iss.memberId, i]))
+  const totalH = rows.length * ROW_H
+  // Dependencies use gantt member IDs. Index visible issue rows by memberId;
+  // tickets inside a collapsed group have no row, so their arrows are hidden.
+  const idxMap = new Map<string, number>()
+  const issues: GanttIssue[] = []
+  rows.forEach((r, i) => {
+    if (r.kind === 'issue') { idxMap.set(r.issue.memberId, i); issues[i] = r.issue }
+  })
 
   const arrows = dependencies.flatMap(dep => {
     const srcIdx = idxMap.get(dep.sourceId)
@@ -124,7 +129,7 @@ export function GanttArrows({
 
       {/* Drop targets: left edge of each bar while connecting */}
       {editMode && connectingFrom && issues.map((issue, i) => {
-        if (issue.memberId === connectingFrom) return null
+        if (!issue || issue.memberId === connectingFrom) return null
         const rect = barRect(issue.startDate, issue.dueDate, viewStart, dayPx)
         if (!rect) return null
         const y = i * ROW_H

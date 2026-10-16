@@ -53,7 +53,8 @@ export function diffDays(a: Date, b: Date): number {
 export function fmtDayLabel(d: Date, view: GanttView): string {
   if (view === 'month') return String(d.getDate())
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  return `${days[d.getDay()]} ${d.getDate()}`
+  const name = view === 'week' ? days[d.getDay()].slice(0, 2) : days[d.getDay()]
+  return `${name} ${d.getDate()}`
 }
 
 /** Format a date as "Jun 2026" for month headers */
@@ -121,4 +122,103 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 export function priorityColor(p: string): string {
   return PRIORITY_COLORS[p.toLowerCase()] ?? 'var(--color-primary)'
+}
+
+// ── Workflow role → colour (bars, status badges) ─────────────────────────────
+
+const ROLE_COLORS: Record<string, string> = {
+  active:   'var(--color-primary)',
+  dev_done: 'var(--color-info)',
+  verified: 'var(--color-success)',
+  deployed: 'var(--color-success)',
+  blocked:  'var(--color-danger)',
+  findings: 'var(--color-warning)',
+}
+
+export function roleColor(role: string): string {
+  return ROLE_COLORS[role] ?? 'var(--text-muted)'
+}
+
+const DONE_ROLES = new Set(['dev_done', 'verified', 'deployed'])
+
+/** How far along a ticket is, from its workflow role: done columns are 100,
+ *  in-progress tickets show the share of their scheduled window already
+ *  elapsed (capped below 100), everything else 0. */
+export function issueProgress(issue: GanttIssue, role: string, now = Date.now()): number {
+  if (DONE_ROLES.has(role)) return 100
+  if (role !== 'active' || !issue.startDate || !issue.dueDate) return 0
+  const span = issue.dueDate + 86_400_000 - issue.startDate
+  if (span <= 0) return 0
+  return Math.round(Math.min(95, Math.max(5, ((now - issue.startDate) / span) * 100)))
+}
+
+// ── Rows: one collapsible group per workflow state ───────────────────────────
+
+export interface GanttGroupRow {
+  kind: 'group'
+  key: string
+  label: string
+  role: string
+  count: number
+  progress: number
+  startDate: number | null
+  dueDate: number | null
+  collapsed: boolean
+}
+
+export interface GanttIssueRow {
+  kind: 'issue'
+  issue: GanttIssue
+  role: string
+  progress: number
+}
+
+export type GanttRow = GanttGroupRow | GanttIssueRow
+
+/** Groups issues by state, ordered by the workflow column rank (unknown
+ *  states last). Closed tickets are left out, like every PM view. */
+export function buildRows(
+  issues: GanttIssue[],
+  roleOf: (state: string) => string,
+  rankOf: (state: string) => number,
+  collapsed: Set<string>,
+): GanttRow[] {
+  const groups = new Map<string, GanttIssue[]>()
+  for (const is of issues) {
+    const state = is.state || 'No state'
+    if (roleOf(state) === 'closed') continue
+    const list = groups.get(state)
+    if (list) list.push(is)
+    else groups.set(state, [is])
+  }
+  const keys = [...groups.keys()].sort((a, b) => rankOf(a) - rankOf(b) || a.localeCompare(b))
+  const rows: GanttRow[] = []
+  for (const key of keys) {
+    const list = groups.get(key)!
+    const role = roleOf(key)
+    const items = list.map(issue => ({ kind: 'issue' as const, issue, role, progress: issueProgress(issue, role) }))
+    const starts = list.map(i => i.startDate ?? i.dueDate).filter((v): v is number => !!v)
+    const ends = list.map(i => i.dueDate ?? i.startDate).filter((v): v is number => !!v)
+    rows.push({
+      kind: 'group', key, label: key, role, count: list.length,
+      progress: Math.round(items.reduce((s, r) => s + r.progress, 0) / items.length),
+      startDate: starts.length ? Math.min(...starts) : null,
+      dueDate: ends.length ? Math.max(...ends) : null,
+      collapsed: collapsed.has(key),
+    })
+    if (!collapsed.has(key)) rows.push(...items)
+  }
+  return rows
+}
+
+export function rowKey(r: GanttRow): string {
+  return r.kind === 'group' ? `g:${r.key}` : r.issue.memberId
+}
+
+/** "W42 Oct 12 - 18" for the Monday-to-Sunday week starting at `mon`. */
+export function fmtWeekRange(mon: Date): string {
+  const sun = addDays(mon, 6)
+  const m = (d: Date) => d.toLocaleString('default', { month: 'short' })
+  const end = sun.getMonth() === mon.getMonth() ? String(sun.getDate()) : `${m(sun)} ${sun.getDate()}`
+  return `${fmtWeek(mon).replace('Wk ', 'W')} ${m(mon)} ${mon.getDate()} - ${end}`
 }

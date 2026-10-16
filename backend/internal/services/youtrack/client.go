@@ -158,8 +158,7 @@ type YTGanttChart struct {
 
 // ganttFields is the fields string used when fetching a full gantt chart.
 const ganttFields = "id,name,members(id,startDate,estimation,spentTime,isParent,dependsOn(id)," +
-	"issue(id,idReadable,summary,fields(id,value(id,name,login,email,avatarUrl,color(id))," +
-	"projectCustomField(field(id,name,fieldType(valueType))))))"
+	"issue(id,idReadable,summary,customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id))))"
 
 // ListGanttCharts returns all Gantt charts the token has access to.
 func (c *Client) ListGanttCharts(ctx context.Context) ([]YTGanttChart, error) {

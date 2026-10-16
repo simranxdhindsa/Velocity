@@ -1,106 +1,28 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef, useMemo } from 'react'
+import { GitBranch, Plus, Minus } from 'lucide-react'
 import { IssueDetailPanel } from '@/components/IssueDetailPanel'
 import { IssueDetailSkeleton } from '@/components/IssueDetailSkeleton'
 import { GanttGrid, ROW_H, HDR_H } from '@/components/gantt/GanttGrid'
 import { GanttArrows } from '@/components/gantt/GanttArrows'
+import { GanttTable } from '@/components/gantt/GanttTable'
+import { GanttToolbar } from '@/components/gantt/GanttToolbar'
 import {
-  type GanttIssue, type GanttDependency, type GanttChartSummary, type GanttView,
-  DAY_PX, addDays, diffDays, startOfDay, priorityColor,
+  type GanttIssue, type GanttDependency, type GanttChartSummary, type GanttView, type GanttIssueRow,
+  DAY_PX, addDays, diffDays, startOfDay, buildRows,
 } from './gantt-types'
+import { useWorkflowConfig } from '@/hooks/useWorkflowConfig'
+import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import api from '@/services/api'
 import type { YouTrackIssue } from '@/services/api'
-import { Edit2, GitBranch, ChevronDown } from 'lucide-react'
-import { createPortal } from 'react-dom'
 import '@/styles/pages/gantt.css'
+import '@/styles/pages/gantt-timeline.css'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const CHART_KEY = 'gantt_chart_id'
-
-const VIEW_MODES: { id: GanttView; label: string }[] = [
-  { id: 'day',   label: 'Day' },
-  { id: 'week',  label: 'Week' },
-  { id: 'month', label: 'Month' },
-]
-
-// ── Chart selector dropdown (portal) ─────────────────────────────────────────
-
-const ChartSelector = React.memo(function ChartSelector({
-  charts, active, onChange,
-}: {
-  charts: GanttChartSummary[]
-  active: GanttChartSummary | null
-  onChange: (c: GanttChartSummary) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const btnRef  = useRef<HTMLDivElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node
-      if (!btnRef.current?.contains(t) && !menuRef.current?.contains(t)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
-
-  const rect = btnRef.current?.getBoundingClientRect()
-
-  return (
-    <div ref={btnRef} className="pm-custom-dropdown">
-      <button className="pm-custom-dropdown-trigger" onClick={() => setOpen(o => !o)}>
-        <GitBranch size={13} />
-        {active?.name ?? 'Select chart'}
-        <ChevronDown size={11} style={{ opacity: 0.5 }} />
-      </button>
-      {open && rect && createPortal(
-        <div
-          ref={menuRef}
-          className="pm-custom-dropdown-menu"
-          style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, minWidth: rect.width, zIndex: 9999 }}
-        >
-          {charts.map(c => (
-            <div
-              key={c.id}
-              className={`pm-custom-dropdown-item${active?.id === c.id ? ' active' : ''}`}
-              onClick={() => { onChange(c); setOpen(false) }}
-            >
-              {c.name}
-            </div>
-          ))}
-        </div>,
-        document.body
-      )}
-    </div>
-  )
-})
-
-// ── Sidebar row ───────────────────────────────────────────────────────────────
-
-const SidebarRow = React.memo(function SidebarRow({
-  issue, onClick,
-}: { issue: GanttIssue; onClick: () => void }) {
-  const initials = issue.assignee.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
-  return (
-    <div className="gt-sb-row" style={{ height: ROW_H }} onClick={onClick}>
-      {issue.avatarUrl
-        ? <img className="gt-sb-avatar" src={issue.avatarUrl} alt={issue.assignee} />
-        : <div className="gt-sb-avatar gt-sb-avatar--initials">{initials || '?'}</div>
-      }
-      <div className="gt-sb-meta">
-        <span className="gt-sb-id">{issue.idReadable}</span>
-        <span className="gt-sb-name" title={issue.summary}>{issue.summary}</span>
-      </div>
-      <span
-        className="gt-sb-dot"
-        style={{ background: priorityColor(issue.priority) }}
-        title={issue.priority}
-      />
-    </div>
-  )
-})
+const SCALES: GanttView[] = ['day', 'week', 'month']
+/** Prev/next jump per scale, in days. */
+const STEP_DAYS: Record<GanttView, number> = { day: 7, week: 14, month: 30 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
@@ -108,17 +30,28 @@ const W = [55, 70, 48, 65, 58, 72]
 
 function GanttSkeleton() {
   return (
-    <div className="gt-skeleton-wrap">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="gt-skeleton-row">
-          <div className="skeleton" style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0 }} />
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <div className="skeleton" style={{ width: 52, height: 10, borderRadius: 4 }} />
-            <div className="skeleton" style={{ width: `${W[i % 6]}%`, height: 10, borderRadius: 4 }} />
+    <div className="gt-body">
+      <div className="gt-tb gt-tb--skeleton">
+        <div className="gt-tb-hdr" style={{ height: HDR_H }} />
+        {Array.from({ length: 9 }).map((_, i) => (
+          <div key={i} className="gt-tb-row" style={{ height: ROW_H }}>
+            <div className="gt-tb-cell gt-tb-task"><div className="skeleton" style={{ width: `${W[i % 6]}%`, height: 10, borderRadius: 4 }} /></div>
+            <div className="gt-tb-cell gt-tb-owner">
+              <div className="skeleton" style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0 }} />
+              <div className="skeleton" style={{ width: `${W[(i + 2) % 6]}%`, height: 10, borderRadius: 4 }} />
+            </div>
+            <div className="gt-tb-cell gt-tb-status"><div className="skeleton" style={{ width: 64, height: 18, borderRadius: 6 }} /></div>
           </div>
-          <div className="skeleton" style={{ width: `${35 + (i % 3) * 20}%`, height: 20, borderRadius: 6, marginLeft: 12 }} />
-        </div>
-      ))}
+        ))}
+      </div>
+      <div className="gt-timeline">
+        <div className="gt-hdr gt-hdr--skeleton" style={{ height: HDR_H }} />
+        {Array.from({ length: 9 }).map((_, i) => (
+          <div key={i} className="gt-sk-row" style={{ height: ROW_H }}>
+            <div className="skeleton" style={{ marginLeft: `${(i * 7) % 40}%`, width: `${20 + (i % 3) * 12}%`, height: i % 4 === 0 ? 6 : 22, borderRadius: 6 }} />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -132,8 +65,10 @@ export function GanttPage() {
   const [issues,      setIssues]      = useState<GanttIssue[]>([])
   const [deps,        setDeps]        = useState<GanttDependency[]>([])
   const [loading,     setLoading]     = useState(false)
-  const [view,        setView]        = useState<GanttView>('week')
+  const [view,        setView]        = usePersistedState<GanttView>(PERSIST.GANTT_VIEW, 'week', { validate: SCALES })
   const [editMode,    setEditMode]    = useState(false)
+  const [collapsed,   setCollapsed]   = useState<Set<string>>(new Set())
+  const [visible,     setVisible]     = useState({ from: 0, to: 0 })   // day indexes on screen
 
   // Connect-dependency draw state
   const [connectingFrom,  setConnectingFrom]  = useState<string | null>(null)  // memberId
@@ -144,21 +79,22 @@ export function GanttPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [ytBaseUrl,     setYtBaseUrl]     = useState('')
 
-  // Refs for scroll sync
-  const sidebarRef    = useRef<HTMLDivElement>(null)
+  const tableRef      = useRef<HTMLDivElement>(null)
   const canvasWrapRef = useRef<HTMLDivElement>(null)
-  const gridRef       = useRef<HTMLDivElement>(null)
+  const scrolledFor   = useRef<string | null>(null)   // chart already scrolled to today
+  const keepCenter    = useRef<number | null>(null)   // day to re-centre on after a scale change
+
+  const { config: wfConfig } = useWorkflowConfig()
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     api.getYouTrackIntegration().then(res => {
-      const d = res as any
-      setYtBaseUrl((d?.base_url || d?.data?.base_url || '').replace(/\/$/, ''))
+      setYtBaseUrl((res.data?.base_url || '').replace(/\/$/, ''))
     }).catch(() => {})
 
     api.getGanttCharts().then(res => {
-      const list = ((res as any).data as GanttChartSummary[]) ?? []
+      const list = (res.data as GanttChartSummary[] | undefined) ?? []
       setCharts(list)
       const savedId = localStorage.getItem(CHART_KEY)
       const saved   = savedId ? list.find(c => c.id === savedId) : null
@@ -167,12 +103,10 @@ export function GanttPage() {
     }).catch(() => {})
   }, [])
 
-  // ── Fetch Gantt data ──────────────────────────────────────────────────────
-
   const fetchChart = useCallback((id: string) => {
     setLoading(true)
     api.getGanttChart(id).then(res => {
-      const data = (res as any).data
+      const data = res.data as { issues?: GanttIssue[]; dependencies?: GanttDependency[]; ganttId?: string } | undefined
       setIssues(data?.issues ?? [])
       setDeps(data?.dependencies ?? [])
       setGanttId(data?.ganttId ?? id)
@@ -182,50 +116,126 @@ export function GanttPage() {
     }).finally(() => setLoading(false))
   }, [])
 
+  const activeChartId = activeChart?.id
   useEffect(() => {
-    if (!activeChart) return
-    fetchChart(activeChart.id)
-  }, [activeChart, fetchChart])
+    if (!activeChartId) return
+    scrolledFor.current = null
+    fetchChart(activeChartId)
+  }, [activeChartId, fetchChart])
 
-  const handleChartSelect = useCallback((c: GanttChartSummary) => {
+  const handleChartSelect = useCallback((id: string) => {
+    const c = charts.find(x => x.id === id)
+    if (!c) return
     setActiveChart(c)
     localStorage.setItem(CHART_KEY, c.id)
+  }, [charts])
+
+  // ── Rows (grouped by workflow state) ──────────────────────────────────────
+
+  const { roleOf, rankOf } = useMemo(() => {
+    const role = new Map<string, string>()
+    const rank = new Map<string, number>()
+    for (const col of wfConfig?.column_hierarchy ?? []) {
+      for (const name of [col.state, ...(col.aliases || [])]) {
+        role.set(name.toLowerCase(), col.role)
+        rank.set(name.toLowerCase(), col.rank)
+      }
+    }
+    return {
+      roleOf: (s: string) => role.get(s.toLowerCase()) ?? '',
+      rankOf: (s: string) => rank.get(s.toLowerCase()) ?? Number.MAX_SAFE_INTEGER,
+    }
+  }, [wfConfig])
+
+  const rows = useMemo(() => buildRows(issues, roleOf, rankOf, collapsed), [issues, roleOf, rankOf, collapsed])
+
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }, [])
 
-  // ── View geometry ──────────────────────────────────────────────────────────
+  // ── View geometry: always spans the tickets and the weeks around today ────
 
   const viewStart = useMemo((): Date => {
-    const starts = issues.map(i => i.startDate).filter(Boolean) as number[]
-    if (starts.length === 0) return addDays(startOfDay(new Date()), -7)
-    return addDays(startOfDay(new Date(Math.min(...starts))), -2)
+    const starts = issues.map(i => i.startDate ?? i.dueDate).filter(Boolean) as number[]
+    const from = Math.min(addDays(startOfDay(new Date()), -14).getTime(), ...starts)
+    const d = addDays(startOfDay(new Date(from)), -3)
+    return addDays(d, -((d.getDay() + 6) % 7))   // start on a Monday
   }, [issues])
 
   const totalDays = useMemo((): number => {
     const ends = issues.map(i => i.dueDate ?? i.startDate).filter(Boolean) as number[]
-    if (ends.length === 0) return 30
-    const lastDate = addDays(startOfDay(new Date(Math.max(...ends))), 5)
-    return Math.max(diffDays(viewStart, lastDate), 30)
+    const to = Math.max(addDays(startOfDay(new Date()), 45).getTime(), ...ends)
+    return diffDays(viewStart, addDays(new Date(to), 7))
   }, [issues, viewStart])
 
-  // ── Scroll sync ───────────────────────────────────────────────────────────
+  const dayPx = DAY_PX[view]
 
+  // ── Scrolling ─────────────────────────────────────────────────────────────
+
+  const scrollToDay = useCallback((day: number, smooth = true) => {
+    const w = canvasWrapRef.current
+    if (!w) return
+    w.scrollTo({ left: Math.max(0, day * dayPx - w.clientWidth / 2), behavior: smooth ? 'smooth' : 'auto' })
+  }, [dayPx])
+
+  const todayDay = diffDays(viewStart, new Date())
+  const centerDay = Math.round((visible.from + visible.to) / 2)
+
+  // Open each chart on today.
+  useLayoutEffect(() => {
+    if (loading || !activeChart || issues.length === 0 || scrolledFor.current === activeChart.id) return
+    scrolledFor.current = activeChart.id
+    scrollToDay(todayDay, false)
+  }, [loading, activeChart, issues.length, scrollToDay, todayDay])
+
+  // Keep the same date in the middle when the scale changes.
+  useLayoutEffect(() => {
+    if (keepCenter.current === null) return
+    scrollToDay(keepCenter.current, false)
+    keepCenter.current = null
+  }, [view, scrollToDay])
+
+  const changeView = useCallback((v: GanttView) => {
+    keepCenter.current = centerDay
+    setView(v)
+  }, [centerDay, setView])
+
+  const zoom = useCallback((dir: -1 | 1) => {
+    const i = SCALES.indexOf(view) - dir
+    if (i >= 0 && i < SCALES.length) changeView(SCALES[i])
+  }, [view, changeView])
+
+  const frame = useRef(0)
   const onCanvasScroll = useCallback(() => {
-    const s = sidebarRef.current; const w = canvasWrapRef.current
-    if (s && w) s.scrollTop = w.scrollTop
+    const t = tableRef.current; const w = canvasWrapRef.current
+    if (!w) return
+    if (t && t.scrollTop !== w.scrollTop) t.scrollTop = w.scrollTop
+    cancelAnimationFrame(frame.current)
+    frame.current = requestAnimationFrame(() => setVisible({
+      from: Math.floor(w.scrollLeft / dayPx),
+      to: Math.floor((w.scrollLeft + w.clientWidth) / dayPx),
+    }))
+  }, [dayPx])
+
+  const onTableScroll = useCallback(() => {
+    const t = tableRef.current; const w = canvasWrapRef.current
+    if (t && w && w.scrollTop !== t.scrollTop) w.scrollTop = t.scrollTop
   }, [])
 
-  const onSidebarScroll = useCallback(() => {
-    const s = sidebarRef.current; const w = canvasWrapRef.current
-    if (s && w) w.scrollTop = s.scrollTop
-  }, [])
+  const periodLabel = useMemo(() => {
+    const d = addDays(viewStart, centerDay)
+    return d.toLocaleString('default', { month: 'long', year: 'numeric' })
+  }, [viewStart, centerDay])
 
   // ── Date update (drag/resize) ──────────────────────────────────────────────
 
-  const handleUpdateDates = useCallback(async (
-    memberId: string, startMs: number | null, dueMs: number | null
-  ) => {
+  const handleUpdateDates = useCallback(async (memberId: string, startMs: number | null, dueMs: number | null) => {
     if (!ganttId) return
-    // Optimistic update
     setIssues(prev => prev.map(i => {
       if (i.memberId !== memberId) return i
       const estimation = (startMs && dueMs) ? Math.max(0, Math.floor((dueMs - startMs) / 60_000)) : i.estimation
@@ -234,7 +244,7 @@ export function GanttPage() {
     try {
       await api.updateGanttMember(ganttId, memberId, startMs, dueMs)
     } catch {
-      if (ganttId) fetchChart(ganttId)
+      fetchChart(ganttId)
     }
   }, [ganttId, fetchChart])
 
@@ -243,7 +253,7 @@ export function GanttPage() {
   const handleConnectStart = useCallback((e: React.MouseEvent, memberId: string) => {
     e.preventDefault()
     setConnectingFrom(memberId)
-    setConnectMousePos({ x: e.clientX, y: e.clientY })
+    setConnectMousePos(null)
   }, [])
 
   useEffect(() => {
@@ -270,12 +280,10 @@ export function GanttPage() {
     if (!connectingFrom || connectingFrom === targetMemberId) return
     setConnectingFrom(null)
     setConnectMousePos(null)
-    // Optimistic — show arrow immediately (no server round-trip for now)
-    setDeps(prev => {
-      const already = prev.some(d => d.sourceId === connectingFrom && d.targetId === targetMemberId)
-      if (already) return prev
-      return [...prev, { sourceId: connectingFrom, targetId: targetMemberId }]
-    })
+    // Optimistic: show the arrow immediately (not saved to YouTrack yet)
+    setDeps(prev => prev.some(d => d.sourceId === connectingFrom && d.targetId === targetMemberId)
+      ? prev
+      : [...prev, { sourceId: connectingFrom, targetId: targetMemberId }])
   }, [connectingFrom])
 
   const handleRemoveDep = useCallback((dep: GanttDependency) => {
@@ -285,105 +293,89 @@ export function GanttPage() {
 
   // ── Issue detail panel ────────────────────────────────────────────────────
 
-  const openDetail = useCallback(async (issue: GanttIssue) => {
+  const openDetail = useCallback(async (row: GanttIssueRow) => {
     if (detailLoading) return
     setDetailLoading(true)
     try {
-      const res  = await api.getYouTrackIssue(issue.idReadable)
-      const full = (res as any).data as YouTrackIssue
-      if (full) setDetailIssue(full)
-    } catch {}
-    finally { setDetailLoading(false) }
+      const res  = await api.getYouTrackIssue(row.issue.idReadable)
+      if (res.data) setDetailIssue(res.data)
+    } catch {
+      // panel just doesn't open
+    } finally { setDetailLoading(false) }
   }, [detailLoading])
-
-  const dayPx = DAY_PX[view]
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="gt-page">
-      {/* ── Toolbar ── */}
-      <div className="gt-toolbar db-controls">
-        <ChartSelector charts={charts} active={activeChart} onChange={handleChartSelect} />
+      <div className="gt-card">
+        <GanttToolbar
+          charts={charts}
+          activeChartId={activeChart?.id ?? ''}
+          onChartChange={handleChartSelect}
+          view={view}
+          onViewChange={changeView}
+          periodLabel={issues.length ? periodLabel : ''}
+          onToday={() => scrollToDay(todayDay)}
+          onStep={dir => scrollToDay(centerDay + dir * STEP_DAYS[view])}
+          editMode={editMode}
+          onEditToggle={() => setEditMode(m => !m)}
+          disabled={issues.length === 0}
+        />
 
-        <div className="db-controls-spacer" />
-
-        <div className="gt-view-tabs">
-          {VIEW_MODES.map(v => (
-            <button
-              key={v.id}
-              className={`gt-view-tab${view === v.id ? ' active' : ''}`}
-              onClick={() => setView(v.id)}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
-
-        <button
-          className={`gt-edit-btn${editMode ? ' active' : ''}`}
-          onClick={() => setEditMode(m => !m)}
-          title="Toggle Edit Mode — drag bars, resize, draw dependencies"
-        >
-          <Edit2 size={14} />
-          {editMode ? 'Exit Edit' : 'Edit Mode'}
-        </button>
-      </div>
-
-      {/* ── Body ── */}
-      {loading ? (
-        <GanttSkeleton />
-      ) : issues.length === 0 ? (
-        <div className="gt-empty">
-          <GitBranch size={40} opacity={0.3} />
-          <p>{activeChart ? 'No scheduled issues in this chart.' : 'Select a Gantt chart to view.'}</p>
-        </div>
-      ) : (
-        <div className="gt-body">
-          {/* Sidebar */}
-          <div className="gt-sidebar" ref={sidebarRef} onScroll={onSidebarScroll}>
-            <div className="gt-sb-hdr" style={{ height: HDR_H }}>Issues</div>
-            {issues.map(issue => (
-              <SidebarRow key={issue.memberId} issue={issue} onClick={() => openDetail(issue)} />
-            ))}
+        {loading ? (
+          <GanttSkeleton />
+        ) : issues.length === 0 ? (
+          <div className="gt-empty">
+            <GitBranch size={40} opacity={0.3} />
+            <p>{activeChart ? 'No scheduled issues in this chart.' : 'Select a Gantt chart to view.'}</p>
           </div>
+        ) : (
+          <div className="gt-body">
+            <div className="gt-tb-scroll" ref={tableRef} onScroll={onTableScroll}>
+              <GanttTable rows={rows} onToggleGroup={toggleGroup} onIssueClick={openDetail} />
+            </div>
 
-          {/* Canvas scroll area */}
-          <div className="gt-canvas-wrap" ref={canvasWrapRef} onScroll={onCanvasScroll}>
-            <div
-              className="gt-canvas-inner"
-              style={{ width: totalDays * dayPx, position: 'relative' }}
-            >
-              <GanttGrid
-                issues={issues}
-                viewStart={viewStart}
-                totalDays={totalDays}
-                view={view}
-                editMode={editMode}
-                onUpdateDates={handleUpdateDates}
-                onConnectStart={handleConnectStart}
-                onIssueClick={openDetail}
-                connectingFrom={connectingFrom}
-                gridRef={gridRef}
-              />
-              <div className="gt-arrow-layer" style={{ top: HDR_H }}>
-                <GanttArrows
-                  issues={issues}
-                  dependencies={deps}
-                  viewStart={viewStart}
-                  view={view}
-                  totalDays={totalDays}
-                  editMode={editMode}
-                  connectingFrom={connectingFrom}
-                  connectMousePos={connectMousePos}
-                  onConnectEnd={handleConnectEnd}
-                  onRemoveDep={handleRemoveDep}
-                />
+            <div className="gt-timeline">
+              <div className="gt-canvas-wrap" ref={canvasWrapRef} onScroll={onCanvasScroll}>
+                <div className="gt-canvas-inner" style={{ width: totalDays * dayPx }}>
+                  <GanttGrid
+                    rows={rows}
+                    viewStart={viewStart}
+                    totalDays={totalDays}
+                    view={view}
+                    editMode={editMode}
+                    onUpdateDates={handleUpdateDates}
+                    onConnectStart={handleConnectStart}
+                    onIssueClick={openDetail}
+                    visible={visible}
+                    onJump={scrollToDay}
+                  />
+                  <div className="gt-arrow-layer" style={{ top: HDR_H }}>
+                    <GanttArrows
+                      rows={rows}
+                      dependencies={deps}
+                      viewStart={viewStart}
+                      view={view}
+                      totalDays={totalDays}
+                      editMode={editMode}
+                      connectingFrom={connectingFrom}
+                      connectMousePos={connectMousePos}
+                      onConnectEnd={handleConnectEnd}
+                      onRemoveDep={handleRemoveDep}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="gt-zoom">
+                <button className="gt-icon-btn" onClick={() => zoom(1)} disabled={view === 'day'} aria-label="Zoom in"><Plus size={14} /></button>
+                <button className="gt-icon-btn" onClick={() => zoom(-1)} disabled={view === 'month'} aria-label="Zoom out"><Minus size={14} /></button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {detailLoading && !detailIssue && <IssueDetailSkeleton onClose={() => setDetailLoading(false)} />}
       {detailIssue && (

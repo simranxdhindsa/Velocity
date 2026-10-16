@@ -1,118 +1,111 @@
-import React, { useRef, useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import {
-  type GanttIssue, type GanttView, DAY_PX,
-  addDays, diffDays, fmtDayLabel, fmtMonth, fmtWeek,
-  isWeekend, msToDate, dateToMs, barRect, priorityColor,
+  type GanttIssue, type GanttView, type GanttRow, type GanttIssueRow, type GanttGroupRow, DAY_PX,
+  addDays, diffDays, fmtDayLabel, fmtMonth, fmtWeekRange, isWeekend, barRect, roleColor, rowKey, startOfDay, msToDate,
 } from '../../pages/gantt-types'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const ROW_H = 44          // px per row
-const HDR_H = 56          // timeline header height (two rows: month + day)
-const SIDEBAR_W = 280     // left issue list width
+const ROW_H = 38          // px per row (table and timeline)
+const HDR_H = 60          // timeline header: week/month tier + day tier
+const MS_DAY = 86_400_000
+/** Narrower bars put their label to the right of the bar. */
+const LABEL_INSIDE_MIN = 110
 
-// ── Header builder ───────────────────────────────────────────────────────────
+type DragMode = 'move' | 'resize-left' | 'resize-right'
+
+// ── Header builders ──────────────────────────────────────────────────────────
 
 function buildDayColumns(viewStart: Date, totalDays: number, view: GanttView) {
-  const dayPx = DAY_PX[view]
-  const cols: { date: Date; label: string; isWeekend: boolean }[] = []
-  for (let i = 0; i < totalDays; i++) {
+  const today = startOfDay(new Date()).getTime()
+  return Array.from({ length: totalDays }, (_, i) => {
     const d = addDays(viewStart, i)
-    cols.push({ date: d, label: fmtDayLabel(d, view), isWeekend: isWeekend(d) })
-  }
-  return cols
+    const isToday = d.getTime() === today
+    // Month scale is too narrow for every date: label Mondays and today only
+    const label = view === 'month' && d.getDay() !== 1 && !isToday ? '' : fmtDayLabel(d, view)
+    return { label, weekend: isWeekend(d), today: isToday }
+  })
 }
 
+/** Top tier: weeks ("W42 Oct 12 - 18") for day/week scale, months for month scale. */
 function buildGroupHeaders(viewStart: Date, totalDays: number, view: GanttView) {
   const dayPx = DAY_PX[view]
   const groups: { label: string; width: number }[] = []
-  let cur = addDays(viewStart, 0)
+  let cur = viewStart
   let i = 0
   while (i < totalDays) {
-    let groupLabel: string
-    let groupEnd: Date
+    let label: string
+    let end: Date
     if (view === 'month') {
-      groupLabel = fmtMonth(cur)
-      groupEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 1)
+      label = fmtMonth(cur)
+      end = new Date(cur.getFullYear(), cur.getMonth() + 1, 1)
     } else {
-      // Week groups for day + week views
-      const monday = new Date(cur)
-      const dayOfWeek = cur.getDay() === 0 ? 6 : cur.getDay() - 1
-      monday.setDate(cur.getDate() - dayOfWeek)
-      const sunday = addDays(monday, 6)
-      groupLabel = fmtWeek(monday)
-      groupEnd = addDays(sunday, 1)
+      const monday = addDays(cur, -((cur.getDay() + 6) % 7))
+      label = fmtWeekRange(monday)
+      end = addDays(monday, 7)
     }
-    const endDay = Math.min(diffDays(viewStart, groupEnd), totalDays)
-    const width = (endDay - i) * dayPx
-    groups.push({ label: groupLabel, width })
-    cur = groupEnd
+    const endDay = Math.min(diffDays(viewStart, end), totalDays)
+    groups.push({ label, width: (endDay - i) * dayPx })
+    cur = end
     i = endDay
   }
   return groups
 }
 
-// ── Avatar ───────────────────────────────────────────────────────────────────
-
-const Avatar = React.memo(({ name, url }: { name: string; url: string }) => {
-  const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
-  if (url) return <img className="gt-avatar" src={url} alt={name} title={name} />
-  return <div className="gt-avatar gt-avatar-initials" title={name}>{initials}</div>
-})
-
-// ── Single bar ───────────────────────────────────────────────────────────────
-
-interface BarProps {
-  issue: GanttIssue
-  viewStart: Date
-  view: GanttView
-  editMode: boolean
-  onDragStart: (e: React.MouseEvent, issueId: string, mode: 'move' | 'resize-left' | 'resize-right') => void
-  onConnectStart?: (e: React.MouseEvent, issueId: string) => void
-  onClick: (issue: GanttIssue) => void
+/** New start/due after dragging `days` in `mode`. */
+function shiftDates(issue: GanttIssue, mode: DragMode, days: number) {
+  let start = issue.startDate
+  let due = issue.dueDate
+  if (mode === 'move') {
+    if (start) start += days * MS_DAY
+    if (due) due += days * MS_DAY
+  } else if (mode === 'resize-right') {
+    const base = due ?? start
+    if (base) due = Math.max(base + days * MS_DAY, start ?? 0)
+  } else {
+    const base = start ?? due
+    if (base) start = Math.min(base + days * MS_DAY, due ?? Infinity)
+  }
+  return { startDate: start, dueDate: due }
 }
 
-const GanttBar = React.memo(({
-  issue, viewStart, view, editMode, onDragStart, onConnectStart, onClick,
-}: BarProps) => {
-  const dayPx = DAY_PX[view]
+// ── Bars ─────────────────────────────────────────────────────────────────────
+
+interface BarProps {
+  row: GanttIssueRow
+  viewStart: Date
+  dayPx: number
+  editMode: boolean
+  onDragStart: (e: React.MouseEvent, issue: GanttIssue, mode: DragMode) => void
+  onConnectStart?: (e: React.MouseEvent, memberId: string) => void
+  onClick: (row: GanttIssueRow) => void
+}
+
+const GanttBar = React.memo(function GanttBar({
+  row, viewStart, dayPx, editMode, onDragStart, onConnectStart, onClick,
+}: BarProps) {
+  const { issue, progress } = row
   const rect = barRect(issue.startDate, issue.dueDate, viewStart, dayPx)
   if (!rect) return null
-  const color = priorityColor(issue.priority)
-
   return (
     <div
-      className={`gt-bar${editMode ? ' gt-bar--edit' : ''}`}
-      style={{
-        left: rect.left,
-        width: rect.width,
-        '--bar-color': color,
-      } as React.CSSProperties}
-      onClick={() => onClick(issue)}
+      className={`gt-bar${editMode ? ' gt-bar--edit' : ''}${rect.width < LABEL_INSIDE_MIN ? ' gt-bar--label-out' : ''}`}
+      style={{ left: rect.left, width: rect.width, '--bar-color': roleColor(row.role), '--bar-progress': `${progress}%` } as React.CSSProperties}
+      title={`${issue.idReadable} ${issue.summary} (${progress}%)`}
+      onClick={editMode ? undefined : () => onClick(row)}
+      onMouseDown={editMode ? e => onDragStart(e, issue, 'move') : undefined}
     >
-      {editMode && (
-        <div
-          className="gt-bar-handle gt-bar-handle--left"
-          onMouseDown={e => { e.stopPropagation(); onDragStart(e, issue.memberId, 'resize-left') }}
-        />
-      )}
-      <div
-        className="gt-bar-inner"
-        onMouseDown={editMode ? e => { e.stopPropagation(); onDragStart(e, issue.memberId, 'move') } : undefined}
-      >
-        <span className="gt-bar-label">{issue.idReadable} — {issue.summary}</span>
-      </div>
+      <span className="gt-bar-label">{issue.summary}</span>
       {editMode && (
         <>
-          <div
-            className="gt-bar-handle gt-bar-handle--right"
-            onMouseDown={e => { e.stopPropagation(); onDragStart(e, issue.memberId, 'resize-right') }}
-          />
+          <span className="gt-bar-handle gt-bar-handle--left" onMouseDown={e => { e.stopPropagation(); onDragStart(e, issue, 'resize-left') }} />
+          <span className="gt-bar-handle gt-bar-handle--right" onMouseDown={e => { e.stopPropagation(); onDragStart(e, issue, 'resize-right') }} />
           {onConnectStart && (
-            <div
+            <span
               className="gt-connect-dot"
+              title="Drag to another bar to add a dependency"
               onMouseDown={e => { e.stopPropagation(); onConnectStart(e, issue.memberId) }}
-              title="Drag to create dependency"
             />
           )}
         </>
@@ -121,191 +114,147 @@ const GanttBar = React.memo(({
   )
 })
 
-// ── GanttGrid ────────────────────────────────────────────────────────────────
+/** Thin summary line spanning a group's tickets, with its progress. */
+const GroupBar = React.memo(function GroupBar({ row, viewStart, dayPx }: { row: GanttGroupRow; viewStart: Date; dayPx: number }) {
+  const rect = barRect(row.startDate, row.dueDate, viewStart, dayPx)
+  if (!rect) return null
+  return (
+    <div className="gt-sum" style={{ left: rect.left, width: rect.width, '--bar-progress': `${row.progress}%` } as React.CSSProperties}>
+      <span className="gt-sum-pct">{row.progress}%</span>
+    </div>
+  )
+})
 
-interface DragState {
-  memberId: string
-  mode: 'move' | 'resize-left' | 'resize-right'
-  startX: number
-  origStart: number | null
-  origDue: number | null
+/** Edge arrow for a bar scrolled out of view; clicking scrolls to it. */
+function OffscreenHint({ issue, viewStart, visible, onJump }: {
+  issue: GanttIssue
+  viewStart: Date
+  visible: { from: number; to: number }
+  onJump: (day: number) => void
+}) {
+  const s = issue.startDate ?? issue.dueDate
+  const e = issue.dueDate ?? issue.startDate
+  if (!s || !e) return null
+  const startDay = diffDays(viewStart, msToDate(s))
+  const endDay = diffDays(viewStart, msToDate(e))
+  const mid = (startDay + endDay) / 2
+  if (endDay < visible.from) {
+    return <button className="gt-off gt-off--left" onClick={() => onJump(mid)} aria-label={`Scroll to ${issue.idReadable}`}><ChevronLeft size={13} /></button>
+  }
+  if (startDay > visible.to) {
+    return <button className="gt-off gt-off--right" onClick={() => onJump(mid)} aria-label={`Scroll to ${issue.idReadable}`}><ChevronRight size={13} /></button>
+  }
+  return null
 }
 
+// ── GanttGrid ────────────────────────────────────────────────────────────────
+
 interface Props {
-  issues: GanttIssue[]
+  rows: GanttRow[]
   viewStart: Date
   totalDays: number
   view: GanttView
   editMode: boolean
-  // memberId, startMs, dueMs
   onUpdateDates: (memberId: string, startMs: number | null, dueMs: number | null) => void
   onConnectStart: (e: React.MouseEvent, memberId: string) => void
-  onIssueClick: (issue: GanttIssue) => void
-  connectingFrom: string | null  // memberId
-  gridRef: React.RefObject<HTMLDivElement>
+  onIssueClick: (row: GanttIssueRow) => void
+  /** Day indexes currently on screen, for the off-screen arrows. */
+  visible: { from: number; to: number }
+  onJump: (day: number) => void
 }
 
 export function GanttGrid({
-  issues, viewStart, totalDays, view, editMode,
-  onUpdateDates, onConnectStart, onIssueClick, connectingFrom, gridRef,
+  rows, viewStart, totalDays, view, editMode, onUpdateDates, onConnectStart, onIssueClick, visible, onJump,
 }: Props) {
   const dayPx = DAY_PX[view]
   const totalW = totalDays * dayPx
-  const dragRef = useRef<DragState | null>(null)
-  // Keyed by memberId
-  const previewRef = useRef<Map<string, { startDate: number | null; dueDate: number | null }>>(new Map())
+  // Live position of the bar being dragged, so it follows the mouse.
+  const [preview, setPreview] = useState<{ memberId: string; startDate: number | null; dueDate: number | null } | null>(null)
 
   const dayCols = useMemo(() => buildDayColumns(viewStart, totalDays, view), [viewStart, totalDays, view])
   const groupHdrs = useMemo(() => buildGroupHeaders(viewStart, totalDays, view), [viewStart, totalDays, view])
+  const todayIdx = diffDays(viewStart, new Date())
 
-  const handleDragStart = useCallback((
-    e: React.MouseEvent, memberId: string, mode: 'move' | 'resize-left' | 'resize-right'
-  ) => {
+  const handleDragStart = useCallback((e: React.MouseEvent, issue: GanttIssue, mode: DragMode) => {
     if (!editMode) return
     e.preventDefault()
-    const issue = issues.find(i => i.memberId === memberId)
-    if (!issue) return
-    dragRef.current = { memberId, mode, startX: e.clientX, origStart: issue.startDate, origDue: issue.dueDate }
-    previewRef.current.clear()
-
+    const startX = e.clientX
+    const days = (ev: MouseEvent) => Math.round((ev.clientX - startX) / dayPx)
     const onMove = (ev: MouseEvent) => {
-      const drag = dragRef.current
-      if (!drag) return
-      const dx = ev.clientX - drag.startX
-      const dayDelta = Math.round(dx / dayPx)
-      if (dayDelta === 0) return
-
-      const MS = 86_400_000
-      let newStart = drag.origStart
-      let newDue = drag.origDue
-
-      if (drag.mode === 'move') {
-        if (drag.origStart) newStart = drag.origStart + dayDelta * MS
-        if (drag.origDue) newDue = drag.origDue + dayDelta * MS
-      } else if (drag.mode === 'resize-right') {
-        const base = drag.origDue ?? drag.origStart
-        if (base) newDue = base + dayDelta * MS
-      } else if (drag.mode === 'resize-left') {
-        const base = drag.origStart ?? drag.origDue
-        if (base) newStart = base + dayDelta * MS
-      }
-
-      previewRef.current.set(drag.memberId, { startDate: newStart, dueDate: newDue })
-      gridRef.current?.dispatchEvent(new CustomEvent('gantt-preview', { detail: drag.memberId }))
+      setPreview({ memberId: issue.memberId, ...shiftDates(issue, mode, days(ev)) })
     }
-
     const onUp = (ev: MouseEvent) => {
-      const drag = dragRef.current
-      dragRef.current = null
-      if (!drag) return
-      const dx = ev.clientX - drag.startX
-      const dayDelta = Math.round(dx / dayPx)
-      if (dayDelta === 0) { previewRef.current.clear(); return }
-
-      const MS = 86_400_000
-      let newStart = drag.origStart
-      let newDue = drag.origDue
-
-      if (drag.mode === 'move') {
-        if (drag.origStart) newStart = drag.origStart + dayDelta * MS
-        if (drag.origDue) newDue = drag.origDue + dayDelta * MS
-      } else if (drag.mode === 'resize-right') {
-        const base = drag.origDue ?? drag.origStart
-        if (base) newDue = base + dayDelta * MS
-      } else if (drag.mode === 'resize-left') {
-        const base = drag.origStart ?? drag.origDue
-        if (base) newStart = base + dayDelta * MS
-      }
-
-      previewRef.current.clear()
-      onUpdateDates(drag.memberId, newStart, newDue)
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      setPreview(null)
+      const d = days(ev)
+      if (d !== 0) {
+        const next = shiftDates(issue, mode, d)
+        onUpdateDates(issue.memberId, next.startDate, next.dueDate)
+      }
     }
-
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [editMode, issues, dayPx, onUpdateDates, gridRef])
-
-  const today = new Date()
+  }, [editMode, dayPx, onUpdateDates])
 
   return (
-    <div className="gt-grid-wrap" ref={gridRef}>
-      {/* ── Header ── */}
-      <div className="gt-hdr" style={{ width: totalW }}>
-        {/* Month / week group row */}
+    <div className="gt-grid-wrap">
+      <div className="gt-hdr" style={{ width: totalW, height: HDR_H }}>
         <div className="gt-hdr-groups">
           {groupHdrs.map((g, i) => (
-            <div key={i} className="gt-hdr-group" style={{ width: g.width }}>{g.label}</div>
+            <div key={i} className="gt-hdr-group" style={{ width: g.width }}><span>{g.label}</span></div>
           ))}
         </div>
-        {/* Day row */}
         <div className="gt-hdr-days">
-          {dayCols.map((col, i) => (
+          {dayCols.map((c, i) => (
             <div
               key={i}
-              className={`gt-hdr-day${col.isWeekend ? ' gt-hdr-day--weekend' : ''}`}
+              className={`gt-hdr-day${c.weekend ? ' gt-hdr-day--weekend' : ''}${c.today ? ' gt-hdr-day--today' : ''}`}
               style={{ width: dayPx }}
             >
-              {col.label}
+              <span>{c.label}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── Canvas ── */}
-      <div className="gt-canvas" style={{ width: totalW, height: issues.length * ROW_H }}>
-        {/* Column backgrounds */}
-        {dayCols.map((col, i) => (
-          <div
-            key={i}
-            className={`gt-col${col.isWeekend ? ' gt-col--weekend' : ''}`}
-            style={{ left: i * dayPx, width: dayPx, height: '100%' }}
-          />
+      <div className="gt-canvas" style={{ width: totalW, height: Math.max(rows.length * ROW_H, 1) }}>
+        {dayCols.map((c, i) => (
+          <div key={i} className={`gt-col${c.weekend ? ' gt-col--weekend' : ''}`} style={{ left: i * dayPx, width: dayPx }} />
         ))}
 
-        {/* Today line */}
-        {(() => {
-          const todayOffset = diffDays(viewStart, today)
-          if (todayOffset >= 0 && todayOffset < totalDays) {
+        {rows.map((r, idx) => {
+          if (r.kind === 'group') {
             return (
-              <div
-                className="gt-today-line"
-                style={{ left: todayOffset * dayPx + dayPx / 2 }}
-              />
+              <div key={rowKey(r)} className="gt-row gt-row--group" style={{ top: idx * ROW_H, height: ROW_H }}>
+                <GroupBar row={r} viewStart={viewStart} dayPx={dayPx} />
+              </div>
             )
           }
-          return null
-        })()}
-
-        {/* Row stripes + bars */}
-        {issues.map((issue, rowIdx) => {
-          const preview = previewRef.current.get(issue.memberId)
-          const displayIssue = preview
-            ? { ...issue, startDate: preview.startDate, dueDate: preview.dueDate }
-            : issue
-
+          const p = preview?.memberId === r.issue.memberId ? preview : null
+          const shown = p ? { ...r, issue: { ...r.issue, startDate: p.startDate, dueDate: p.dueDate } } : r
           return (
-            <div
-              key={issue.memberId}
-              className="gt-row"
-              style={{ top: rowIdx * ROW_H, height: ROW_H, width: totalW }}
-            >
+            <div key={rowKey(r)} className="gt-row" style={{ top: idx * ROW_H, height: ROW_H }}>
               <GanttBar
-                issue={displayIssue}
+                row={shown}
                 viewStart={viewStart}
-                view={view}
+                dayPx={dayPx}
                 editMode={editMode}
                 onDragStart={handleDragStart}
                 onConnectStart={editMode ? onConnectStart : undefined}
                 onClick={onIssueClick}
               />
+              <OffscreenHint issue={shown.issue} viewStart={viewStart} visible={visible} onJump={onJump} />
             </div>
           )
         })}
+
+        {todayIdx >= 0 && todayIdx < totalDays && (
+          <div className="gt-today-line" style={{ left: todayIdx * dayPx + dayPx / 2 }} />
+        )}
       </div>
     </div>
   )
 }
 
-export { ROW_H, HDR_H, SIDEBAR_W }
+export { ROW_H, HDR_H }

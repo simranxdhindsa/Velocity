@@ -286,6 +286,7 @@ One CSS file per subtab/view + one shared base file. Never put all subtab styles
 - `styles/pages/dev-activity-base.css` + `dev-activity-{feed,cards,log,heatmap,report}.css` — Dev Activity 5 subtabs
 - `styles/pages/sprint-pulse.css` — Sprint Pulse base (Views A/C/1/4, shared pills/cards, kanban)
 - `styles/pages/sprint-pulse-live.css` — Sprint Pulse Live view (`.slv-*`, counters, animations) — imported by `SprintPulseLive.tsx`
+- `styles/pages/gantt.css` (layout, toolbar, task table `.gt-tb-*`) + `gantt-timeline.css` (header, bars, arrows, zoom) — Gantt page
 - `index.css` — global shared classes
 
 When adding a new multi-subtab page: `<page>-base.css` + one `<page>-<subtab>.css` per view. Import all in the page component and in `index.css`.
@@ -497,3 +498,6 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - Velocity: KB finds people in PDFs with glued text ("life.Sandeep"), one person per chunk
 - Velocity: KB handles messy/unstructured files: Poppler PDF reader, walls of text split per person with AI summary lines (daily Groq budget), neighbouring windows in search, extraction quality warnings
 - Velocity: Slack > MCP Activity shows Bot conversations and Claude actions (switch), paginated with a 10/20/30/40/100 per-page choice; standalone /mcp-activity redirects there
+
+### 2026-10-16
+- Velocity: Gantt redesigned (ReUI style): tasks grouped by status with Owner/Status columns, week/day header, hatched weekends, today line, progress bars, Today/prev/next, zoom, off-screen arrows; fixed Gantt tickets showing no state/assignee/priority
