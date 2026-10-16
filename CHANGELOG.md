@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-16
+
+### Enhancements
+- Claude actions in Slack > MCP Activity show ticket and search results as readable, colour-highlighted JSON that expands with Show all, instead of one long line of raw text
+
+
 ## 2026-10-13
 
 ### Bug Fixes
