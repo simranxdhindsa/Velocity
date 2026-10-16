@@ -297,6 +297,22 @@ Used in: Slack > MCP Activity, both views (Bot conversations, Claude actions).
 
 ---
 
+## JsonBlock
+
+**File:** `frontend/src/components/JsonBlock.tsx` (helpers `parseJsonObject`, `tokenizeJson` in `utils/json.ts`)  
+**CSS:** `frontend/src/styles/components/json-block.css`
+
+Pretty-printed, colour-highlighted JSON (keys in the accent colour, strings, numbers, booleans, null) for logged tool output or API payloads. Collapsed to about eight lines with a fade and a "Show all" / "Show less" toggle, shown only when content is cut off. Never print raw one-line JSON in the UI.
+
+```tsx
+const json = parseJsonObject(text)            // null if not a JSON object/array (or cut short)
+{json ? <JsonBlock value={json} /> : <p>{text}</p>}
+```
+
+Used in: Slack > MCP Activity > Claude actions.
+
+---
+
 ## Global CSS component files
 
 All imported in `index.css` under `/* Shared component overlays */`:

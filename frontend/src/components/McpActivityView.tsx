@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Activity, RefreshCw, CheckCircle2, XCircle, Ticket, MessageSquare,
   Search, Link2, Paperclip, ListTree, Users, Zap,
@@ -6,6 +6,8 @@ import {
 import api from '@/services/api'
 import type { MCPActivityEntry } from '@/services/api'
 import { Pagination } from '@/components/Pagination'
+import { JsonBlock } from '@/components/JsonBlock'
+import { parseJsonObject } from '@/utils/json'
 import { PAGE_SIZE_OPTIONS } from '@/utils/pagination'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import '@/styles/pages/mcp-activity.css'
@@ -34,6 +36,13 @@ function toolIcon(toolName: string) {
   if (toolName.includes('developer')) return Users
   if (toolName.includes('ticket')) return Ticket
   return Zap
+}
+
+// Tool output that is JSON (a fetched ticket, a search result) is shown
+// pretty-printed; anything else stays plain text.
+function ActivitySummary({ text }: { text: string }) {
+  const json = useMemo(() => parseJsonObject(text), [text])
+  return json ? <JsonBlock value={json} /> : <p className="mcpa-row-summary">{text}</p>
 }
 
 // ── Skeleton ─────────────────────────────────────────────────────────────────
@@ -170,7 +179,7 @@ export function McpActivityView() {
                         <XCircle size={13} className="mcpa-status-icon mcpa-status-icon--fail" />
                       )}
                     </div>
-                    <p className="mcpa-row-summary">{e.summary}</p>
+                    <ActivitySummary text={e.summary} />
                     <div className="mcpa-row-meta">
                       <span>{e.user_name}</span>
                       <span className="mcpa-dot">•</span>

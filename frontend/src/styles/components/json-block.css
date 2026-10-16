@@ -1,0 +1,60 @@
+/* JsonBlock (components/JsonBlock.tsx): pretty-printed, coloured JSON */
+
+.jb {
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.jb-pre {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* About eight lines until "Show all" */
+.jb-pre--collapsed {
+  max-height: 152px;
+  overflow: hidden;
+}
+
+.jb-pre--faded {
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.jb-key { color: var(--color-primary-light); }
+.jb-string { color: var(--text-primary); }
+.jb-number { color: var(--color-warning); }
+.jb-bool { color: var(--color-success); }
+.jb-null { color: var(--text-muted); font-style: italic; }
+
+.jb-toggle {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.jb-toggle:hover {
+  border-color: rgba(var(--color-primary-rgb), 0.4);
+}
+
+[data-theme="light"] .jb-pre {
+  background: var(--bg-elevated);
+}
