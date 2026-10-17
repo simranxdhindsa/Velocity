@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, GitBranch, Check, Download } from 'lucide-react'
-import { VelocityBarsLoader, SprintScanLoader, SvgVelocityBarsLoader, SvgSprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import api from '../services/api'
@@ -17,6 +16,7 @@ import '../styles/pages/dev-activity-cards.css'
 import '../styles/pages/dev-activity-log.css'
 import '../styles/pages/dev-activity-heatmap.css'
 import '../styles/pages/dev-activity-report.css'
+import { DevActivityViewSkeleton, DevReportResultsSkeleton, DevPillsSkeleton } from './DevActivitySkeletons'
 import { DevActivitySkyline } from './DevActivitySkyline'
 import { CountUp } from '../components/CountUp'
 
@@ -1141,13 +1141,7 @@ function DevReportView({ onOpenDetail, ytBaseUrl }: {
 
   const rangeLabel = drDateRange === 'Custom' ? `${drCustomFrom} → ${drCustomTo}` : drDateRange
 
-  if (generating) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 0' }}>
-        <SvgSprintScanLoader size={128} />
-      </div>
-    )
-  }
+  if (generating) return <DevReportResultsSkeleton />
 
   if (reportData !== null) {
     const devEntries = Object.entries(reportData)
@@ -1284,7 +1278,7 @@ function DevReportView({ onOpenDetail, ytBaseUrl }: {
         <div className="dr-field">
           <div className="dr-label">Developers</div>
           {allDevs.length === 0
-            ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading developers…</div>
+            ? <DevPillsSkeleton />
             : (
               <div className="dr-dev-grid">
                 {allDevs.map(dev => {
@@ -1529,11 +1523,7 @@ export function DevActivityPage({ initialView }: Props) {
           />
         )}
 
-        {loading && view !== 'report' && view !== 'skyline' && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 0' }}>
-            <SvgVelocityBarsLoader size={128} />
-          </div>
-        )}
+        {loading && view !== 'report' && view !== 'skyline' && <DevActivityViewSkeleton view={view} />}
         {!loading && view === 'feed' && (
           <ActivityFeedView timelines={timelines} onOpenDetail={handleOpenDetail} assigneeFilter={assigneeFilter} dateRange={dateRange} />
         )}

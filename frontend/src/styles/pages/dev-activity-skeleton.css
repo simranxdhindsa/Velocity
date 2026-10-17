@@ -1,0 +1,34 @@
+/* Dev Activity loading skeletons (DevActivitySkeletons.tsx). Layout comes from each
+   view's real classes; these are only the small helpers the skeleton bars need. */
+.da-sk-push { flex: 1; }
+.da-sk-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.da-sk-between { justify-content: space-between; }
+.da-sk-col { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.da-sk-mt { margin-top: 7px; }
+.da-sk-pad-top { padding-top: 12px; }
+
+/* Developer card shell (the real card sets its tinted border inline) */
+.da-sk-card { border-color: var(--border-color); background: var(--bg-card); }
+
+/* Progress track behind a skeleton fill */
+.da-sk-bar-track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(var(--color-primary-rgb), 0.06);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+/* Heatmap grid: ticket column + 7 state columns */
+.da-sk-grid { padding: 12px 14px; }
+.da-sk-heat-row {
+  display: grid;
+  grid-template-columns: 200px repeat(7, minmax(52px, 1fr));
+  gap: 3px;
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+@media (max-width: 768px) {
+  .da-sk-heat-row { grid-template-columns: 140px repeat(7, 52px); }
+}
