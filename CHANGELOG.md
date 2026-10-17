@@ -3,6 +3,7 @@
 ## 2026-10-17
 
 ### Features
+- Dev Activity Skyline shows a year of dev done, QA tested and deployed tickets as a heat map or 3D skyline, filterable by person, with a click-through list of each day's tickets
 - Gantt chart redesigned: tasks grouped by status with owner and status columns, week and day timeline, progress bars, today line, Today/prev/next and zoom controls, and arrows that jump to tasks out of view. Gantt tasks also show their real status, owner and priority again
 
 
