@@ -1,23 +1,30 @@
 // Dev Activity: small shared components (avatar, badges, journey chain, KPI summary bar).
 import React from 'react'
 import { CountUp } from '../components/CountUp'
+import { useYouTrackAvatars } from '@/hooks/useYouTrackAvatars'
 import type { IssueTimeline } from '../services/api'
 import { type JourneyStep, DEV_DONE_STATES, devColor, devInitials, fmtH, getCurrentState, stateCfg } from './dev-activity-types'
 
 // ─── Atom components ─────────────────────────────────────────────────────────
 
-export function DaAvatar({ name, size = 28 }: { name: string; size?: number }) {
+/** Profile picture from YouTrack, falling back to coloured initials when there's none or it fails to load. */
+export const DaAvatar = React.memo(function DaAvatar({ name, size = 28 }: { name: string; size?: number }) {
+  const avatarOf = useYouTrackAvatars()
+  const url = avatarOf(name)
+  const [failed, setFailed] = React.useState<string | null>(null)
   const color = devColor(name)
-  const initials = devInitials(name)
+  const showImg = url && failed !== url
   return (
-    <div className="da-avatar" style={{
+    <div className="da-avatar" title={name} style={{
       width: size, height: size, fontSize: size * 0.35,
-      background: `linear-gradient(135deg, ${color}, ${color}99)`,
+      background: showImg ? undefined : `linear-gradient(135deg, ${color}, ${color}99)`,
     }}>
-      {initials}
+      {showImg
+        ? <img className="da-avatar-img" src={url} alt="" loading="lazy" onError={() => setFailed(url)} />
+        : devInitials(name)}
     </div>
   )
-}
+})
 
 export function DaStateBadge({ state, small = false }: { state: string; small?: boolean }) {
   const cfg = stateCfg(state)

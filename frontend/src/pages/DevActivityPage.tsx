@@ -21,7 +21,7 @@ import { DevActivitySkyline } from './DevActivitySkyline'
 import { ActivityFeedView } from './DevActivityFeed'
 import {
   type DateRange, type JourneyStep, DATE_OPTS, HEATMAP_STATES, WORKFLOW_ORDER,
-  buildJourney, devColor, devInitials, fmtH, fmtSprintDate, fmtTransitionTime, getCurrentState,
+  buildJourney, devColor, fmtH, fmtSprintDate, fmtTransitionTime, getCurrentState,
   getDateRange, getDevStats, heatColor, isBackwardTransition, stateCfg,
 } from './dev-activity-types'
 import { DaAvatar, DaStateBadge, DaTicketId } from './DevActivityShared'
@@ -780,13 +780,10 @@ function DevReportView({ onOpenDetail, ytBaseUrl }: {
         )}
 
         {devEntries.map(([dev, records]) => {
-          const color = devColor(dev)
           return (
             <div key={dev} className="dr-dev-section">
               <div className="dr-dev-header">
-                <div className="dr-dev-avatar" style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}>
-                  {devInitials(dev)}
-                </div>
+                <DaAvatar name={dev} size={28} />
                 <span className="dr-dev-name">{dev}</span>
                 <span className="dr-dev-count">{records.length} completed</span>
               </div>

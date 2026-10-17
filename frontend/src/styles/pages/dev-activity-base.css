@@ -500,3 +500,7 @@
   .da-tab-btn { flex-shrink: 0; }
 }
 
+
+/* Profile picture inside .da-avatar (falls back to initials on the gradient) */
+.da-avatar { overflow: hidden; }
+.da-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }

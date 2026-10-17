@@ -5,8 +5,8 @@ import { memo, useMemo, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import type { IssueTimeline } from '../services/api'
 import { Timeline, type TimelineEvent } from '@/components/timeline/Timeline'
-import { DEV_DONE_STATES, buildJourney, devColor, devInitials, fmtH, getCurrentState } from './dev-activity-types'
-import { DaJourneyChain, DaSummaryBar } from './DevActivityShared'
+import { DEV_DONE_STATES, buildJourney, fmtH, getCurrentState } from './dev-activity-types'
+import { DaAvatar, DaJourneyChain, DaSummaryBar } from './DevActivityShared'
 import '../styles/pages/dev-activity-feed.css'
 
 type Kind = 'start' | 'restart' | 'done' | 'blocked' | 'back' | 'moved'
@@ -17,10 +17,6 @@ const isDevDone = (state: string) => DEV_DONE_STATES.some(k => state.toLowerCase
 // Leaving In Progress for a not-started column means the ticket went backwards, even when the
 // log's moved_back flag wasn't set.
 const isBackwards = (state: string) => /^(to do|todo|backlog|open)$/i.test(state.trim())
-
-const Initials = memo(function Initials({ name }: { name: string }) {
-  return <span className="daf-initials" style={{ background: devColor(name) }}>{devInitials(name)}</span>
-})
 
 const TicketDetail = memo(function TicketDetail({ t, onOpen }: { t: IssueTimeline; onOpen: (id: string) => void }) {
   const state = getCurrentState(t)
@@ -65,7 +61,7 @@ export function ActivityFeedView({ timelines, onOpenDetail, assigneeFilter, sinc
             id: `${t.issue_id}-${i}-in`, at: s.entered_at, person: owner, kind,
             actor: owner,
             title: <>{kind === 'start' ? 'started' : 'picked up'} <span className="daf-id">{t.issue_id}</span>{kind === 'restart' ? ' again' : ''}</>,
-            meta: t.issue_summary, detail, tone: 'accent', icon: <Initials name={owner} />,
+            meta: t.issue_summary, detail, tone: 'accent', icon: <DaAvatar name={owner} size={28} />,
           })
         }
         if (s.exited_at && s.exited_to && inRange(s.exited_at)) {
@@ -81,7 +77,7 @@ export function ActivityFeedView({ timelines, onOpenDetail, assigneeFilter, sinc
             meta: t.issue_summary,
             detail,
             tone: kind === 'done' ? 'success' : kind === 'blocked' ? 'danger' : kind === 'back' ? 'warning' : 'neutral',
-            icon: <Initials name={who} />,
+            icon: <DaAvatar name={who} size={28} />,
           })
         }
       })
@@ -119,7 +115,7 @@ export function ActivityFeedView({ timelines, onOpenDetail, assigneeFilter, sinc
           {people.map(([name, p]) => (
             <button key={name} className={`daf-chip${dev === name ? ' active' : ''}`} onClick={() => setDev(d => (d === name ? ALL : name))}
               title={`${p.n} updates, ${p.done} dev done`}>
-              <Initials name={name} />
+              <DaAvatar name={name} size={20} />
               {name} <span className="daf-chip-n">{p.n}</span>
             </button>
           ))}

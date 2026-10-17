@@ -3392,6 +3392,11 @@ export const dayTrackApi = {
 let _ytAvatarCache: Record<string, string> | null = null
 let _ytAvatarPromise: Promise<Record<string, string>> | null = null
 
+/** The avatar map if it has already loaded, else null (no request). */
+export function peekYouTrackAvatarMap(): Record<string, string> | null {
+  return _ytAvatarCache
+}
+
 export async function getYouTrackAvatarMap(): Promise<Record<string, string>> {
   if (_ytAvatarCache) return _ytAvatarCache
   if (_ytAvatarPromise) return _ytAvatarPromise
@@ -3402,9 +3407,12 @@ export async function getYouTrackAvatarMap(): Promise<Record<string, string>> {
       ? res
       : ((res as unknown as { data?: YouTrackUser[] }).data ?? [])
     for (const u of users) {
-      if (u.fullName && u.avatarUrl) {
-        // YouTrack Cloud returns absolute URLs (https://xxx.youtrack.cloud/hub/...)
-        map[u.fullName] = u.avatarUrl
+      if (!u.avatarUrl) continue
+      // YouTrack Cloud returns absolute URLs (https://xxx.youtrack.cloud/hub/...)
+      if (u.fullName) map[u.fullName] = u.avatarUrl
+      // The state log stores either the full name or the login, in any case: key both, lowercased too.
+      for (const k of [u.fullName, u.login]) {
+        if (k && !map[k.toLowerCase()]) map[k.toLowerCase()] = u.avatarUrl
       }
     }
     _ytAvatarCache = map
