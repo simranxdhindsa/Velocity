@@ -17,6 +17,7 @@ import '../styles/pages/dev-activity-cards.css'
 import '../styles/pages/dev-activity-log.css'
 import '../styles/pages/dev-activity-heatmap.css'
 import '../styles/pages/dev-activity-report.css'
+import { DevActivitySkyline } from './DevActivitySkyline'
 import { CountUp } from '../components/CountUp'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -47,6 +48,7 @@ const VIEWS = [
   { id: 'cards',   label: 'Developer Cards',  desc: 'Bento grid with metrics' },
   { id: 'log',     label: 'Transition Log',   desc: 'Audit table, exportable' },
   { id: 'heatmap', label: 'Lifecycle Heatmap',desc: 'State coverage grid' },
+  { id: 'skyline', label: 'Skyline',          desc: 'A year of activity, day by day' },
 ] as const
 type ViewId = typeof VIEWS[number]['id']
 
@@ -1348,6 +1350,7 @@ export function DevActivityPage({ initialView }: Props) {
   const [customTo, setCustomTo]     = useState('')
 
   const sprintDropRef  = useRef<HTMLDivElement>(null)
+  const tabBarRef      = useRef<HTMLDivElement>(null)
   const sprintMenuRef  = useRef<HTMLDivElement>(null)
   const isYouTrack = getActiveSource() === 'youtrack'
 
@@ -1362,6 +1365,24 @@ export function DevActivityPage({ initialView }: Props) {
       setActiveSprint(active)
     }).catch(() => {})
   }, [isYouTrack])
+
+  // Keep the active tab visible: later tabs (e.g. Skyline) sit past the bar's right edge.
+  // Re-checked when the bar gets a size too, since this page stays mounted while hidden.
+  useEffect(() => {
+    const bar = tabBarRef.current
+    if (!bar) return
+    const reveal = () => {
+      const btn = bar.querySelector<HTMLElement>('.da-tab-btn.active')
+      if (!btn || !bar.clientWidth) return
+      const b = bar.getBoundingClientRect(), r = btn.getBoundingClientRect()
+      if (r.right > b.right) bar.scrollLeft += r.right - b.right + 8
+      else if (r.left < b.left) bar.scrollLeft -= b.left - r.left + 8
+    }
+    reveal()
+    const ro = new ResizeObserver(reveal)
+    ro.observe(bar)
+    return () => ro.disconnect()
+  }, [view])
 
   // ── Load YT base URL ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -1433,7 +1454,7 @@ export function DevActivityPage({ initialView }: Props) {
     <div className="da-page" style={{ padding: '1.25rem 1.75rem', height: 'calc(100vh - var(--header-height))', overflow: 'hidden' }}>
       {/* ── Tab row + sprint dropdown ── */}
       <div className="da-tab-row">
-        <div className="da-tab-bar">
+        <div className="da-tab-bar" ref={tabBarRef}>
           {VIEWS.map(v => (
             <button key={v.id} className={`da-tab-btn${view === v.id ? ' active' : ''}`}
               onClick={() => setView(v.id)}>
@@ -1493,7 +1514,7 @@ export function DevActivityPage({ initialView }: Props) {
       {/* ── Content panel ── */}
       <div className="da-panel" key={view}>
         {/* Shared filter bar — hidden for Dev Report which has its own controls */}
-        {view !== 'report' && (
+        {view !== 'report' && view !== 'skyline' && (
           <DaFilterBar
             dateRange={dateRange}
             onDateRange={setDateRange}
@@ -1508,7 +1529,7 @@ export function DevActivityPage({ initialView }: Props) {
           />
         )}
 
-        {loading && view !== 'report' && (
+        {loading && view !== 'report' && view !== 'skyline' && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 0' }}>
             <SvgVelocityBarsLoader size={128} />
           </div>
@@ -1524,6 +1545,9 @@ export function DevActivityPage({ initialView }: Props) {
         )}
         {!loading && view === 'heatmap' && (
           <LifecycleHeatmapView timelines={timelines} onOpenDetail={handleOpenDetail} assigneeFilter={assigneeFilter} dateRange={dateRange} />
+        )}
+        {view === 'skyline' && (
+          <DevActivitySkyline onOpenDetail={handleOpenDetail} />
         )}
         {view === 'report' && (
           <DevReportView onOpenDetail={handleOpenDetail} ytBaseUrl={ytBaseUrl} />

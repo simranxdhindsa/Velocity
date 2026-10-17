@@ -31,6 +31,8 @@ export const PERSIST = {
   DEV_ACTIVITY_VIEW: 'dev_activity_view',
   /** Dev Activity page — date range filter */
   DEV_ACTIVITY_DATE: 'dev_activity_date',
+  /** Dev Activity Skyline — which activity is counted (dev_done / verified / deployed) */
+  DEV_ACTIVITY_SKYLINE_METRIC: 'dev_activity_skyline_metric',
   /** Daily Ops tab — which design view is active */
   DAILY_OPS_VIEW: 'daily_ops_view',
   /** Quick Send — last 10 sent messages for history display */

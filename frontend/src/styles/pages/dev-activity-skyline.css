@@ -1,0 +1,126 @@
+/* Dev Activity → Skyline subtab (.dsk-*). The chart itself is styled by
+   styles/components/contribution-skyline.css. */
+.dsk-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.dsk-controls { gap: 10px; }
+.dsk-metric-pills { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.dsk-metric-pills::-webkit-scrollbar { display: none; }
+.dsk-person { min-width: 170px; }
+
+.dsk-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 16px 84px; /* bottom room so the legend scrolls clear of the PM Assistant bubble */
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Children keep their natural height; .dsk-body scrolls instead of squashing them */
+.dsk-body > * { flex-shrink: 0; }
+
+.dsk-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dsk-empty--day { padding: 20px 16px; }
+
+/* Day drill-down */
+.dsk-day {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  overflow: hidden;
+  animation: daFadeUp 200ms ease-out both;
+}
+.dsk-day-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+.dsk-day-title { font-weight: 700; font-size: 13px; color: var(--text-primary); }
+.dsk-day-meta { font-size: 12px; color: var(--text-muted); }
+.dsk-day-close {
+  margin-left: auto;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.dsk-day-close:hover { color: var(--text-primary); border-color: rgba(var(--color-primary-rgb), 0.4); }
+
+.dsk-day-list { display: flex; flex-direction: column; }
+.dsk-day-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 130px 130px 72px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms;
+}
+.dsk-day-row:last-child { border-bottom: 0; }
+.dsk-day-row:hover { background: rgba(var(--color-primary-rgb), 0.07); }
+.dsk-day-row--sk { cursor: default; grid-template-columns: 92px minmax(0, 1fr) 140px; }
+.dsk-day-row--sk:hover { background: transparent; }
+.dsk-day-id { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; color: var(--color-primary); }
+.dsk-day-summary { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsk-day-state, .dsk-day-person { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsk-day-time { text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* Skeletons (mirror the chart card and day rows) */
+.dsk-sk-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  padding: 20px;
+}
+.dsk-sk-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.dsk-sk-title { width: 320px; max-width: 70%; height: 16px; border-radius: 5px; }
+.dsk-sk-toggle { width: 70px; height: 32px; border-radius: 7px; }
+.dsk-sk-stage { width: 100%; height: 340px; border-radius: 10px; }
+.dsk-sk-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding-top: 16px; }
+.dsk-sk-stat { display: flex; flex-direction: column; gap: 6px; }
+.dsk-sk-stat-lbl { width: 60%; height: 12px; border-radius: 4px; }
+.dsk-sk-stat-val { width: 45%; height: 26px; border-radius: 6px; }
+.dsk-sk-stat-sub { height: 11px; border-radius: 4px; }
+.dsk-sk-id { width: 70px; height: 13px; border-radius: 4px; }
+.dsk-sk-sum { height: 13px; border-radius: 4px; }
+.dsk-sk-meta { width: 110px; height: 13px; border-radius: 4px; }
+
+/* Tablet */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .dsk-day-row { grid-template-columns: 84px minmax(0, 1fr) 110px 64px; }
+  .dsk-day-person { display: none; }
+  .dsk-sk-stage { height: 280px; }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .dsk-body { padding: 10px 10px 84px; }
+  .dsk-person { min-width: 0; flex: 1; }
+  .dsk-day-row { grid-template-columns: 76px minmax(0, 1fr) 60px; gap: 8px; }
+  .dsk-day-state, .dsk-day-person { display: none; }
+  .dsk-day-row--sk { grid-template-columns: 76px minmax(0, 1fr); }
+  .dsk-sk-meta { display: none; }
+  .dsk-sk-stage { height: 180px; }
+  .dsk-sk-stats { grid-template-columns: repeat(2, 1fr); }
+}

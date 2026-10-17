@@ -1667,6 +1667,16 @@ class ApiService {
     return this.request<string[]>('/reports/pins')
   }
 
+  /** Per-day ticket moves for the Dev Activity skyline (last ~year), bucketed in the given time zone. */
+  async getActivityByDay(tz: string) {
+    return this.request<ActivityDayRow[]>(`/reports/activity-by-day?tz=${encodeURIComponent(tz)}`)
+  }
+
+  /** Every ticket move on one day (YYYY-MM-DD in tz), newest first. */
+  async getActivityDay(day: string, tz: string) {
+    return this.request<ActivityMove[]>(`/reports/activity-by-day?day=${day}&tz=${encodeURIComponent(tz)}`)
+  }
+
   async getIssueTimelines(sinceMs?: number, untilMs?: number) {
     const params = new URLSearchParams()
     if (sinceMs) params.set('since', String(sinceMs))
@@ -2978,6 +2988,23 @@ export interface IssueTimeline {
   last_activity_at: string
   stints: IssueStint[]
   alert_dismissed: boolean
+}
+
+export interface ActivityDayRow {
+  date: string        // YYYY-MM-DD
+  to_state: string
+  assignee: string
+  moved_by: string
+  count: number       // distinct tickets
+}
+
+export interface ActivityMove {
+  issue_id: string
+  issue_summary: string
+  to_state: string
+  assignee: string
+  moved_by: string
+  transitioned_at: string
 }
 
 export interface TimeTrackingRow {

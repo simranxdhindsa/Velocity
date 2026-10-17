@@ -1,0 +1,78 @@
+/* Contribution Skyline (components/skyline). The canvas reads its foreground and
+   background from .cs-root's computed color/background-color, so these two tokens
+   drive the empty-day tint, outlines and labels in both themes. */
+.cs-root {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+.cs-border { border-color: var(--border-color); }
+.cs-muted  { color: var(--text-muted); }
+.cs-accent { color: var(--color-primary); transition: color 500ms; }
+.cs-stat-val { line-height: 1; letter-spacing: -0.02em; }
+
+/* 2D / 3D toggle */
+.cs-toggle-thumb {
+  background: var(--color-primary);
+  transform: translateX(0);
+  transition: transform 500ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.cs-toggle-thumb--3d { transform: translateX(100%); }
+.cs-toggle-btn { color: var(--text-muted); transition: color 500ms; }
+.cs-toggle-btn--on { color: #fff; }
+.cs-toggle-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+/* Stage + canvas: the engine animates the stage height between the 2D and 3D layouts */
+.cs-stage { height: 150px; }
+.cs-stage:has(:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 4px; }
+.cs-canvas { max-width: none; touch-action: auto; }
+.cs-canvas--orbit { touch-action: pan-y; }
+
+/* 3D corner stats fade in after the bars have risen */
+.cs-corner {
+  opacity: 0;
+  transition: opacity 300ms cubic-bezier(0.65, 0, 0.35, 1), transform 300ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.cs-corner--top    { transform: translateY(-10px); }
+.cs-corner--bottom { transform: translateY(10px); }
+.cs-corner--on { opacity: 1; transform: translateY(0); transition-duration: 600ms; }
+.cs-corner--top.cs-corner--on    { transition-delay: 715ms; }
+.cs-corner--bottom.cs-corner--on { transition-delay: 845ms; }
+
+/* Stats row under the chart (2D, or narrow cards) */
+.cs-stat-row {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 1300ms cubic-bezier(0.65, 0, 0.35, 1), opacity 1300ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.cs-stat-row--on { grid-template-rows: 1fr; opacity: 1; }
+
+/* Tooltip */
+.cs-tip {
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.cs-tip--on { opacity: 1; }
+.cs-tip-arrow {
+  left: var(--arrow, 50%);
+  margin-left: -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--text-primary);
+}
+
+/* Footer hint + legend */
+.cs-hint { opacity: 0; transition: opacity 500ms; }
+.cs-hint--on { opacity: 1; }
+.cs-swatch {
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.12);
+  transition: background-color 500ms, transform 500ms;
+}
+.cs-swatch:hover { transform: scale(1.25); }
+.cs-swatch:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-accent, .cs-toggle-thumb, .cs-toggle-btn, .cs-corner, .cs-stat-row, .cs-tip, .cs-hint, .cs-swatch { transition: none; }
+}

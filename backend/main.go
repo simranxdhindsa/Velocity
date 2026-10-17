@@ -478,6 +478,7 @@ func main() {
 	reportRoutes.HandleFunc("/pins", reportHandler.PinIssue).Methods("POST")
 	reportRoutes.HandleFunc("/pins/{issueID}", reportHandler.UnpinIssue).Methods("DELETE")
 	reportRoutes.HandleFunc("/issue-timelines", reportHandler.GetIssueTimelines).Methods("GET")
+	reportRoutes.HandleFunc("/activity-by-day", reportHandler.GetActivityByDay).Methods("GET")
 	reportRoutes.HandleFunc("/alerts/dismiss", reportHandler.DismissAlert).Methods("POST")
 	reportRoutes.HandleFunc("/alerts/dismiss/{issueID}", reportHandler.UndismissAlert).Methods("DELETE")
 	reportRoutes.HandleFunc("/backfill", reportHandler.BackfillStateLog).Methods("POST")
