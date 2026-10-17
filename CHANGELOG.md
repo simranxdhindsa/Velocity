@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-17
+
+### Features
+- Gantt chart redesigned: tasks grouped by status with owner and status columns, week and day timeline, progress bars, today line, Today/prev/next and zoom controls, and arrows that jump to tasks out of view. Gantt tasks also show their real status, owner and priority again
+
+
+### Bug Fixes
+- npm run dev starts again instead of hanging forever while it checks whether the backend port is free
+
 ## 2026-10-16
 
 ### Enhancements
