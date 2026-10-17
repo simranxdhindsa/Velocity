@@ -124,3 +124,6 @@
   .dsk-sk-stage { height: 180px; }
   .dsk-sk-stats { grid-template-columns: repeat(2, 1fr); }
 }
+
+.dsk-day-person { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dsk-day-person-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

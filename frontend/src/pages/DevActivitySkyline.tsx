@@ -3,7 +3,7 @@
 // roles through the live workflow config, so "Dev done", "QA tested" and "Deployed"
 // follow whatever columns the team has configured.
 import { useEffect, useMemo, useRef, useState, memo } from 'react'
-import { User, CalendarDays } from 'lucide-react'
+import { User, Users, CalendarDays } from 'lucide-react'
 import api from '@/services/api'
 import type { ActivityDayRow, ActivityMove } from '@/services/api'
 import { useWorkflowConfig } from '@/hooks/useWorkflowConfig'
@@ -11,6 +11,7 @@ import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import { CustomDropdown } from '@/components/CustomDropdown'
 import { upperAmPm } from '@/components/ClockTimePicker'
 import ContributionSkyline, { type ContributionDay } from '@/components/skyline/ContributionSkyline'
+import { DaAvatar } from './DevActivityShared'
 import '../styles/pages/dev-activity-skyline.css'
 
 type Metric = 'dev_done' | 'verified' | 'deployed'
@@ -68,7 +69,10 @@ const DayMoveRow = memo(function DayMoveRow({ m, who, onOpen }: { m: ActivityMov
       <span className="dsk-day-id">{m.issue_id}</span>
       <span className="dsk-day-summary">{m.issue_summary}</span>
       <span className="dsk-day-state">{m.to_state}</span>
-      <span className="dsk-day-person">{(who === 'assignee' ? m.assignee : m.moved_by) || 'Unknown'}</span>
+      <span className="dsk-day-person">
+        {(who === 'assignee' ? m.assignee : m.moved_by) && <DaAvatar name={who === 'assignee' ? m.assignee : m.moved_by} size={18} />}
+        <span className="dsk-day-person-name">{(who === 'assignee' ? m.assignee : m.moved_by) || 'Unknown'}</span>
+      </span>
       <span className="dsk-day-time">{fmtTime(m.transitioned_at)}</span>
     </button>
   )
@@ -165,10 +169,10 @@ export function DevActivitySkyline({ onOpenDetail }: Props) {
         <span className="da-filter-divider" />
         <CustomDropdown
           className="dsk-person"
-          icon={<User size={12} />}
+          icon={who === ALL ? <User size={12} /> : <DaAvatar name={who} size={18} />}
           value={who}
           onChange={v => { setPerson(v); setDay(null) }}
-          options={[{ value: ALL, label: 'Everyone' }, ...people.map(p => ({ value: p, label: p }))]}
+          options={[{ value: ALL, label: 'Everyone', icon: <Users size={14} className="dsk-opt-icon" /> }, ...people.map(p => ({ value: p, label: p, icon: <DaAvatar name={p} size={20} /> }))]}
         />
       </div>
 

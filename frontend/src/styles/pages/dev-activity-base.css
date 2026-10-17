@@ -504,3 +504,6 @@
 /* Profile picture inside .da-avatar (falls back to initials on the gradient) */
 .da-avatar { overflow: hidden; }
 .da-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* "Everyone" / "All Devs" option icon, sized to line up with the 20px avatars */
+.dsk-opt-icon { width: 20px; flex-shrink: 0; color: var(--text-muted); }

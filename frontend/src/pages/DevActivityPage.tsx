@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, GitBranch, Check, Download } from 'lucide-react'
+import { ChevronDown, GitBranch, Check, Download, Users } from 'lucide-react'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import api from '../services/api'
@@ -94,9 +94,10 @@ function DaFilterBar({ dateRange, onDateRange, assignee, onAssignee, assignees,
         value={assignee}
         onChange={onAssignee}
         placeholder="All Devs"
+        icon={assignee ? <DaAvatar name={assignee} size={18} /> : undefined}
         options={[
-          { value: '', label: 'All Devs' },
-          ...assignees.map(a => ({ value: a, label: a })),
+          { value: '', label: 'All Devs', icon: <Users size={14} className="dsk-opt-icon" /> },
+          ...assignees.map(a => ({ value: a, label: a, icon: <DaAvatar name={a} size={20} /> })),
         ]}
       />
     </div>
