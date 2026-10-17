@@ -8,7 +8,15 @@
 
 
 ### Bug Fixes
+- Skyline hover tooltips and stats are no longer cramped, with proper spacing around the text in both the heat map and 3D views
+- Developer pickers on every Dev Activity tab show each person's profile picture, including the selected person on the picker button
+- Dev Activity shows people's YouTrack profile pictures on every tab instead of just their initials
+- Dev Activity Feed scrolls again and shows every developer, and Developer Cards, Transition Log and Lifecycle Heatmap get their proper layouts back
 - npm run dev starts again instead of hanging forever while it checks whether the backend port is free
+
+### Enhancements
+- Dev Activity Feed is now a day-by-day team timeline with developer filter chips, colour-coded moves and expandable ticket journeys
+- Dev Activity tabs show loading placeholders shaped like the real content instead of an animated bars loader
 
 ## 2026-10-16
 
