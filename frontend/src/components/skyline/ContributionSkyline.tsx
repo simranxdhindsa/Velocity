@@ -65,11 +65,11 @@ function Stat({ label, value, unit, sub, size, align }: StatProps) {
     return (
       <div className="min-w-0">
         <div className="cs-muted text-[13px] leading-tight">{label}</div>
-        <div className="mt-1 flex items-baseline gap-1.5">
+        <div className="cs-stat-valrow flex items-baseline gap-1.5">
           <span className="cs-accent cs-stat-val font-semibold tabular-nums" style={{ fontSize: size }}>{value}</span>
           <span className="text-[14px]">{unit}</span>
         </div>
-        <div className="cs-muted mt-0.5 truncate text-[12px]">{sub}</div>
+        <div className="cs-muted cs-stat-sub truncate text-[12px]">{sub}</div>
       </div>
     )
   }
@@ -84,7 +84,7 @@ function Stat({ label, value, unit, sub, size, align }: StatProps) {
         <div className="cs-muted col-span-2 text-[13px] leading-tight">{label}</div>
       )}
       <div className="cs-accent cs-stat-val text-right font-semibold tabular-nums" style={{ fontSize: size, lineHeight: 0.95 }}>{value}</div>
-      <div className="pb-[0.15em] leading-tight">
+      <div className="cs-stat-unitbox leading-tight">
         <div className="text-[15px]">{unit}</div>
         <div className="cs-muted whitespace-nowrap text-[13px]">{sub}</div>
       </div>
@@ -204,13 +204,13 @@ export default function ContributionSkyline({
   const hint = hints[is3d && orbit ? 1 : 0]
 
   return (
-    <section ref={rootRef} className={'cs-root @container relative w-full rounded-xl border p-4 sm:p-5 ' + className}>
-      <header className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <section ref={rootRef} className={'cs-root @container relative w-full rounded-xl border ' + className}>
+      <header className="cs-head flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h3 className="m-0 text-[15px] font-normal leading-snug">
           {title ?? (<><span className="font-semibold tabular-nums">{nf.format(stats.total)}</span> {noun(stats.total)} {caption}</>)}
         </h3>
         {showToggle && (
-          <div role="group" aria-label="Chart view" className="cs-border relative inline-flex rounded-md border p-0.5">
+          <div role="group" aria-label="Chart view" className="cs-border cs-toggle relative inline-flex rounded-md border">
             <span aria-hidden="true" className={`cs-toggle-thumb absolute top-0.5 bottom-0.5 left-0.5 w-8 rounded${is3d ? ' cs-toggle-thumb--3d' : ''}`} />
             {(['2d', '3d'] as const).map((v) => (
               <button
@@ -230,7 +230,7 @@ export default function ContributionSkyline({
       </header>
 
       <div className="cs-border relative rounded-lg border">
-        <div className="relative px-3 pt-3 sm:px-4 sm:pt-4">
+        <div className="cs-stage-wrap relative">
           <div ref={stageRef} className="cs-stage relative w-full overflow-hidden rounded-md">
             <canvas
               ref={canvasRef}
@@ -254,13 +254,13 @@ export default function ContributionSkyline({
           </div>
 
           <div ref={tipRef} role="tooltip" aria-hidden={active < 0}
-            className={`cs-tip pointer-events-none absolute top-3 left-3 z-20 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12px] leading-none shadow-lg sm:top-4 sm:left-4${active >= 0 ? ' cs-tip--on' : ''}`}>
+            className={`cs-tip pointer-events-none absolute top-3 left-3 z-20 whitespace-nowrap shadow-lg sm:top-4 sm:left-4${active >= 0 ? ' cs-tip--on' : ''}`}>
             {active >= 0 && model.cells[active] ? (
               <>
                 <strong className="font-semibold">
                   {model.cells[active].count ? nf.format(model.cells[active].count) + ' ' + noun(model.cells[active].count) : 'No ' + plural}
                 </strong>
-                <span className="opacity-75"> on {dfy.format(dayMs(model.cells[active].date))}</span>
+                <span className="cs-tip-date">on {dfy.format(dayMs(model.cells[active].date))}</span>
               </>
             ) : ' '}
             <span aria-hidden="true" className="cs-tip-arrow absolute top-full h-0 w-0" />
@@ -270,14 +270,14 @@ export default function ContributionSkyline({
         {showStats && (
           <div aria-hidden={!showRow} className={`cs-stat-row grid${showRow ? ' cs-stat-row--on' : ''}`}>
             <div className="min-h-0 overflow-hidden">
-              <div className="grid grid-cols-2 gap-x-4 gap-y-4 px-3 pt-4 pb-1 sm:px-4 @xl:grid-cols-4">
+              <div className="cs-stats-grid grid grid-cols-2 gap-x-4 gap-y-4 @xl:grid-cols-4">
                 {statBlocks.map((b) => <Stat key={b.label} {...b} size={28} align="stack" />)}
               </div>
             </div>
           </div>
         )}
 
-        <div className="cs-muted flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 pt-3 pb-3 text-[12px] sm:px-4">
+        <div className="cs-muted cs-foot flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[12px]">
           {footer === undefined ? (
             <span className="relative grid flex-1">
               {hints.map((h) => (
@@ -287,7 +287,7 @@ export default function ContributionSkyline({
           ) : <span className="flex-1">{footer}</span>}
           {showLegend && (
             <div className="flex items-center gap-1.5" onMouseLeave={() => setLegendLevel(-1)}>
-              <span className="mr-0.5">Less</span>
+              <span className="cs-legend-less">Less</span>
               {theme.swatches.map((c, i) => (
                 <button
                   key={i}
@@ -303,7 +303,7 @@ export default function ContributionSkyline({
                   style={{ background: c }}
                 />
               ))}
-              <span className="ml-0.5">More</span>
+              <span className="cs-legend-more">More</span>
             </div>
           )}
         </div>
