@@ -5,7 +5,7 @@ import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import api from '../services/api'
 import { getActiveSource } from '../services/pmDataService'
-import type { IssueTimeline, IssueStint, YouTrackSprint, TimeTrackingRow } from '../services/api'
+import type { IssueTimeline, YouTrackSprint, TimeTrackingRow } from '../services/api'
 import { IssueDetailPanel } from '../components/IssueDetailPanel'
 import { IssueDetailSkeleton } from '../components/IssueDetailSkeleton'
 import { CustomDropdown } from '../components/CustomDropdown'
@@ -18,33 +18,18 @@ import '../styles/pages/dev-activity-heatmap.css'
 import '../styles/pages/dev-activity-report.css'
 import { DevActivityViewSkeleton, DevReportResultsSkeleton, DevPillsSkeleton } from './DevActivitySkeletons'
 import { DevActivitySkyline } from './DevActivitySkyline'
-import { CountUp } from '../components/CountUp'
+import { ActivityFeedView } from './DevActivityFeed'
+import {
+  type DateRange, type JourneyStep, DATE_OPTS, HEATMAP_STATES, WORKFLOW_ORDER,
+  buildJourney, devColor, devInitials, fmtH, fmtSprintDate, fmtTransitionTime, getCurrentState,
+  getDateRange, getDevStats, heatColor, isBackwardTransition, stateCfg,
+} from './dev-activity-types'
+import { DaAvatar, DaStateBadge, DaTicketId } from './DevActivityShared'
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
-const WORKFLOW_ORDER = ['To Do', 'In Progress', 'Blocked', 'DEV', 'Stage', 'Prod', 'Done']
-const HEATMAP_STATES = ['To Do', 'In Progress', 'Blocked', 'DEV', 'Stage', 'Prod', 'Done']
-
-interface StateConfig { color: string; bg: string; border: string }
-const STATE_CFG: Record<string, StateConfig> = {
-  'To Do':       { color: '#64748b', bg: 'rgba(100,116,139,0.15)', border: 'rgba(100,116,139,0.3)' },
-  'In Progress': { color: 'var(--color-primary)', bg: 'rgba(var(--color-primary-rgb),0.15)',  border: 'rgba(var(--color-primary-rgb),0.3)'  },
-  'Blocked':     { color: '#ef4444', bg: 'rgba(239,68,68,0.15)',   border: 'rgba(239,68,68,0.3)'   },
-  'DEV':         { color: '#10b981', bg: 'rgba(16,185,129,0.15)',  border: 'rgba(16,185,129,0.3)'  },
-  'Stage':       { color: '#06b6d4', bg: 'rgba(6,182,212,0.15)',   border: 'rgba(6,182,212,0.3)'   },
-  'Prod':        { color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)',  border: 'rgba(139,92,246,0.3)'  },
-  'Done':        { color: '#475569', bg: 'rgba(71,85,105,0.15)',   border: 'rgba(71,85,105,0.25)'  },
-}
-function stateCfg(state: string): StateConfig {
-  for (const [k, v] of Object.entries(STATE_CFG)) {
-    if (state.toLowerCase().includes(k.toLowerCase())) return v
-  }
-  return STATE_CFG['In Progress']
-}
 
 const VIEWS = [
   { id: 'report',  label: 'Dev Report',       desc: 'Completion analytics' },
-  { id: 'feed',    label: 'Activity Feed',    desc: 'Per-assignee accordion' },
+  { id: 'feed',    label: 'Activity Feed',    desc: 'Team timeline, day by day' },
   { id: 'cards',   label: 'Developer Cards',  desc: 'Bento grid with metrics' },
   { id: 'log',     label: 'Transition Log',   desc: 'Audit table, exportable' },
   { id: 'heatmap', label: 'Lifecycle Heatmap',desc: 'State coverage grid' },
@@ -52,223 +37,6 @@ const VIEWS = [
 ] as const
 type ViewId = typeof VIEWS[number]['id']
 
-const DATE_OPTS = ['Today', 'Last 2 Days', 'Last Week', 'Custom'] as const
-type DateRange = typeof DATE_OPTS[number]
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function getDateRange(range: DateRange, customFrom?: string, customTo?: string): { sinceMs: number; untilMs: number } {
-  const now = Date.now()
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const todayMs = today.getTime()
-  switch (range) {
-    case 'Today':
-      return { sinceMs: todayMs, untilMs: now }
-    case 'Last 2 Days':
-      return { sinceMs: todayMs - 86400000, untilMs: now }
-    case 'Last Week':
-      return { sinceMs: todayMs - 7 * 86400000, untilMs: now }
-    case 'Custom': {
-      if (customFrom && customTo) {
-        const from = new Date(customFrom); from.setHours(0, 0, 0, 0)
-        const to   = new Date(customTo);   to.setHours(23, 59, 59, 999)
-        return { sinceMs: from.getTime(), untilMs: to.getTime() }
-      }
-      return { sinceMs: todayMs - 30 * 86400000, untilMs: now }
-    }
-  }
-}
-
-function fmtH(h: number | null | undefined): string {
-  if (h == null) return '—'
-  if (h < 1) return `${Math.round(h * 60)}m`
-  const hrs = Math.floor(h)
-  const mins = Math.round((h - hrs) * 60)
-  return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`
-}
-
-function fmtTransitionTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-GB', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
-  })
-}
-
-function fmtSprintDate(ms: number): string {
-  return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-}
-
-function getCurrentState(timeline: IssueTimeline): string {
-  if (timeline.is_live) return 'In Progress'
-  const stints = timeline.stints ?? []
-  const last = stints[stints.length - 1]
-  if (last?.exited_to) return last.exited_to
-  return 'In Progress'
-}
-
-interface JourneyStep { state: string; durationH: number | null; isActive: boolean }
-function buildJourney(stints: IssueStint[], isLive: boolean): JourneyStep[] {
-  if (!stints || stints.length === 0) return []
-  const steps: JourneyStep[] = []
-  for (let i = 0; i < stints.length; i++) {
-    const s = stints[i]
-    const isLastStint = i === stints.length - 1
-    steps.push({ state: 'In Progress', durationH: s.duration_hours, isActive: isLive && isLastStint && !s.exited_at })
-    if (s.exited_at && s.exited_to) {
-      const next = stints[i + 1]
-      const nextEnteredMs = next ? new Date(next.entered_at).getTime() : Date.now()
-      const exitedMs = new Date(s.exited_at).getTime()
-      const gapH = Math.round((nextEnteredMs - exitedMs) / 360000) / 10
-      steps.push({ state: s.exited_to, durationH: next ? gapH : null, isActive: !next && !isLive })
-    }
-  }
-  return steps
-}
-
-// DEV_DONE_STATES: developer completed their work. Stage/Prod are QA pipeline — not "dev done" yet.
-const DEV_DONE_STATES = ['dev', 'mobile done', 'done', 'deployed', 'closed']
-
-interface DevStats { total: number; done: number; active: number; blocked: number; bounced: number; hoursWorked: number }
-function getDevStats(timelines: IssueTimeline[]): DevStats {
-  const done = timelines.filter(t => {
-    const s = getCurrentState(t).toLowerCase()
-    return DEV_DONE_STATES.some(k => s.includes(k))
-  }).length
-  const active = timelines.filter(t => t.is_live).length
-  const blocked = timelines.filter(t => getCurrentState(t).toLowerCase() === 'blocked').length
-  const bounced = timelines.filter(t => (t.moved_back_count ?? 0) > 0).length
-  const hoursWorked = timelines.reduce((s, t) => s + (t.total_hours ?? 0), 0)
-  return { total: timelines.length, done, active, blocked, bounced, hoursWorked: Math.round(hoursWorked * 10) / 10 }
-}
-
-const DEV_PALETTE = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899']
-function devColor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
-  return DEV_PALETTE[hash % DEV_PALETTE.length]
-}
-function devInitials(name: string): string {
-  return name.split(/\s+/).map(p => p[0] ?? '').join('').toUpperCase().slice(0, 2) || '?'
-}
-
-function isBackwardTransition(from: string, to: string): boolean {
-  // Blocked is a side-lane state — moving out of it (to In Progress, To Do, etc.) is never a regression
-  if (from.toLowerCase() === 'blocked') return false
-  const fromIdx = WORKFLOW_ORDER.findIndex(s => from.toLowerCase().includes(s.toLowerCase()))
-  const toIdx   = WORKFLOW_ORDER.findIndex(s => to.toLowerCase().includes(s.toLowerCase()))
-  if (fromIdx === -1 || toIdx === -1) return false
-  return toIdx < fromIdx
-}
-
-function heatColor(hours: number, maxH: number): { bg: string; border: string; text: string } | null {
-  if (!hours) return null
-  const r = hours / maxH
-  if (r < 0.25) return { bg: 'rgba(var(--color-primary-rgb),0.18)', border: 'rgba(var(--color-primary-rgb),0.3)',  text: 'var(--color-primary-light)' }
-  if (r < 0.5)  return { bg: 'rgba(var(--color-primary-rgb),0.32)', border: 'rgba(var(--color-primary-rgb),0.4)',  text: 'var(--color-primary-light)' }
-  if (r < 0.75) return { bg: 'rgba(var(--color-primary-rgb),0.52)', border: 'rgba(var(--color-primary-rgb),0.55)', text: 'var(--color-accent)' }
-  return              { bg: 'rgba(var(--color-primary-rgb),0.80)', border: 'rgba(var(--color-primary-rgb),0.9)',  text: '#e0e7ff' }
-}
-
-// ─── Atom components ─────────────────────────────────────────────────────────
-
-function DaAvatar({ name, size = 28 }: { name: string; size?: number }) {
-  const color = devColor(name)
-  const initials = devInitials(name)
-  return (
-    <div className="da-avatar" style={{
-      width: size, height: size, fontSize: size * 0.35,
-      background: `linear-gradient(135deg, ${color}, ${color}99)`,
-    }}>
-      {initials}
-    </div>
-  )
-}
-
-function DaStateBadge({ state, small = false }: { state: string; small?: boolean }) {
-  const cfg = stateCfg(state)
-  return (
-    <span className="da-state-badge" style={{
-      color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`,
-      padding: small ? '1px 6px' : '2px 8px', fontSize: small ? 9 : 10,
-    }}>
-      {state}
-    </span>
-  )
-}
-
-function DaTicketId({ id, href }: { id: string; href?: string }) {
-  return (
-    <a href={href ?? '#'} target={href && href !== '#' ? '_blank' : undefined}
-      rel="noopener noreferrer" className="da-ticket-id"
-      onClick={e => { if (!href || href === '#') e.preventDefault() }}>
-      {id}
-    </a>
-  )
-}
-
-function DaPriDot({ priority }: { priority: string }) {
-  // Don't render a dot when priority is the generic fallback — it adds no information
-  if (!priority || priority === 'Other' || priority === 'Normal' || priority === 'Medium') return null
-  const c = priority === 'Critical' ? '#ef4444'
-          : priority === 'Major'    ? '#f59e0b'
-          : priority === 'P0'       ? '#ef4444'
-          : priority === 'P1'       ? '#f59e0b'
-          : priority === 'P2'       ? 'var(--color-primary)'
-          : '#94a3b8'
-  return <span className="da-pri-dot" style={{ background: c, boxShadow: `0 0 4px ${c}` }} title={priority} />
-}
-
-function DaJourneyChain({ steps }: { steps: JourneyStep[] }) {
-  return (
-    <div className="da-journey">
-      {steps.map((step, i) => {
-        const cfg = stateCfg(step.state)
-        return (
-          <React.Fragment key={i}>
-            {i > 0 && <span className="da-journey-arrow">›</span>}
-            <div className="da-journey-step">
-              <span className="da-journey-pill" style={{
-                color: cfg.color, background: cfg.bg,
-                border: `1px solid ${step.isActive ? cfg.color : cfg.border}`,
-                boxShadow: step.isActive ? `0 0 6px ${cfg.color}55` : 'none',
-              }}>
-                {step.state}
-              </span>
-              <span className="da-journey-dur">
-                {step.isActive ? 'live' : step.durationH != null ? fmtH(step.durationH) : ''}
-              </span>
-            </div>
-          </React.Fragment>
-        )
-      })}
-    </div>
-  )
-}
-
-function DaSummaryBar({ timelines }: { timelines: IssueTimeline[] }) {
-  const total   = timelines.length
-  const done    = timelines.filter(t => { const s = getCurrentState(t).toLowerCase(); return DEV_DONE_STATES.some(k => s.includes(k)) }).length
-  const active  = timelines.filter(t => t.is_live).length
-  const blocked = timelines.filter(t => getCurrentState(t).toLowerCase() === 'blocked').length
-  const bounced = timelines.filter(t => (t.moved_back_count ?? 0) > 0).length
-  const chips = [
-    { label: 'Touched',   value: total,   color: 'rgba(255,255,255,0.85)', icon: '🎯' },
-    { label: 'Dev Done',  value: done,    color: '#4ade80',                icon: '✅' },
-    { label: 'Active',   value: active,  color: 'var(--color-primary-light)', icon: '🔄' },
-    { label: 'Blocked',  value: blocked, color: '#f87171',                icon: '⛔' },
-    { label: 'Bounced',  value: bounced, color: '#fb923c',                icon: '↩' },
-  ]
-  return (
-    <div className="da-summary-bar">
-      {chips.map(c => (
-        <div key={c.label} className="da-kpi-chip">
-          <span style={{ fontSize: 13 }}>{c.icon}</span>
-          <span className="da-kpi-value" style={{ color: c.color }}><CountUp value={c.value} /></span>
-          <span className="da-kpi-label">{c.label}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 // ─── Filter bar ──────────────────────────────────────────────────────────────
 
@@ -331,179 +99,6 @@ function DaFilterBar({ dateRange, onDateRange, assignee, onAssignee, assignees,
           ...assignees.map(a => ({ value: a, label: a })),
         ]}
       />
-    </div>
-  )
-}
-
-// ─── View 1 — Activity Feed ───────────────────────────────────────────────────
-
-function ActivityFeedView({ timelines, onOpenDetail, assigneeFilter, dateRange }: {
-  timelines: IssueTimeline[]
-  onOpenDetail: (id: string) => void
-  assigneeFilter: string
-  dateRange: DateRange
-}) {
-  const [compact, setCompact] = useState(false)
-  const [openDevs, setOpenDevs] = useState<Record<string, boolean>>({})
-  const [expandedTicket, setExpandedTicket] = useState<string | null>(null)
-
-  // Group by assignee — exclude 0-stint YT-enriched issues that have no state log data
-  const devGroups = useMemo(() => {
-    const withActivity = timelines.filter(t => (t.stints?.length ?? 0) > 0 || t.is_live)
-    const filtered = assigneeFilter ? withActivity.filter(t => t.assignee === assigneeFilter) : withActivity
-    const map = new Map<string, IssueTimeline[]>()
-    for (const t of filtered) {
-      if (!map.has(t.assignee)) map.set(t.assignee, [])
-      map.get(t.assignee)!.push(t)
-    }
-    return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length)
-  }, [timelines, assigneeFilter])
-
-  // Initialize all devs open
-  useEffect(() => {
-    setOpenDevs(prev => {
-      const next = { ...prev }
-      for (const [name] of devGroups) if (!(name in next)) next[name] = true
-      return next
-    })
-  }, [devGroups])
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <div className="da-view-controls">
-        <div className="da-density-toggle">
-          <span className="da-density-label">Density</span>
-          {(['Compact', 'Expanded'] as const).map(opt => (
-            <button key={opt} className={`da-density-btn${(opt === 'Compact') === compact ? ' active' : ''}`}
-              onClick={() => setCompact(opt === 'Compact')}>
-              {opt}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <DaSummaryBar timelines={timelines} />
-
-      <div className="da-feed-scroll">
-        {devGroups.length === 0 && (
-          <div className="da-empty">
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-              <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
-            </div>
-            <span className="da-empty-icon">📭</span>
-            <span className="da-empty-text">No activity found for this date range</span>
-          </div>
-        )}
-        {devGroups.map(([devName, devTimelines]) => {
-          const stats = getDevStats(devTimelines)
-          const isOpen = openDevs[devName] !== false
-          const healthColor = stats.blocked > 0 ? '#ef4444' : stats.bounced > 0 ? '#f59e0b' : '#22c55e'
-
-          return (
-            <div key={devName} className="da-dev-section">
-              <div className="da-dev-header"
-                onClick={() => setOpenDevs(p => ({ ...p, [devName]: !p[devName] }))}>
-                <span className="da-health-dot" style={{ background: healthColor, boxShadow: `0 0 6px ${healthColor}` }} />
-                <DaAvatar name={devName} size={30} />
-                <span className="da-dev-name">{devName}</span>
-                <div className="da-dev-stats">
-                  {[
-                    { v: stats.done,    c: '#4ade80', l: 'dev done' },
-                    { v: stats.active,  c: 'var(--color-primary-light)', l: 'active'  },
-                    { v: stats.blocked, c: '#f87171', l: 'blocked' },
-                    { v: stats.bounced, c: '#fb923c', l: 'bounced' },
-                    { v: `${stats.hoursWorked}h`, c: 'rgba(255,255,255,0.4)', l: 'worked' },
-                  ].map(chip => (
-                    <span key={chip.l} className="da-dev-stat-chip">
-                      <span style={{ color: chip.c }}>{chip.v}</span>
-                      <span className="da-dev-stat-label">{chip.l}</span>
-                    </span>
-                  ))}
-                </div>
-                <span className={`da-chevron${isOpen ? ' open' : ''}`}>▶</span>
-              </div>
-
-              {isOpen && devTimelines.map(t => {
-                const isBounced = (t.moved_back_count ?? 0) > 0
-                const isExpanded = expandedTicket === t.issue_id
-                const steps = buildJourney(t.stints ?? [], t.is_live)
-                const currentState = getCurrentState(t)
-                const staleMs = 3 * 24 * 3600000
-                const isStale = t.last_activity_at && (Date.now() - new Date(t.last_activity_at).getTime()) > staleMs
-
-                return (
-                  <div key={t.issue_id}
-                    className={`da-ticket-row${isBounced ? ' bounced' : ''}${compact ? ' compact' : ''}`}
-                    onClick={() => setExpandedTicket(e => e === t.issue_id ? null : t.issue_id)}>
-
-                    <div className="da-ticket-main-row">
-                      <DaStateBadge state={currentState} small />
-                      <DaPriDot priority={t.priority} />
-                      <DaTicketId id={t.issue_id} />
-                      <span className="da-ticket-title"
-                        onClick={e => { e.stopPropagation(); onOpenDetail(t.issue_id) }}>
-                        {t.issue_summary}
-                      </span>
-                      {isStale && <span className="da-stale" title="No movement in 3+ days">⚠️</span>}
-                      {isBounced && (
-                        <span className="da-bounce-badge">↩{t.moved_back_count}</span>
-                      )}
-                      <span className="da-ticket-time">{fmtH(t.total_hours)}</span>
-                      <span className={`da-ticket-expand-arrow${isExpanded ? ' open' : ''}`}>▶</span>
-                    </div>
-
-                    {(!compact || isExpanded) && steps.length > 0 && (
-                      <div className="da-journey-row">
-                        <DaJourneyChain steps={steps} />
-                      </div>
-                    )}
-
-                    {isExpanded && (t.stints ?? []).length > 0 && (
-                      <div className="da-history-table">
-                        <div className="da-history-header">
-                          {['State', 'Entered', 'Exited', 'Duration'].map(h => (
-                            <span key={h} className="da-history-col-head">{h}</span>
-                          ))}
-                        </div>
-                        {(t.stints ?? []).map((s, i) => {
-                          const inProgCfg = stateCfg('In Progress')
-                          const exitCfg   = s.exited_to ? stateCfg(s.exited_to) : null
-                          return (
-                            <div key={i} className="da-history-row">
-                              {/* Stint = In Progress period → exited_to state */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <DaStateBadge state="In Progress" small />
-                                {s.exited_to && (
-                                  <>
-                                    <span style={{ fontSize: 10, opacity: 0.4 }}>→</span>
-                                    <DaStateBadge state={s.exited_to} small />
-                                  </>
-                                )}
-                                {!s.exited_to && <span style={{ fontSize: 10, color: '#4ade80' }}>ongoing</span>}
-                              </div>
-                              <span className="da-history-time">
-                                {new Date(s.entered_at).toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
-                              </span>
-                              <span className={s.exited_at ? 'da-history-time' : 'da-history-live'}>
-                                {s.exited_at
-                                  ? new Date(s.exited_at).toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
-                                  : 'now'}
-                              </span>
-                              <span className="da-history-dur" style={{ color: s.duration_hours == null ? '#4ade80' : inProgCfg.color }}>
-                                {s.duration_hours != null ? fmtH(s.duration_hours) : 'ongoing'}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )
-        })}
-      </div>
     </div>
   )
 }
@@ -1525,7 +1120,7 @@ export function DevActivityPage({ initialView }: Props) {
 
         {loading && view !== 'report' && view !== 'skyline' && <DevActivityViewSkeleton view={view} />}
         {!loading && view === 'feed' && (
-          <ActivityFeedView timelines={timelines} onOpenDetail={handleOpenDetail} assigneeFilter={assigneeFilter} dateRange={dateRange} />
+          <ActivityFeedView timelines={timelines} onOpenDetail={handleOpenDetail} assigneeFilter={assigneeFilter} sinceMs={sinceMs} untilMs={untilMs} />
         )}
         {!loading && view === 'cards' && (
           <DeveloperCardsView timelines={timelines} onOpenDetail={handleOpenDetail} assigneeFilter={assigneeFilter} dateRange={dateRange} />

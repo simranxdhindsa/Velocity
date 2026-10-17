@@ -25,47 +25,39 @@ function SkSummaryBar() {
   )
 }
 
-// ── Activity Feed: one section per developer with ticket rows ──
+// ── Activity Feed: developer chips, then a day-grouped timeline ──
 function SkFeed() {
   return (
-    <>
-      <div className="da-view-controls">
-        <div className="da-density-toggle">
-          <Sk w={44} h={10} />
-          <Sk w={62} h={24} r={6} />
-          <Sk w={66} h={24} r={6} />
-        </div>
-      </div>
+    <div className="daf-wrap">
       <SkSummaryBar />
-      <div className="da-feed-scroll da-sk-pad-top">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="da-dev-section">
-            <div className="da-dev-header">
-              <Sk w={8} h={8} r="50%" />
-              <Sk w={`${W[i % 6] * 2}px`} h={13} />
-              <div className="da-sk-push" />
-              <Sk w={52} h={18} r={6} />
-              <Sk w={52} h={18} r={6} />
-              <Sk w={52} h={18} r={6} />
-            </div>
-            {Array.from({ length: 3 - (i % 2) }).map((_, j) => (
-              <div key={j} className="da-ticket-row">
-                <div className="da-ticket-main-row">
-                  <Sk w={64} h={13} />
-                  <Sk w={72} h={18} r={9} />
-                  <Sk w={`${W[(i + j) % 6]}%`} h={13} />
-                  <div className="da-sk-push" />
-                  <Sk w={34} h={12} />
-                </div>
-                <div className="da-journey-row da-sk-row">
-                  {Array.from({ length: 2 + ((i + j) % 4) }).map((_, k) => <Sk key={k} w={58} h={16} r={8} />)}
-                </div>
-              </div>
-            ))}
+      <div className="daf-people">
+        {Array.from({ length: 7 }).map((_, i) => <Sk key={i} w={i === 0 ? 88 : 96 + W[i % 6]} h={28} r={14} />)}
+      </div>
+      <div className="daf-scroll">
+        {[5, 4].map((rows, d) => (
+          <div key={d} className="tl-group">
+            <div className="tl-day"><Sk w={d ? 150 : 50} h={12} /><Sk w={64} h={10} /></div>
+            <ol className="tl-list">
+              {Array.from({ length: rows }).map((_, i) => (
+                <li key={i} className="tl-item da-sk-tl-item">
+                  <span className="tl-marker da-sk-tl-marker"><Sk w={28} h={28} r="50%" /></span>
+                  {i < rows - 1 && <span className="tl-segment da-sk-tl-segment" />}
+                  <div className="tl-content">
+                    <div className="tl-trigger">
+                      <span className="tl-text">
+                        <Sk w={`${W[(i + d) % 6] - 10}%`} h={13} />
+                        <Sk w={`${W[(i + d + 2) % 6] + 10}%`} h={11} />
+                      </span>
+                      <Sk w={52} h={11} />
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
           </div>
         ))}
       </div>
-    </>
+    </div>
   )
 }
 
