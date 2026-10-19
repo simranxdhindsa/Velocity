@@ -208,7 +208,7 @@ function DeveloperCardsView({ timelines, onOpenDetail, assigneeFilter, dateRange
                       {(t.moved_back_count ?? 0) > 0 && (
                         <span style={{ fontSize: 10, fontWeight: 700, color: '#fb923c', flexShrink: 0 }}>↩{t.moved_back_count}</span>
                       )}
-                      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>
+                      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
                         {fmtH(t.total_hours)}
                       </span>
                     </div>
@@ -370,8 +370,8 @@ function TransitionLogView({ transitions, onOpenDetail, assigneeFilter, dateRang
           </span>
         ))}
         <span className="da-log-legend-item" style={{ marginLeft: 8 }}>
-          <strong style={{ color: 'rgba(255,255,255,0.75)' }}>{backCount}</strong>&nbsp;backward&nbsp;·&nbsp;
-          <strong style={{ color: 'rgba(255,255,255,0.75)' }}>{fwdCount}</strong>&nbsp;forward
+          <strong style={{ color: 'var(--text-primary)' }}>{backCount}</strong>&nbsp;backward&nbsp;·&nbsp;
+          <strong style={{ color: 'var(--text-primary)' }}>{fwdCount}</strong>&nbsp;forward
         </span>
       </div>
 
@@ -505,7 +505,7 @@ function LifecycleHeatmapView({ timelines, onOpenDetail, assigneeFilter, dateRan
                 onClick={() => setSelectedDev(isActive ? null : name)}>
                 <div className="da-heatmap-dev-info">
                   <DaAvatar name={name} size={24} />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>{name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{name}</span>
                   <span className="da-heatmap-dev-moved">{moved}/{devT.length}</span>
                 </div>
                 <div className="da-heatmap-dev-bar">
@@ -530,7 +530,7 @@ function LifecycleHeatmapView({ timelines, onOpenDetail, assigneeFilter, dateRan
               </div>
             ))}
             <div className="da-heatmap-legend-item">
-              <div className="da-heatmap-legend-swatch" style={{ background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)' }} />
+              <div className="da-heatmap-legend-swatch" style={{ background: 'transparent', border: '1px dashed var(--border-color)' }} />
               Skipped / no data
             </div>
           </div>
@@ -584,7 +584,7 @@ function LifecycleHeatmapView({ timelines, onOpenDetail, assigneeFilter, dateRan
                       <div key={state} className={`da-heatmap-cell${colors ? ' has-data' : isPresent ? ' is-present' : ''}`}
                         style={{
                           background: colors ? colors.bg : 'transparent',
-                          border: colors ? `1px solid ${colors.border}` : isPresent ? `1px solid ${stateCfg(state).color}44` : '1px dashed rgba(255,255,255,0.1)',
+                          border: colors ? `1px solid ${colors.border}` : isPresent ? `1px solid ${stateCfg(state).color}44` : '1px dashed var(--border-color)',
                           boxShadow: isCurrent ? `0 0 8px ${stateCfg(state).color}55` : 'none',
                         }}
                         onMouseEnter={() => setHoveredCell({ ticketId: ticket.issue_id, state })}

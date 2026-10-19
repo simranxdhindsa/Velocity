@@ -94,11 +94,11 @@ export function DaSummaryBar({ timelines }: { timelines: IssueTimeline[] }) {
   const blocked = timelines.filter(t => getCurrentState(t).toLowerCase() === 'blocked').length
   const bounced = timelines.filter(t => (t.moved_back_count ?? 0) > 0).length
   const chips = [
-    { label: 'Touched',   value: total,   color: 'rgba(255,255,255,0.85)', icon: '🎯' },
-    { label: 'Dev Done',  value: done,    color: '#4ade80',                icon: '✅' },
-    { label: 'Active',   value: active,  color: 'var(--color-primary-light)', icon: '🔄' },
-    { label: 'Blocked',  value: blocked, color: '#f87171',                icon: '⛔' },
-    { label: 'Bounced',  value: bounced, color: '#fb923c',                icon: '↩' },
+    { label: 'Touched',   value: total,   color: 'var(--text-primary)',     icon: '🎯' },
+    { label: 'Dev Done',  value: done,    color: 'var(--color-success)',    icon: '✅' },
+    { label: 'Active',   value: active,  color: 'var(--color-primary)',    icon: '🔄' },
+    { label: 'Blocked',  value: blocked, color: 'var(--color-danger)',     icon: '⛔' },
+    { label: 'Bounced',  value: bounced, color: 'var(--color-warning)',    icon: '↩' },
   ]
   return (
     <div className="da-summary-bar">

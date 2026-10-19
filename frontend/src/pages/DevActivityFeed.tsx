@@ -7,6 +7,7 @@ import type { IssueTimeline } from '../services/api'
 import { Timeline, type TimelineEvent } from '@/components/timeline/Timeline'
 import { DEV_DONE_STATES, buildJourney, fmtH, getCurrentState } from './dev-activity-types'
 import { DaAvatar, DaJourneyChain, DaSummaryBar } from './DevActivityShared'
+import { DevActivityRoster, type RosterRow, type RosterStatus } from './DevActivityRoster'
 import '../styles/pages/dev-activity-feed.css'
 
 type Kind = 'start' | 'restart' | 'done' | 'blocked' | 'back' | 'moved'
@@ -48,7 +49,7 @@ export function ActivityFeedView({ timelines, onOpenDetail, assigneeFilter, sinc
 
   // Every event in the date range, with who did it and what kind of move it was
   const all = useMemo(() => {
-    const out: (TimelineEvent & { person: string; kind: Kind })[] = []
+    const out: (TimelineEvent & { person: string; kind: Kind; summaryText: string; issueId: string })[] = []
     const inRange = (iso: string) => { const t = new Date(iso).getTime(); return t >= sinceMs && t <= untilMs }
     for (const t of timelines) {
       const stints = t.stints ?? []
@@ -58,7 +59,8 @@ export function ActivityFeedView({ timelines, onOpenDetail, assigneeFilter, sinc
         if (s.entered_at && inRange(s.entered_at)) {
           const kind: Kind = i === 0 ? 'start' : 'restart'
           out.push({
-            id: `${t.issue_id}-${i}-in`, at: s.entered_at, person: owner, kind,
+            id: `${t.issue_id}-${i}-in`, issueId: t.issue_id, at: s.entered_at, person: owner, kind,
+            summaryText: `${kind === 'start' ? 'Started' : 'Picked up'} ${t.issue_id}`,
             actor: owner,
             title: <>{kind === 'start' ? 'started' : 'picked up'} <span className="daf-id">{t.issue_id}</span>{kind === 'restart' ? ' again' : ''}</>,
             meta: t.issue_summary, detail, tone: 'accent', icon: <DaAvatar name={owner} size={28} />,
@@ -69,7 +71,8 @@ export function ActivityFeedView({ timelines, onOpenDetail, assigneeFilter, sinc
           const kind: Kind = /blocked/i.test(to) ? 'blocked' : (s.moved_back || isBackwards(to)) ? 'back' : isDevDone(to) ? 'done' : 'moved'
           const who = s.moved_by || owner
           out.push({
-            id: `${t.issue_id}-${i}-out`, at: s.exited_at, person: who, kind,
+            id: `${t.issue_id}-${i}-out`, issueId: t.issue_id, at: s.exited_at, person: who, kind,
+            summaryText: kind === 'back' ? `Sent ${t.issue_id} back to ${to}` : `Moved ${t.issue_id} to ${to}`,
             actor: who,
             title: kind === 'back'
               ? <>sent <span className="daf-id">{t.issue_id}</span> back to <strong>{to}</strong></>
@@ -85,49 +88,74 @@ export function ActivityFeedView({ timelines, onOpenDetail, assigneeFilter, sinc
     return out
   }, [timelines, sinceMs, untilMs, onOpenDetail])
 
-  // People with activity in range, busiest first (chips double as the "who was active" overview)
-  const people = useMemo(() => {
-    const m = new Map<string, { n: number; done: number }>()
+  // Roster: everyone with activity in range, busiest first, with what they're on right now
+  const roster = useMemo<RosterRow[]>(() => {
+    const m = new Map<string, RosterRow & { latestTitle: string }>()
     for (const e of all) {
-      const p = m.get(e.person) ?? { n: 0, done: 0 }
-      p.n++
-      if (e.kind === 'done') p.done++
-      m.set(e.person, p)
+      const t = new Date(e.at).getTime()
+      const r = m.get(e.person) ?? { name: e.person, status: 'idle' as RosterStatus, subtitle: '', updates: 0, done: 0, blocked: 0, lastAt: 0, latestTitle: '' }
+      r.updates++
+      if (e.kind === 'done') r.done++
+      if (t > r.lastAt) { r.lastAt = t; r.latestTitle = e.summaryText }
+      m.set(e.person, r)
     }
-    return [...m].sort((a, b) => b[1].n - a[1].n)
-  }, [all])
+    for (const r of m.values()) {
+      const mine = timelines.filter(t => t.assignee === r.name)
+      const live = mine.find(t => t.is_live)
+      // Blocked = their tickets blocked right now (same thing the amber status dot means)
+      r.blocked = mine.filter(t => /blocked/i.test(getCurrentState(t))).length
+      if (live) {
+        r.status = 'working'
+        r.subtitle = `Working on ${live.issue_id}`
+      } else {
+        r.status = r.blocked > 0 ? 'blocked' : 'idle'
+        r.subtitle = r.latestTitle
+      }
+    }
+    return [...m.values()].sort((a, b) => b.updates - a.updates)
+  }, [all, timelines])
 
   const who = assigneeFilter || dev
   const events = useMemo(() => (who ? all.filter(e => e.person === who) : all), [all, who])
-  const timelinesShown = useMemo(
-    () => (who ? timelines.filter(t => t.assignee === who) : timelines),
-    [timelines, who],
-  )
+  // KPI chips for a selected person = the tickets they actually worked on in this range
+  // (not tickets currently assigned to them: finished work usually gets reassigned to QA).
+  const timelinesShown = useMemo(() => {
+    if (!who) return timelines
+    const ids = new Set(events.map(e => e.issueId))
+    return timelines.filter(t => ids.has(t.issue_id))
+  }, [timelines, who, events])
 
   return (
     <div className="daf-wrap">
       <DaSummaryBar timelines={timelinesShown} />
-      {!assigneeFilter && people.length > 0 && (
-        <div className="daf-people" role="toolbar" aria-label="Filter by developer">
-          <button className={`daf-chip${dev === ALL ? ' active' : ''}`} onClick={() => setDev(ALL)}>
-            Everyone <span className="daf-chip-n">{all.length}</span>
-          </button>
-          {people.map(([name, p]) => (
-            <button key={name} className={`daf-chip${dev === name ? ' active' : ''}`} onClick={() => setDev(d => (d === name ? ALL : name))}
-              title={`${p.n} updates, ${p.done} dev done`}>
-              <DaAvatar name={name} size={20} />
-              {name} <span className="daf-chip-n">{p.n}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="daf-scroll">
-        <Timeline
-          events={events}
-          now={now}
-          label="Developer activity"
-          empty={<div className="da-empty"><span className="da-empty-icon">📭</span><span className="da-empty-text">No activity found for this date range</span></div>}
-        />
+      <div className="daf-sections">
+        {!assigneeFilter && roster.length > 0 && (
+          <section className="daf-card daf-card--team" aria-label="Team">
+            <header className="daf-card-head">
+              <span className="daf-card-title">Team</span>
+              <span className="daf-card-meta">{roster.length} {roster.length === 1 ? 'person' : 'people'} active</span>
+              <span className="daf-card-hint">Click someone to see only their activity</span>
+            </header>
+            <DevActivityRoster rows={roster} selected={dev} now={now} onSelect={name => setDev(d => (d === name ? ALL : name))} />
+          </section>
+        )}
+        <section className="daf-card daf-card--activity" aria-label="Activity">
+          <header className="daf-card-head">
+            <span className="daf-card-title">Activity</span>
+            {who
+              ? <span className="daf-card-meta"><DaAvatar name={who} size={18} /> <strong>{who}</strong> · {events.length} {events.length === 1 ? 'update' : 'updates'}</span>
+              : <span className="daf-card-meta">Everyone · {events.length} {events.length === 1 ? 'update' : 'updates'}</span>}
+            {who && !assigneeFilter && <button className="daf-filter-clear" onClick={() => setDev(ALL)}>Show everyone</button>}
+          </header>
+          <div className="daf-scroll">
+            <Timeline
+              events={events}
+              now={now}
+              label="Developer activity"
+              empty={<div className="da-empty"><span className="da-empty-icon">📭</span><span className="da-empty-text">No activity found for this date range</span></div>}
+            />
+          </div>
+        </section>
       </div>
     </div>
   )

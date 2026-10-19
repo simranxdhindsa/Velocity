@@ -297,61 +297,8 @@
    ─────────────────────────────────────────────────────────── */
 .daf-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
 
-/* Developer chips: everyone active in the range, busiest first; click to filter */
-.daf-people {
-  display: flex;
-  gap: 6px;
-  padding: 8px 16px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-.daf-people::-webkit-scrollbar { display: none; }
-.daf-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  padding: 4px 10px 4px 4px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 140ms, border-color 140ms, color 140ms;
-}
-.daf-chip:first-child { padding-left: 10px; }
-.daf-chip:hover { border-color: rgba(var(--color-primary-rgb), 0.4); color: var(--text-primary); }
-.daf-chip.active {
-  background: rgba(var(--color-primary-rgb), 0.14);
-  border-color: rgba(var(--color-primary-rgb), 0.5);
-  color: var(--text-primary);
-}
-.daf-chip-n { font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-
-/* Initials badge (chips + timeline markers) */
-.daf-initials {
-  display: inline-grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  min-width: 20px;
-  min-height: 20px;
-  border-radius: 50%;
-  font-size: 9.5px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 0.02em;
-}
-.daf-chip .daf-initials { width: 20px; height: 20px; }
-
 /* The scrolling feed */
-.daf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 84px; }
+.daf-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 18px 84px; }
 
 .daf-id {
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -393,7 +340,173 @@
 .daf-open:hover { background: rgba(var(--color-primary-rgb), 0.18); }
 
 @media (max-width: 768px) {
-  .daf-people { padding: 8px 10px; }
   .daf-scroll { padding: 0 10px 84px; }
   .daf-open { margin-left: 0; }
 }
+
+/* ───────────────────────────────────────────────────────────
+   Roster (DevActivityRoster.tsx, .dar-*) — based on 21st.dev Member List
+   ─────────────────────────────────────────────────────────── */
+.dar-wrap { flex-shrink: 0; }
+.dar-head, .dar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px 84px 84px 104px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 0 20px;
+}
+.dar-head {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* Show about five people, scroll for the rest so the timeline stays in view */
+.dar-body { max-height: min(290px, 30vh); overflow-y: auto; }
+
+.dar-row {
+  width: 100%;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms;
+}
+.dar-row:last-child { border-bottom: 0; }
+.dar-row:hover { background: rgba(var(--color-primary-rgb), 0.05); }
+.dar-row:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.dar-row--selected { background: rgba(var(--color-primary-rgb), 0.11); box-shadow: inset 3px 0 0 var(--color-primary); }
+.dar-row--selected:hover { background: rgba(var(--color-primary-rgb), 0.14); }
+.dar-row--sk { cursor: default; }
+.dar-row--sk:hover { background: transparent; }
+
+.dar-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dar-avatar { position: relative; flex-shrink: 0; display: inline-flex; }
+.dar-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-surface);
+}
+.dar-dot--working { background: var(--color-success); }
+.dar-dot--blocked { background: var(--color-warning); }
+.dar-dot--idle    { background: var(--text-muted); }
+
+.dar-name-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dar-name { font-size: 13px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dar-sub { font-size: 11.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dar-col { font-size: 12px; color: var(--text-secondary); }
+.dar-num { text-align: right; font-variant-numeric: tabular-nums; }
+.dar-done { color: var(--color-success); font-weight: 600; }
+.dar-blocked { color: var(--color-danger); font-weight: 600; }
+.dar-last { text-align: right; color: var(--text-muted); white-space: nowrap; }
+
+.dar-sk { display: inline-block; height: 10px; border-radius: 4px; }
+.dar-sk-h { width: 60%; }
+.dar-sk-n { width: 26px; height: 12px; float: right; }
+.dar-sk-av { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; }
+
+.daf-filter-clear {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary-light);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+[data-theme="light"] .daf-filter-clear { color: var(--color-primary); }
+.daf-filter-clear:hover { text-decoration: underline; }
+
+/* Tablet: drop the Updates column */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .dar-head, .dar-row { grid-template-columns: minmax(0, 1fr) 76px 76px 96px; }
+  .dar-head > :nth-child(2), .dar-row > :nth-child(2) { display: none; }
+}
+/* Mobile: name + dev done + last active */
+@media (max-width: 768px) {
+  .dar-head, .dar-row { grid-template-columns: minmax(0, 1fr) 64px 80px; padding-left: 12px; padding-right: 12px; }
+  .dar-head > :nth-child(2), .dar-row > :nth-child(2),
+  .dar-head > :nth-child(4), .dar-row > :nth-child(4) { display: none; }
+  .dar-body { max-height: min(230px, 30vh); }
+}
+.dar-zero { color: var(--text-muted); opacity: 0.6; }
+
+/* Two separate cards: Team (roster) and Activity (timeline) */
+.daf-sections {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px 0;
+}
+.daf-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+.daf-card--team { flex-shrink: 0; }
+.daf-card--activity { flex: 1; min-height: 0; display: flex; flex-direction: column; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 0; }
+.daf-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(var(--color-primary-rgb), 0.04);
+  flex-shrink: 0;
+}
+.daf-card-title { font-size: 13px; font-weight: 700; color: var(--text-primary); letter-spacing: 0.01em; }
+.daf-card-meta { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.daf-card-meta strong { color: var(--text-primary); font-weight: 600; }
+.daf-card-hint { margin-left: auto; font-size: 11.5px; color: var(--text-muted); }
+.daf-card--activity .daf-filter-clear { margin-left: auto; }
+.daf-card--team .dar-head, .daf-card--team .dar-row { padding-left: 18px; padding-right: 18px; }
+.daf-card--team .dar-head { background: transparent; }
+
+@media (max-width: 768px) {
+  .daf-sections { padding: 10px 10px 0; gap: 10px; }
+  .daf-card-head { padding: 10px 12px; }
+  .daf-card-hint { display: none; }
+  .daf-card--team .dar-head, .daf-card--team .dar-row { padding-left: 12px; padding-right: 12px; }
+}
+
+/* One scroll for the whole feed: the Activity card grows with its content instead of being
+   squeezed under the roster. Its header and the day headings stay pinned while scrolling. */
+.daf-sections { overflow-y: auto; padding-bottom: 84px; }
+.daf-card--activity {
+  flex: none;
+  min-height: 420px;
+  overflow: visible; /* overflow:hidden would stop the sticky header from sticking */
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+.daf-card--activity .daf-card-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(rgba(var(--color-primary-rgb), 0.04), rgba(var(--color-primary-rgb), 0.04)), var(--bg-surface);
+}
+.daf-card--activity .daf-scroll { flex: none; overflow: visible; padding-bottom: 12px; }
+.daf-card--activity .tl-day { top: 44px; }
+/* Pin flush with the scroll edge (cancel .daf-sections' top padding) so nothing peeks above it */
+.daf-card--activity .daf-card-head { top: -14px; }
+.daf-card--activity .tl-day { top: 30px; }
+@media (max-width: 768px) {
+  .daf-card--activity .daf-card-head { top: -10px; }
+  .daf-card--activity .tl-day { top: 31px; }
+}
+.daf-card--activity .tl-day { background: var(--bg-surface); box-shadow: 0 1px 0 var(--border-subtle); }

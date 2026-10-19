@@ -3,6 +3,7 @@
 // da-heatmap-body, dr-results…) so it occupies exactly the space the content will.
 // Kept in their own file because DevActivityPage.tsx is already far past the size limit.
 import '../styles/pages/dev-activity-skeleton.css'
+import { DevActivityRosterSkeleton } from './DevActivityRoster'
 
 const W = [55, 70, 48, 65, 58, 72] // vary bar widths so rows look organic
 
@@ -25,14 +26,18 @@ function SkSummaryBar() {
   )
 }
 
-// ── Activity Feed: developer chips, then a day-grouped timeline ──
+// ── Activity Feed: team roster, then a day-grouped timeline ──
 function SkFeed() {
   return (
     <div className="daf-wrap">
       <SkSummaryBar />
-      <div className="daf-people">
-        {Array.from({ length: 7 }).map((_, i) => <Sk key={i} w={i === 0 ? 88 : 96 + W[i % 6]} h={28} r={14} />)}
-      </div>
+      <div className="daf-sections">
+        <section className="daf-card daf-card--team">
+          <header className="daf-card-head"><Sk w={42} h={13} /><Sk w={96} h={11} /></header>
+          <DevActivityRosterSkeleton />
+        </section>
+        <section className="daf-card daf-card--activity">
+          <header className="daf-card-head"><Sk w={58} h={13} /><Sk w={120} h={11} /></header>
       <div className="daf-scroll">
         {[5, 4].map((rows, d) => (
           <div key={d} className="tl-group">
@@ -56,6 +61,8 @@ function SkFeed() {
             </ol>
           </div>
         ))}
+      </div>
+        </section>
       </div>
     </div>
   )
