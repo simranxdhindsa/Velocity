@@ -25,6 +25,10 @@ export const PERSIST = {
   SPRINT_NAME:      'pm_active_sprint_name',
   /** App theme */
   THEME:            'theme',
+  /** Theme page — Classic or Wheel picker per colour card */
+  THEME_PICKER_ACCENT: 'theme_picker_accent',
+  THEME_PICKER_BG:     'theme_picker_bg',
+  THEME_PICKER_TEXT:   'theme_picker_text',
   /** Per-user theme cache (JSON) */
   THEME_CACHE:      'user-theme-cache',
   /** Dev Activity page — which of the 4 views was last active */
