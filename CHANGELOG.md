@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-19
+
+### Enhancements
+- Activity Feed has a team roster showing who is working now, their latest update, finished and blocked tickets and last active, and clicking a person filters the timeline. Team and Activity sit in separate cards, the activity list fills the page with pinned headings, and numbers are readable in light mode
+
+
 ## 2026-10-17
 
 ### Features
