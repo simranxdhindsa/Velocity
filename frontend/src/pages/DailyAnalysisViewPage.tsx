@@ -512,7 +512,7 @@ export function DailyAnalysisViewPage() {
               className="ai-summary-card glass-card clickable"
               onClick={() => setModalFilter('all')}
             >
-              <div className="ai-summary-icon" style={{ backgroundColor: 'rgba(99, 102, 241, 0.2)' }}>
+              <div className="ai-summary-icon" style={{ backgroundColor: 'rgba(var(--color-primary-rgb), 0.2)' }}>
                 <CheckCircle size={24} color="var(--color-primary)" />
               </div>
               <div className="ai-summary-content">

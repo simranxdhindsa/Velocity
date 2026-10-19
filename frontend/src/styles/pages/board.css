@@ -24,7 +24,7 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.2rem 0.6rem;
-  background: rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.07);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-full);
   font-size: 0.7rem;
@@ -214,7 +214,7 @@
 
 /* Board-specific kanban overrides */
 .board-task-card {
-  background: rgba(255,255,255,0.04);
+  background: rgba(var(--overlay-rgb), 0.04);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: 0.75rem;
@@ -223,8 +223,8 @@
 }
 
 .board-task-card:hover {
-  background: rgba(255,255,255,0.07);
-  border-color: rgba(255,255,255,0.12);
+  background: rgba(var(--overlay-rgb), 0.07);
+  border-color: rgba(var(--overlay-rgb), 0.12);
 }
 
 /* ── Badges & chips ─────────────────────────────────────── */
@@ -236,7 +236,7 @@
   border-radius: var(--radius-full);
   font-size: 0.65rem;
   font-weight: 700;
-  background: rgba(255,255,255,0.08);
+  background: rgba(var(--overlay-rgb), 0.08);
   color: var(--text-muted);
   border: 1px solid var(--border-subtle);
   font-family: var(--font-mono);
@@ -292,9 +292,9 @@
   border-radius: var(--radius-full);
   font-size: 0.65rem;
   font-weight: 700;
-  background: rgba(99,102,241,0.15);
-  color: #a5b4fc;
-  border: 1px solid rgba(99,102,241,0.3);
+  background: rgba(var(--color-primary-rgb),0.15);
+  color: color-mix(in srgb, var(--color-primary) 55%, #fff);
+  border: 1px solid rgba(var(--color-primary-rgb),0.3);
 }
 
 .board-modal-title {

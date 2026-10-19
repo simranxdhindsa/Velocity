@@ -13,7 +13,7 @@
   height: 36px;
   border-radius: 10px;
   border: none;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--overlay-rgb), 0.06);
   color: rgba(255, 255, 255, 0.65);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
@@ -75,7 +75,7 @@
 }
 
 [data-theme="light"] .cl-panel {
-  background: #fff;
+  background: rgb(var(--panel-rgb));
   border-color: rgba(var(--color-primary-rgb), 0.12);
   box-shadow: var(--shadow-xl);
 }
@@ -124,7 +124,7 @@
 }
 
 .cl-panel-close:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--overlay-rgb), 0.08);
   color: var(--text-primary);
 }
 
@@ -243,7 +243,7 @@
 .cl-section-icon.cl-sec--feature  { background: rgba(var(--color-primary-rgb), 0.14); }
 .cl-section-icon.cl-sec--enhance  { background: var(--color-success-muted); }
 .cl-section-icon.cl-sec--bug      { background: var(--color-danger-muted); }
-.cl-section-icon.cl-sec--refactor { background: rgba(255, 255, 255, 0.05); }
+.cl-section-icon.cl-sec--refactor { background: rgba(var(--overlay-rgb), 0.05); }
 
 [data-theme="light"] .cl-section-icon.cl-sec--refactor { background: rgba(0, 0, 0, 0.05); }
 

@@ -35,8 +35,8 @@
 }
 
 .date-range-select {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(var(--overlay-rgb), 0.1);
+  border: 1px solid rgba(var(--overlay-rgb), 0.2);
   border-radius: var(--radius-md);
   padding: 0.5rem 1rem;
   color: var(--text-primary);
@@ -96,12 +96,12 @@
 }
 
 .reports-page .stat-icon.icon-blue {
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(var(--color-primary-rgb), 0.2);
   color: var(--color-primary);
 }
 
 .reports-page .stat-icon.icon-purple {
-  background: rgba(139, 92, 246, 0.2);
+  background: rgba(var(--color-secondary-rgb), 0.2);
   color: var(--color-secondary);
 }
 
@@ -210,7 +210,7 @@
 }
 
 .progress-ring .progress-bg {
-  stroke: rgba(255, 255, 255, 0.1);
+  stroke: rgba(var(--overlay-rgb), 0.1);
 }
 
 .progress-ring .progress-fill {
@@ -305,7 +305,7 @@
 
 .accuracy-meter {
   height: 40px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--overlay-rgb), 0.1);
   border-radius: var(--radius-lg);
   position: relative;
   overflow: hidden;
@@ -341,7 +341,7 @@
 .reports-page .loading-state .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
+  border: 3px solid rgba(var(--overlay-rgb), 0.1);
   border-top-color: var(--color-primary);
   border-radius: 50%;
   margin-bottom: 1rem;
@@ -599,11 +599,11 @@
 [data-theme="light"] .dr-cal-dropdown { background: rgba(240, 240, 255, 0.92) !important; }
 
 /* Week range highlight */
-.calendar-day.week-range { background: rgba(99,102,241,0.12); border-radius: 0; }
+.calendar-day.week-range { background: rgba(var(--color-primary-rgb),0.12); border-radius: 0; }
 .calendar-day.week-range-start { border-radius: 4px 0 0 4px; }
 .calendar-day.week-range-end { border-radius: 0 4px 4px 0; }
 
-[data-theme="light"] .calendar-day.week-range { background: rgba(99,102,241,0.1); }
+[data-theme="light"] .calendar-day.week-range { background: rgba(var(--color-primary-rgb),0.1); }
 
 /* ─── YouTrack Deployment Report (drt-*) ──────────────────────────────────── */
 
@@ -619,23 +619,23 @@
   font-weight: 600;
   padding: 2px 9px;
   border-radius: 99px;
-  background: rgba(99,102,241,0.15);
-  color: #818cf8;
-  border: 1px solid rgba(99,102,241,0.25);
+  background: rgba(var(--color-primary-rgb),0.15);
+  color: var(--color-primary-light);
+  border: 1px solid rgba(var(--color-primary-rgb),0.25);
   white-space: nowrap;
 }
 
 [data-theme="light"] .drt-sprint-badge {
-  background: rgba(99,102,241,0.1);
-  color: #4f46e5;
-  border-color: rgba(99,102,241,0.25);
+  background: rgba(var(--color-primary-rgb),0.1);
+  color: var(--color-primary-hover);
+  border-color: rgba(var(--color-primary-rgb),0.25);
 }
 
 .drt-ticket-panel {
   display: flex;
   flex-direction: column;
   gap: 0;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid rgba(var(--overlay-rgb), 0.08);
   border-radius: 10px;
   overflow: hidden;
   margin-top: 6px;
@@ -648,8 +648,8 @@
   gap: 10px;
   flex-wrap: wrap;
   padding: 10px 16px;
-  background: rgba(255,255,255,0.04);
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.04);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.07);
 }
 
 .drt-ticket-panel-left {
@@ -681,7 +681,7 @@
   font-weight: 500;
   padding: 3px 9px;
   border-radius: 99px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(var(--overlay-rgb), 0.12);
   background: transparent;
   color: rgba(255,255,255,0.45);
   cursor: pointer;
@@ -689,14 +689,14 @@
 }
 
 .drt-date-pill:hover {
-  background: rgba(255,255,255,0.06);
+  background: rgba(var(--overlay-rgb), 0.06);
   color: rgba(255,255,255,0.7);
 }
 
 .drt-date-pill.active {
-  background: rgba(99,102,241,0.18);
-  border-color: rgba(99,102,241,0.45);
-  color: #a5b4fc;
+  background: rgba(var(--color-primary-rgb),0.18);
+  border-color: rgba(var(--color-primary-rgb),0.45);
+  color: color-mix(in srgb, var(--color-primary) 55%, #fff);
 }
 
 .drt-type-pills { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -713,10 +713,10 @@
 
 /* Type colours */
 .drt-type--bug         { background: rgba(239,68,68,0.18);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
-.drt-type--feature     { background: rgba(99,102,241,0.18); color: #818cf8; border: 1px solid rgba(99,102,241,0.25); }
+.drt-type--feature     { background: rgba(var(--color-primary-rgb),0.18); color: var(--color-primary-light); border: 1px solid rgba(var(--color-primary-rgb),0.25); }
 .drt-type--enhancement { background: rgba(16,185,129,0.18); color: #34d399; border: 1px solid rgba(16,185,129,0.25); }
 .drt-type--hotfix      { background: rgba(245,158,11,0.18); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); }
-.drt-type--other       { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); }
+.drt-type--other       { background: rgba(var(--overlay-rgb), 0.08); color: rgba(255,255,255,0.5); border: 1px solid rgba(var(--overlay-rgb), 0.1); }
 
 .drt-ticket-list {
   max-height: 280px;
@@ -729,11 +729,11 @@
   align-items: center;
   gap: 10px;
   padding: 7px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.05);
   transition: background 0.15s;
 }
 .drt-ticket-row:last-child { border-bottom: none; }
-.drt-ticket-row--generating { background: rgba(99,102,241,0.05); }
+.drt-ticket-row--generating { background: rgba(var(--color-primary-rgb),0.05); }
 .drt-ticket-row--done       { background: rgba(16,185,129,0.04); }
 .drt-ticket-row--failed     { background: rgba(239,68,68,0.04); }
 
@@ -747,10 +747,10 @@
   text-decoration: none;
 }
 .drt-ticket-id--link {
-  color: #818cf8;
+  color: var(--color-primary-light);
   cursor: pointer;
 }
-.drt-ticket-id--link:hover { color: #a5b4fc; text-decoration: underline; }
+.drt-ticket-id--link:hover { color: color-mix(in srgb, var(--color-primary) 55%, #fff); text-decoration: underline; }
 
 .drt-ticket-summary {
   font-size: 0.78rem;
@@ -771,9 +771,9 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.2);
+  background: rgba(var(--overlay-rgb), 0.2);
 }
-.drt-status-spin  { color: #818cf8; animation: spin 1s linear infinite; }
+.drt-status-spin  { color: var(--color-primary-light); animation: spin 1s linear infinite; }
 .drt-status-done  { color: #34d399; }
 .drt-status-fail  { color: #f87171; }
 
@@ -782,8 +782,8 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px 16px;
-  border-top: 1px solid rgba(255,255,255,0.07);
-  background: rgba(255,255,255,0.02);
+  border-top: 1px solid rgba(var(--overlay-rgb), 0.07);
+  background: rgba(var(--overlay-rgb), 0.02);
 }
 
 .drt-progress-wrap { display: flex; flex-direction: column; gap: 5px; }
@@ -791,13 +791,13 @@
 .drt-progress-bar {
   height: 6px;
   border-radius: 99px;
-  background: rgba(255,255,255,0.08);
+  background: rgba(var(--overlay-rgb), 0.08);
   overflow: hidden;
 }
 .drt-progress-fill {
   height: 100%;
   border-radius: 99px;
-  background: linear-gradient(90deg, #4f46e5, #818cf8);
+  background: linear-gradient(90deg, var(--color-primary-hover), var(--color-primary-light));
   transition: width 0.3s ease;
 }
 
@@ -861,12 +861,12 @@
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 0.72rem;
   font-weight: 700;
-  color: #818cf8;
+  color: var(--color-primary-light);
   text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
 }
-a.drt-report-id:hover { color: #a5b4fc; text-decoration: underline; }
+a.drt-report-id:hover { color: color-mix(in srgb, var(--color-primary) 55%, #fff); text-decoration: underline; }
 
 .drt-report-subsystem {
   font-size: 0.75rem;
@@ -877,38 +877,38 @@ a.drt-report-id:hover { color: #a5b4fc; text-decoration: underline; }
 }
 
 /* Light mode */
-[data-theme="light"] .drt-ticket-id--link { color: #4f46e5; }
-[data-theme="light"] .drt-ticket-id--link:hover { color: #3730a3; }
-[data-theme="light"] .drt-report-id { color: #4f46e5; }
-[data-theme="light"] a.drt-report-id:hover { color: #3730a3; }
+[data-theme="light"] .drt-ticket-id--link { color: var(--color-primary-hover); }
+[data-theme="light"] .drt-ticket-id--link:hover { color: var(--color-primary-deep); }
+[data-theme="light"] .drt-report-id { color: var(--color-primary-hover); }
+[data-theme="light"] a.drt-report-id:hover { color: var(--color-primary-deep); }
 [data-theme="light"] .drt-report-subsystem { color: #64748b; }
 
 /* Light mode overrides */
-[data-theme="light"] .drt-ticket-panel { border-color: rgba(99,102,241,0.12); }
-[data-theme="light"] .drt-ticket-panel-header { background: rgba(241,245,249,0.8); border-color: rgba(99,102,241,0.1); }
+[data-theme="light"] .drt-ticket-panel { border-color: rgba(var(--color-primary-rgb),0.12); }
+[data-theme="light"] .drt-ticket-panel-header { background: rgba(var(--panel-sunk-rgb),0.8); border-color: rgba(var(--color-primary-rgb),0.1); }
 [data-theme="light"] .drt-ticket-count { color: #64748b; }
-[data-theme="light"] .drt-ticket-row { border-color: rgba(99,102,241,0.07); }
-[data-theme="light"] .drt-ticket-row--generating { background: rgba(99,102,241,0.04); }
+[data-theme="light"] .drt-ticket-row { border-color: rgba(var(--color-primary-rgb),0.07); }
+[data-theme="light"] .drt-ticket-row--generating { background: rgba(var(--color-primary-rgb),0.04); }
 [data-theme="light"] .drt-ticket-row--done       { background: rgba(16,185,129,0.04); }
 [data-theme="light"] .drt-ticket-row--failed     { background: rgba(239,68,68,0.04); }
 [data-theme="light"] .drt-ticket-id     { color: #94a3b8; }
 [data-theme="light"] .drt-ticket-summary { color: #1e293b; }
 [data-theme="light"] .drt-status-dot--pending { background: #cbd5e1; }
 [data-theme="light"] .drt-type--bug         { background: rgba(239,68,68,0.1);  color: #dc2626; border-color: rgba(239,68,68,0.2); }
-[data-theme="light"] .drt-type--feature     { background: rgba(99,102,241,0.1); color: #4f46e5; border-color: rgba(99,102,241,0.2); }
+[data-theme="light"] .drt-type--feature     { background: rgba(var(--color-primary-rgb),0.1); color: var(--color-primary-hover); border-color: rgba(var(--color-primary-rgb),0.2); }
 [data-theme="light"] .drt-type--enhancement { background: rgba(16,185,129,0.1); color: #16a34a; border-color: rgba(16,185,129,0.2); }
 [data-theme="light"] .drt-type--hotfix      { background: rgba(245,158,11,0.1); color: #d97706; border-color: rgba(245,158,11,0.2); }
 [data-theme="light"] .drt-type--other       { background: rgba(15,23,42,0.06);  color: #64748b; border-color: rgba(15,23,42,0.1); }
-[data-theme="light"] .drt-gen-controls { border-color: rgba(99,102,241,0.1); background: rgba(241,245,249,0.5); }
-[data-theme="light"] .drt-progress-bar { background: rgba(99,102,241,0.1); }
+[data-theme="light"] .drt-gen-controls { border-color: rgba(var(--color-primary-rgb),0.1); background: rgba(var(--panel-sunk-rgb),0.5); }
+[data-theme="light"] .drt-progress-bar { background: rgba(var(--color-primary-rgb),0.1); }
 [data-theme="light"] .drt-progress-label { color: #64748b; }
 [data-theme="light"] .drt-report-section-title { color: #64748b; }
 [data-theme="light"] .drt-report-list li { color: #1e293b; }
-[data-theme="light"] .drt-ticket-list { scrollbar-color: rgba(99,102,241,0.2) transparent; }
+[data-theme="light"] .drt-ticket-list { scrollbar-color: rgba(var(--color-primary-rgb),0.2) transparent; }
 [data-theme="light"] .drt-ticket-count-total { color: #94a3b8; }
-[data-theme="light"] .drt-date-pill { border-color: rgba(99,102,241,0.15); color: #94a3b8; }
-[data-theme="light"] .drt-date-pill:hover { background: rgba(99,102,241,0.06); color: #475569; }
-[data-theme="light"] .drt-date-pill.active { background: rgba(99,102,241,0.1); border-color: rgba(99,102,241,0.35); color: #4f46e5; }
+[data-theme="light"] .drt-date-pill { border-color: rgba(var(--color-primary-rgb),0.15); color: #94a3b8; }
+[data-theme="light"] .drt-date-pill:hover { background: rgba(var(--color-primary-rgb),0.06); color: #475569; }
+[data-theme="light"] .drt-date-pill.active { background: rgba(var(--color-primary-rgb),0.1); border-color: rgba(var(--color-primary-rgb),0.35); color: var(--color-primary-hover); }
 
 /* ── Mobile responsive ─────────────────────────────────── */
 @media (max-width: 768px) {

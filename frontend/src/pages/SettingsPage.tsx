@@ -45,7 +45,7 @@ function getInitialBg(role: UserRole) {
     case 'project_manager': return 'rgba(99,102,241,0.22)'
     case 'member':          return 'rgba(16,185,129,0.22)'
     case 'viewer':          return 'rgba(100,116,139,0.22)'
-    default:                return 'rgba(255,255,255,0.1)'
+    default:                return 'rgba(var(--overlay-rgb),0.1)'
   }
 }
 

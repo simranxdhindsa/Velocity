@@ -42,8 +42,8 @@
 
 /* Select */
 .pmf-select {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(var(--overlay-rgb), 0.05);
+  border: 1px solid rgba(var(--overlay-rgb), 0.1);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 0.8125rem;
@@ -52,12 +52,12 @@
   cursor: pointer;
   outline: none;
 }
-.pmf-select:focus { border-color: rgba(99,102,241,0.4); }
+.pmf-select:focus { border-color: rgba(var(--color-primary-rgb),0.4); }
 
 /* Input */
 .pmf-input {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(var(--overlay-rgb), 0.04);
+  border: 1px solid rgba(var(--overlay-rgb), 0.08);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 0.8125rem;
@@ -67,7 +67,7 @@
   flex: 1;
   min-width: 0;
 }
-.pmf-input:focus { border-color: rgba(99,102,241,0.4); background: rgba(255,255,255,0.07); }
+.pmf-input:focus { border-color: rgba(var(--color-primary-rgb),0.4); background: rgba(var(--overlay-rgb), 0.07); }
 .pmf-input-sm { flex: 0 0 80px; width: 80px; }
 .pmf-input-lg { flex: 1 1 260px; }
 
@@ -115,8 +115,8 @@
 }
 
 .pmf-kpi {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.04);
+  border: 1px solid rgba(var(--overlay-rgb), 0.07);
   border-radius: var(--radius-lg);
   padding: 0.875rem 1.25rem;
   display: flex;
@@ -156,13 +156,13 @@
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.06);
   font-weight: 600;
 }
 .pmf-table td {
   padding: 0.625rem 0.75rem;
   color: var(--text-primary);
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.04);
   vertical-align: middle;
 }
 .pmf-tr-danger td { background: rgba(239,68,68,0.04); }
@@ -183,14 +183,14 @@
   border-radius: 3px;
   flex: 1;
   max-width: 80px;
-  background: rgba(99,102,241,0.7);
+  background: rgba(var(--color-primary-rgb),0.7);
   transition: width 0.3s ease;
 }
 .pmf-bar-label { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
 
 /* Badge */
 .pmf-badge {
-  background: rgba(99,102,241,0.15);
+  background: rgba(var(--color-primary-rgb),0.15);
   color: var(--color-primary-light);
   border-radius: var(--radius-full);
   padding: 0.15rem 0.55rem;
@@ -199,7 +199,7 @@
   white-space: nowrap;
 }
 .pmf-badge-muted {
-  background: rgba(255,255,255,0.06);
+  background: rgba(var(--overlay-rgb), 0.06);
   color: var(--text-muted);
   border-radius: var(--radius-full);
   padding: 0.1rem 0.4rem;
@@ -236,8 +236,8 @@
 
 /* Release cards */
 .pmf-release-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.03);
+  border: 1px solid rgba(var(--overlay-rgb), 0.07);
   border-radius: var(--radius-lg);
   margin-bottom: 0.75rem;
   overflow: hidden;
@@ -256,7 +256,7 @@
   gap: 1rem;
   flex-wrap: wrap;
 }
-.pmf-release-header:hover { background: rgba(255,255,255,0.03); }
+.pmf-release-header:hover { background: rgba(var(--overlay-rgb), 0.03); }
 .pmf-release-name {
   font-weight: 600;
   font-size: 0.875rem;
@@ -273,7 +273,7 @@
 .pmf-progress-wrap {
   width: 80px;
   height: 6px;
-  background: rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.07);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -291,7 +291,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.4rem 0;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.04);
   font-size: 0.8rem;
 }
 .pmf-issue-row:last-child { border-bottom: none; }
@@ -312,8 +312,8 @@
 }
 .pmf-dep-groups { display: flex; flex-direction: column; gap: 1rem; }
 .pmf-dep-group {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.03);
+  border: 1px solid rgba(var(--overlay-rgb), 0.07);
   border-radius: var(--radius-lg);
   padding: 0.75rem 1rem;
 }
@@ -330,7 +330,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.35rem 0;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.04);
   font-size: 0.8125rem;
 }
 .pmf-dep-item:last-child { border-bottom: none; }
@@ -349,8 +349,8 @@
 
 /* Escalation config panel */
 .pmf-cfg-panel {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(var(--overlay-rgb), 0.03);
+  border: 1px solid rgba(var(--overlay-rgb), 0.08);
   border-radius: var(--radius-lg);
   padding: 1rem;
   margin-bottom: 1.25rem;
@@ -363,22 +363,22 @@
 
 /* ── Light mode ──────────────────────────────────────────────────────── */
 [data-theme="light"] .pmf-select {
-  background: rgba(241,245,249,0.9);
-  border-color: rgba(99,102,241,0.2);
+  background: rgba(var(--panel-sunk-rgb),0.9);
+  border-color: rgba(var(--color-primary-rgb),0.2);
   color: #1e293b;
 }
 [data-theme="light"] .pmf-input {
-  background: rgba(241,245,249,0.9);
-  border-color: rgba(99,102,241,0.2);
+  background: rgba(var(--panel-sunk-rgb),0.9);
+  border-color: rgba(var(--color-primary-rgb),0.2);
   color: #1e293b;
 }
 [data-theme="light"] .pmf-input:focus {
-  border-color: rgba(99,102,241,0.4);
-  background: #fff;
+  border-color: rgba(var(--color-primary-rgb),0.4);
+  background: rgb(var(--panel-rgb));
 }
 [data-theme="light"] .pmf-kpi {
-  background: rgba(241,245,249,0.9);
-  border-color: rgba(99,102,241,0.12);
+  background: rgba(var(--panel-sunk-rgb),0.9);
+  border-color: rgba(var(--color-primary-rgb),0.12);
 }
 [data-theme="light"] .pmf-kpi-value { color: #0f172a; }
 [data-theme="light"] .pmf-kpi-danger { background: rgba(239,68,68,0.05); border-color: rgba(239,68,68,0.2); }
@@ -386,10 +386,10 @@
 [data-theme="light"] .pmf-table th { border-bottom-color: rgba(0,0,0,0.08); color: #64748b; }
 [data-theme="light"] .pmf-table td { border-bottom-color: rgba(0,0,0,0.05); color: #1e293b; }
 [data-theme="light"] .pmf-tr-danger td { background: rgba(239,68,68,0.03); }
-[data-theme="light"] .pmf-release-card { background: rgba(241,245,249,0.7); border-color: rgba(99,102,241,0.12); }
-[data-theme="light"] .pmf-release-header:hover { background: rgba(99,102,241,0.04); }
-[data-theme="light"] .pmf-dep-group { background: rgba(241,245,249,0.7); border-color: rgba(99,102,241,0.12); }
-[data-theme="light"] .pmf-cfg-panel { background: rgba(241,245,249,0.7); border-color: rgba(99,102,241,0.12); }
+[data-theme="light"] .pmf-release-card { background: rgba(var(--panel-sunk-rgb),0.7); border-color: rgba(var(--color-primary-rgb),0.12); }
+[data-theme="light"] .pmf-release-header:hover { background: rgba(var(--color-primary-rgb),0.04); }
+[data-theme="light"] .pmf-dep-group { background: rgba(var(--panel-sunk-rgb),0.7); border-color: rgba(var(--color-primary-rgb),0.12); }
+[data-theme="light"] .pmf-cfg-panel { background: rgba(var(--panel-sunk-rgb),0.7); border-color: rgba(var(--color-primary-rgb),0.12); }
 [data-theme="light"] .pmf-issue-summary { color: #334155; }
 [data-theme="light"] .pmf-dep-summary { color: #334155; }
 

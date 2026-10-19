@@ -5,7 +5,7 @@
   position: fixed;
   z-index: 9999;
   background: var(--bg-elevated);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(var(--overlay-rgb), 0.1);
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
   overflow: hidden;
@@ -30,6 +30,8 @@
 .cd-search-icon { color: var(--text-muted); flex-shrink: 0; }
 .cd-search-input {
   flex: 1;
+  min-width: 0; /* inputs default to ~20ch; without this it overflows and focus scrolls the menu sideways */
+  width: 100%;
   background: transparent;
   border: none;
   outline: none;
@@ -57,8 +59,18 @@
 
 /* Light mode */
 [data-theme="light"] .cd-portal-menu {
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(var(--panel-rgb), 0.98);
   border-color: rgba(var(--color-primary-rgb), 0.15);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
-[data-theme="light"] .cd-search-input { color: #0f172a; }
+/* The search row shares the menu's panel colour; the global light-mode input rule
+   (theme-light.css) would otherwise draw a second bordered box inside it */
+[data-theme="light"] .cd-search-row { background: transparent; border-bottom-color: rgba(var(--color-primary-rgb), 0.1); }
+[data-theme="light"] .cd-portal-menu .cd-search-input,
+[data-theme="light"] .cd-portal-menu .cd-search-input:focus {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0;
+  color: var(--text-primary) !important;
+}

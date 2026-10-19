@@ -32,7 +32,7 @@
   width: 264px;
   height: 100%;
   border-radius: var(--radius-full);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0.02) 100%), var(--bg-elevated);
+  background: linear-gradient(180deg, rgba(var(--overlay-rgb), 0.055) 0%, rgba(var(--overlay-rgb), 0.02) 100%), var(--bg-elevated);
   border: 1px solid var(--glass-border);
   overflow: hidden;
   cursor: pointer;
@@ -176,7 +176,7 @@
 
 /* ── Light mode overrides ── */
 [data-theme="light"] .sc-pill {
-  background: linear-gradient(180deg, #ffffff 0%, var(--bg-elevated) 100%);
+  background: linear-gradient(180deg, rgb(var(--panel-rgb)) 0%, var(--bg-elevated) 100%);
   border-color: var(--glass-border);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.7) inset,

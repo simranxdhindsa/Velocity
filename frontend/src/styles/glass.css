@@ -3,7 +3,7 @@
    ============================================================ */
 
 .glass {
-  background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%);
+  background: linear-gradient(135deg, rgba(var(--overlay-rgb), 0.07) 0%, rgba(var(--overlay-rgb), 0.03) 100%);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
@@ -16,19 +16,19 @@
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 40%, rgba(255,255,255,0.28) 50%, rgba(255,255,255,0.18) 60%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(var(--overlay-rgb), 0.18) 40%, rgba(255,255,255,0.28) 50%, rgba(var(--overlay-rgb), 0.18) 60%, transparent 100%);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   pointer-events: none;
 }
 .glass:hover {
-  background: linear-gradient(135deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.05) 100%);
+  background: linear-gradient(135deg, rgba(var(--overlay-rgb), 0.10) 0%, rgba(var(--overlay-rgb), 0.05) 100%);
   border-color: var(--glass-border-hover);
   box-shadow: var(--shadow-lg), var(--shadow-glow-sm);
   transform: translateY(-2px);
 }
 
 .glass-static {
-  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+  background: linear-gradient(135deg, rgba(var(--overlay-rgb), 0.06) 0%, rgba(var(--overlay-rgb), 0.02) 100%);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
@@ -40,13 +40,13 @@
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 40%, rgba(255,255,255,0.28) 50%, rgba(255,255,255,0.18) 60%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(var(--overlay-rgb), 0.18) 40%, rgba(255,255,255,0.28) 50%, rgba(var(--overlay-rgb), 0.18) 60%, transparent 100%);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   pointer-events: none;
 }
 
 .glass-card {
-  background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%);
+  background: linear-gradient(135deg, rgba(var(--overlay-rgb), 0.07) 0%, rgba(var(--overlay-rgb), 0.03) 100%);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
@@ -55,13 +55,13 @@
   transition: all var(--transition-normal);
 }
 .glass-card:hover {
-  border-color: rgba(255,255,255,0.13);
+  border-color: rgba(var(--overlay-rgb), 0.13);
   box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255,255,255,0.10);
   transform: translateY(-2px);
 }
 
 .glass-input {
-  background: rgba(255,255,255,0.04);
+  background: rgba(var(--overlay-rgb), 0.04);
   backdrop-filter: blur(8px) saturate(160%);
   -webkit-backdrop-filter: blur(8px) saturate(160%);
   border: 1px solid var(--glass-border);
@@ -75,8 +75,8 @@
 .glass-input::placeholder { color: var(--text-muted); }
 .glass-input:focus {
   border-color: var(--color-primary);
-  background: rgba(255,255,255,0.07);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.18), var(--shadow-glow-sm);
+  background: rgba(var(--overlay-rgb), 0.07);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb),0.18), var(--shadow-glow-sm);
 }
 
 .glass-button {

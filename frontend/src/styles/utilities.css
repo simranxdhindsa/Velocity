@@ -14,7 +14,7 @@
 
 /* Page title gradient */
 .page-title, .activity-page-title, .bot-config-title {
-  background: linear-gradient(135deg, #f1f5f9 0%, #c7d2fe 50%, #a5b4fc 100%);
+  background: linear-gradient(135deg, #f1f5f9 0%, color-mix(in srgb, var(--color-primary) 32%, #fff) 50%, color-mix(in srgb, var(--color-primary) 55%, #fff) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -62,7 +62,7 @@
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s ease;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(var(--overlay-rgb), 0.1);
   box-shadow: var(--shadow-sm);
   z-index: 100;
 }
@@ -90,9 +90,9 @@
 /* ── Loading spinner ────────────────────────────────────── */
 .loading-spinner {
   width: 36px; height: 36px;
-  border: 3px solid rgba(255,255,255,0.08);
+  border: 3px solid rgba(var(--overlay-rgb), 0.08);
   border-top-color: var(--color-primary);
-  border-right-color: rgba(139,92,246,0.4);
+  border-right-color: rgba(var(--color-secondary-rgb),0.4);
   border-radius: 50%; animation: spin 0.75s linear infinite;
 }
 .loading-spinner-sm {
@@ -114,14 +114,14 @@
 
 /* ── Welcome banner ─────────────────────────────────────── */
 .welcome-banner {
-  background: linear-gradient(135deg, rgba(99,102,241,0.09) 0%, rgba(139,92,246,0.05) 100%);
-  border: 1px solid rgba(99,102,241,0.15);
+  background: linear-gradient(135deg, rgba(var(--color-primary-rgb),0.09) 0%, rgba(var(--color-secondary-rgb),0.05) 100%);
+  border: 1px solid rgba(var(--color-primary-rgb),0.15);
   border-radius: var(--radius-xl); padding: 1.5rem 2rem; margin-bottom: 2rem;
   position: relative; overflow: hidden;
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
 }
 .welcome-title {
-  background: linear-gradient(135deg, #f1f5f9 0%, #818cf8 60%, #c4b5fd 100%);
+  background: linear-gradient(135deg, #f1f5f9 0%, var(--color-primary-light) 60%, #c4b5fd 100%);
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
   font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em;
   margin: 0;
@@ -150,7 +150,7 @@
 /* ── Avatar image ───────────────────────────────────────── */
 .avatar-image {
   width: 36px; height: 36px; border-radius: 50%;
-  object-fit: cover; border: 2px solid rgba(99,102,241,0.3);
+  object-fit: cover; border: 2px solid rgba(var(--color-primary-rgb),0.3);
 }
 
 /* ── Icon colour helpers ────────────────────────────────── */

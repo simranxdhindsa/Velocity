@@ -295,7 +295,7 @@
 
 [data-theme="light"] .ur-ch-picker-search { background: var(--bg-elevated); }
 [data-theme="light"] .ur-ch-picker-search-input,
-[data-theme="light"] .ur-ch-picker-manual-input { background: #f1f5f9; border-color: rgba(0,0,0,0.12); }
+[data-theme="light"] .ur-ch-picker-manual-input { background: rgb(var(--panel-sunk-rgb)); border-color: rgba(0,0,0,0.12); }
 
 .ur-qs-textarea {
   width: 100%;

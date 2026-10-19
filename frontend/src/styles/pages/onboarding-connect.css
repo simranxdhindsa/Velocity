@@ -53,7 +53,7 @@
    just clip it into the circular node with a hairline border. */
 .ob-connect-node.ob-connect-node--yt-logo {
   background: #000;
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(var(--overlay-rgb), 0.12);
   overflow: hidden;
 }
 

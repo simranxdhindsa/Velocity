@@ -237,7 +237,7 @@ export function MentionCard({ m, slackTeamId, channelName, savedTemplates, onDis
   const issueIds = extractIssueIds(m.message_text)
 
   const urgencyColor = (() => {
-    if (isDone) return 'rgba(255,255,255,0.06)'
+    if (isDone) return 'rgba(var(--overlay-rgb),0.06)'
     const ageMins = (Date.now() - new Date(m.created_at).getTime()) / 60000
     if (ageMins > 120) return '#ef4444'
     if (ageMins > 30) return '#f59e0b'

@@ -11,13 +11,13 @@
   margin-bottom: 10px;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.07);
-  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(var(--overlay-rgb), 0.07);
+  background: rgba(var(--overlay-rgb), 0.02);
 }
 
 [data-theme="light"] .da-dev-section {
   border-color: rgba(var(--color-primary-rgb),0.12);
-  background: rgba(255,255,255,0.6);
+  background: rgba(var(--panel-rgb),0.6);
 }
 
 .da-dev-header {
@@ -26,13 +26,13 @@
   gap: 10px;
   padding: 10px 14px;
   cursor: pointer;
-  background: rgba(255,255,255,0.04);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: rgba(var(--overlay-rgb), 0.04);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.06);
   transition: background 140ms;
 }
 
 .da-dev-header:hover {
-  background: rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.07);
 }
 
 [data-theme="light"] .da-dev-header {
@@ -71,8 +71,8 @@
   align-items: center;
   padding: 2px 7px;
   border-radius: 99px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.04);
+  border: 1px solid rgba(var(--overlay-rgb), 0.07);
   font-size: 10px;
   font-weight: 700;
 }
@@ -104,13 +104,13 @@
 
 /* Ticket rows inside dev section */
 .da-ticket-row {
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.03);
   cursor: pointer;
   transition: background 130ms;
 }
 
 .da-ticket-row:hover {
-  background: rgba(255,255,255,0.025);
+  background: rgba(var(--overlay-rgb), 0.025);
 }
 
 [data-theme="light"] .da-ticket-row:hover {
@@ -181,7 +181,7 @@
   margin: 0 14px 12px 46px;
   background: rgba(0,0,0,0.2);
   border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid rgba(var(--overlay-rgb), 0.06);
   overflow: hidden;
 }
 
@@ -194,7 +194,7 @@
   display: grid;
   grid-template-columns: 100px 1fr 1fr 80px;
   padding: 5px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.05);
 }
 
 .da-history-col-head {
@@ -212,7 +212,7 @@
   grid-template-columns: 100px 1fr 1fr 80px;
   padding: 6px 12px;
   align-items: center;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.04);
 }
 
 .da-history-row:last-child {
@@ -259,7 +259,7 @@
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid rgba(var(--overlay-rgb), 0.08);
   background: transparent;
   color: rgba(255,255,255,0.4);
   font-family: inherit;

@@ -71,16 +71,29 @@ function hueShift(hex: string, degrees: number): string {
   return rgbToHex(nr, ng, nb)
 }
 
+/** Shades derived from the chosen background, like the accent's base/hover/muted:
+ *  page = the background itself, panel = cards, sidebar, header and menus,
+ *  hover = row/button hover on top of a panel. */
+export function deriveBgShades(bg: string, mode: 'dark' | 'light'): { page: string; panel: string; hover: string } {
+  return mode === 'dark'
+    ? { page: bg, panel: lighten(bg, 0.04), hover: lighten(bg, 0.10) }
+    : { page: bg, panel: lighten(bg, 0.6), hover: darken(bg, 0.04) }
+}
+
 function buildThemeCssVars(accent: string, bg: string, textColor: string, mode: 'dark' | 'light'): string {
   const [r, g, b] = hexToRgb(accent)
   const secondary = hueShift(accent, 30)
   const [rs, gs, bs] = hexToRgb(secondary)
   const [tr, tg, tb] = hexToRgb(textColor)
 
-  // Sidebar and header tinted slightly toward bg
+  const shades = deriveBgShades(bg, mode)
+  const [pr, pg, pb] = hexToRgb(shades.panel)
+
+  // Sidebar and header tinted slightly toward bg (light mode: the bg-derived panel tone)
   const sidebarBg = mode === 'dark'
     ? `rgba(${Math.round(tr*0.03 + hexToRgb(bg)[0]*0.97)},${Math.round(tg*0.03 + hexToRgb(bg)[1]*0.97)},${Math.round(tb*0.03 + hexToRgb(bg)[2]*0.97)},0.95)`
-    : `rgba(255,255,255,0.92)`
+    : `rgba(${pr},${pg},${pb},0.92)`
+  const headerBg = mode === 'dark' ? sidebarBg.replace('0.95', '0.82') : `rgba(${pr},${pg},${pb},0.82)`
 
   const accentVars = `
   --color-primary: ${accent};
@@ -94,6 +107,7 @@ function buildThemeCssVars(accent: string, bg: string, textColor: string, mode: 
   --color-primary-deep: ${darken(accent, 0.30)};
   --color-primary-rgb: ${r}, ${g}, ${b};
   --color-secondary: ${secondary};
+  --color-secondary-rgb: ${rs}, ${gs}, ${bs};
   --color-secondary-light: ${lighten(secondary, 0.15)};
   --gradient-primary: linear-gradient(135deg, ${accent} 0%, ${secondary} 100%);
   --shadow-glow: 0 0 24px rgba(${r},${g},${b},0.4);
@@ -103,7 +117,8 @@ function buildThemeCssVars(accent: string, bg: string, textColor: string, mode: 
   --text-primary: ${textColor};
   --text-secondary: ${mode === 'dark' ? darken(textColor, 0.18) : lighten(textColor, 0.25)};
   --sidebar-bg: ${sidebarBg};
-  --header-bg: ${sidebarBg.replace('0.95', '0.82')};`
+  --header-bg: ${headerBg};
+  --panel-rgb: ${pr}, ${pg}, ${pb};`
 
   if (mode === 'dark') {
     return `${accentVars}
@@ -120,7 +135,17 @@ function buildThemeCssVars(accent: string, bg: string, textColor: string, mode: 
   --bg-surface: ${darken(bg, 0.02)};
   --bg-elevated: ${darken(bg, 0.05)};
   --bg-gradient: ${lightGrad};
-  --gradient-bg: ${lightGrad};`
+  --gradient-bg: ${lightGrad};
+  --panel-soft-rgb: ${hexToRgb(bg).join(', ')};
+  --panel-sunk-rgb: ${hexToRgb(darken(bg, 0.03)).join(', ')};
+  --panel-deep-rgb: ${hexToRgb(darken(bg, 0.09)).join(', ')};
+  --bg-hover: rgba(${r},${g},${b},0.06);
+  --bg-active: rgba(${r},${g},${b},0.11);
+  --border-color: rgba(${r},${g},${b},0.12);
+  --glass-bg-hover: rgba(${r},${g},${b},0.10);
+  --glass-bg-active: rgba(${r},${g},${b},0.15);
+  --glass-border: rgba(${r},${g},${b},0.14);
+  --glass-border-hover: rgba(${r},${g},${b},0.28);`
 }
 
 export function applyUserTheme(

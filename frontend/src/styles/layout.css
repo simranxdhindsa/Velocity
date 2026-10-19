@@ -22,7 +22,7 @@
   flex-direction: column;
   overflow: hidden;
   z-index: 1000;
-  box-shadow: inset -1px 0 0 rgba(99,102,241,0.07), 4px 0 32px rgba(0,0,0,0.5);
+  box-shadow: inset -1px 0 0 rgba(var(--color-primary-rgb),0.07), 4px 0 32px rgba(0,0,0,0.5);
   transition: width 0.25s ease, transform 0.25s ease;
 }
 
@@ -35,7 +35,7 @@
   gap: 0.875rem;
   padding: 0.5rem 0.75rem 1.375rem;
   margin-bottom: 1rem;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.05);
   flex-shrink: 0;
 }
 
@@ -108,7 +108,7 @@
 }
 
 .sidebar-nav-item:hover {
-  background: rgba(255,255,255,0.06);
+  background: rgba(var(--overlay-rgb), 0.06);
   color: var(--text-secondary);
   transform: translateX(3px);
 }
@@ -167,7 +167,7 @@
 /* Footer */
 .sidebar-footer {
   padding-top: 1rem;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid rgba(var(--overlay-rgb), 0.05);
   margin-top: auto;
   flex-shrink: 0;
 }
@@ -178,12 +178,12 @@
   gap: 0.75rem;
   padding: 0.75rem;
   border-radius: var(--radius-md);
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(var(--overlay-rgb), 0.03);
+  border: 1px solid rgba(var(--overlay-rgb), 0.06);
   transition: background var(--transition-fast);
   cursor: pointer;
 }
-.user-profile:hover { background: rgba(255,255,255,0.06); }
+.user-profile:hover { background: rgba(var(--overlay-rgb), 0.06); }
 
 .user-name,
 .sidebar-user-name {
@@ -364,8 +364,8 @@
 .search-bar-input {
   width: 100%;
   padding: 0.5625rem 1rem 0.5625rem 2.625rem;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(var(--overlay-rgb), 0.04);
+  border: 1px solid rgba(var(--overlay-rgb), 0.08);
   border-radius: var(--radius-full);
   color: var(--text-primary);
   font-size: 0.8625rem;
@@ -375,9 +375,9 @@
 }
 .search-bar-input::placeholder { color: var(--text-muted); }
 .search-bar-input:focus {
-  border-color: rgba(99,102,241,0.4);
-  background: rgba(255,255,255,0.07);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+  border-color: rgba(var(--color-primary-rgb),0.4);
+  background: rgba(var(--overlay-rgb), 0.07);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb),0.12);
 }
 
 /* My Tasks / All Tasks toggle group */
@@ -385,8 +385,8 @@
   display: flex;
   align-items: center;
   gap: 0.125rem;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(var(--overlay-rgb), 0.04);
+  border: 1px solid rgba(var(--overlay-rgb), 0.08);
   border-radius: var(--radius-full);
   padding: 0.2rem;
   flex-shrink: 0;
@@ -424,16 +424,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(var(--overlay-rgb), 0.05);
+  border: 1px solid rgba(var(--overlay-rgb), 0.08);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   cursor: pointer;
   transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
 }
 .icon-button:hover {
-  background: rgba(255,255,255,0.09);
-  border-color: rgba(255,255,255,0.15);
+  background: rgba(var(--overlay-rgb), 0.09);
+  border-color: rgba(var(--overlay-rgb), 0.15);
   transform: translateY(-1px);
 }
 
@@ -444,15 +444,15 @@
   justify-content: center;
   width: 36px;
   height: 36px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(var(--overlay-rgb), 0.05);
+  border: 1px solid rgba(var(--overlay-rgb), 0.1);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
-.hamburger-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); }
+.hamburger-btn:hover { background: rgba(var(--overlay-rgb), 0.1); color: var(--text-primary); }
 
 /* ── Sidebar overlay backdrop (mobile) ──────────────────────── */
 .sidebar-overlay {

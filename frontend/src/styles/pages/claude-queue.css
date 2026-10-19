@@ -734,7 +734,7 @@
 [data-theme="light"] .cq-card     { background: var(--bg-elevated); }
 [data-theme="light"] .cq-panel    { background: rgba(0, 0, 0, 0.03); }
 [data-theme="light"] .cq-url-row  { background: #f5f5f7; }
-[data-theme="light"] .cq-msg-card { background: #fff; }
+[data-theme="light"] .cq-msg-card { background: rgb(var(--panel-rgb)); }
 
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 

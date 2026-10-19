@@ -133,7 +133,7 @@ export function VelocityTab({ hideControls }: { hideControls?: boolean } = {}) {
             : (
               <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 32 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(var(--overlay-rgb),0.06)" />
                   <XAxis dataKey="sprint_name" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} angle={-25} textAnchor="end" interval={0} />
                   <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
                   <Tooltip
@@ -141,9 +141,9 @@ export function VelocityTab({ hideControls }: { hideControls?: boolean } = {}) {
                     labelStyle={{ color: 'var(--text-primary)', fontWeight: 600 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12, color: 'var(--text-muted)' }} />
-                  <ReferenceLine y={avg} stroke="rgba(99,102,241,0.5)" strokeDasharray="4 4" label={{ value: `Avg ${avg}`, fill: 'var(--text-muted)', fontSize: 11 }} />
-                  <Bar dataKey="total" name="Total" fill="rgba(99,102,241,0.25)" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="completed" name="Completed" fill="rgba(99,102,241,0.85)" radius={[3, 3, 0, 0]} />
+                  <ReferenceLine y={avg} stroke="rgba(var(--color-primary-rgb),0.5)" strokeDasharray="4 4" label={{ value: `Avg ${avg}`, fill: 'var(--text-muted)', fontSize: 11 }} />
+                  <Bar dataKey="total" name="Total" fill="rgba(var(--color-primary-rgb),0.25)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="completed" name="Completed" fill="rgba(var(--color-primary-rgb),0.85)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )
@@ -255,7 +255,7 @@ export function BurndownTab({ sprints, activeSprint }: BurndownTabProps) {
           )}
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(var(--overlay-rgb),0.06)" />
               <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
               <Tooltip
@@ -263,8 +263,8 @@ export function BurndownTab({ sprints, activeSprint }: BurndownTabProps) {
                 labelStyle={{ color: 'var(--text-primary)', fontWeight: 600 }}
               />
               <Legend wrapperStyle={{ fontSize: 12, color: 'var(--text-muted)' }} />
-              <Line type="monotone" dataKey="ideal_remain" name="Ideal" stroke="rgba(255,255,255,0.3)" strokeWidth={1.5} strokeDasharray="5 5" dot={false} connectNulls />
-              <Line type="monotone" dataKey="remaining" name="Remaining" stroke="#818cf8" strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
+              <Line type="monotone" dataKey="ideal_remain" name="Ideal" stroke="rgba(var(--overlay-rgb),0.3)" strokeWidth={1.5} strokeDasharray="5 5" dot={false} connectNulls />
+              <Line type="monotone" dataKey="remaining" name="Remaining" stroke="var(--color-primary-light)" strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
               <Line type="monotone" dataKey="completed" name="Completed" stroke="#34d399" strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
             </LineChart>
           </ResponsiveContainer>

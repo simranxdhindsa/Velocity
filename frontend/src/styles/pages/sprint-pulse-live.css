@@ -199,7 +199,7 @@
   transition: background 0.15s;
 }
 .slv-dev-card:last-child { border-bottom: none; }
-.slv-dev-card:hover { background: rgba(255,255,255,0.02); }
+.slv-dev-card:hover { background: rgba(var(--overlay-rgb), 0.02); }
 
 .slv-dev-card--blocked {
   border-left: 3px solid var(--color-danger);
@@ -336,7 +336,7 @@
   cursor: default;
 }
 .slv-feed-row:last-child { border-bottom: none; }
-.slv-feed-row:hover { background: rgba(255,255,255,0.02); }
+.slv-feed-row:hover { background: rgba(var(--overlay-rgb), 0.02); }
 .slv-feed-row--crit { border-left: 3px solid var(--color-danger); background: rgba(239,68,68,0.04); }
 .slv-feed-row--warn { border-left: 3px solid var(--color-warning); background: rgba(251,191,36,0.04); }
 
@@ -416,7 +416,7 @@
   font-size: 10px;
   color: var(--text-muted);
   padding: 6px 14px;
-  background: rgba(255,255,255,0.02);
+  background: rgba(var(--overlay-rgb), 0.02);
   border-bottom: 1px solid var(--border-subtle);
   font-style: italic;
 }
@@ -486,7 +486,7 @@
   padding: 4px 0;
   cursor: default;
 }
-.slv-attn-row:hover { background: rgba(255,255,255,0.02); margin: 0 -14px; padding: 4px 14px; border-radius: 4px; }
+.slv-attn-row:hover { background: rgba(var(--overlay-rgb), 0.02); margin: 0 -14px; padding: 4px 14px; border-radius: 4px; }
 .slv-attn-row--parkable { position: relative; }
 
 /* Park button — visible on row hover */

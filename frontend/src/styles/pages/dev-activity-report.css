@@ -106,7 +106,7 @@
 }
 
 [data-theme="light"] .dr-panel {
-  background: rgba(255,255,255,0.9);
+  background: rgba(var(--panel-rgb),0.9);
   border-color: rgba(var(--color-primary-rgb),0.28);
   box-shadow: 0 8px 40px rgba(0,0,0,0.12), inset 0 1px 0 rgba(var(--color-primary-rgb),0.15);
 }
@@ -163,7 +163,7 @@
   font-weight: 500;
   cursor: pointer;
   border: 1px solid rgba(var(--color-primary-rgb),0.18);
-  background: rgba(255,255,255,0.04);
+  background: rgba(var(--overlay-rgb), 0.04);
   color: rgba(255,255,255,0.55);
   transition: all 150ms ease;
   user-select: none;
@@ -256,7 +256,7 @@
   top: 0; left: -100%;
   width: 55%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--overlay-rgb), 0.1), transparent);
   animation: drShimmer 2.8s ease infinite;
 }
 [data-theme="light"] .dr-generate-btn {

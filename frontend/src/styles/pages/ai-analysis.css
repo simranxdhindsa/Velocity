@@ -78,7 +78,7 @@
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--overlay-rgb), 0.05);
   padding: 1rem;
   border-radius: var(--radius-md);
   text-align: center;
@@ -202,7 +202,7 @@
   justify-content: flex-end;
   gap: 0.5rem;
   padding-top: 0.75rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid rgba(var(--overlay-rgb), 0.05);
 }
 
 /* Analysis Results Table */
@@ -240,7 +240,7 @@
   grid-template-columns: 2fr 1fr 1.5fr 2fr;
   gap: 1rem;
   padding: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.05);
   align-items: center;
 }
 
@@ -249,7 +249,7 @@
 }
 
 .analysis-table .table-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--overlay-rgb), 0.03);
 }
 
 .col-confidence {
@@ -260,7 +260,7 @@
 
 .confidence-bar {
   height: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--overlay-rgb), 0.1);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -328,7 +328,7 @@
 }
 
 .status-in_progress {
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(var(--color-primary-rgb), 0.2);
   color: var(--color-primary);
 }
 
@@ -379,7 +379,7 @@
 .ai-analysis-page .loading-state .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
+  border: 3px solid rgba(var(--overlay-rgb), 0.1);
   border-top-color: var(--color-primary);
   border-radius: 50%;
   margin: 0 auto 1rem;
@@ -475,7 +475,7 @@
 .ai-textarea {
   width: 100%;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--overlay-rgb), 0.05);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   color: var(--text-primary);
@@ -490,8 +490,8 @@
 .ai-textarea:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
+  background: rgba(var(--overlay-rgb), 0.08);
 }
 
 .ai-textarea::placeholder {
@@ -506,7 +506,7 @@
 }
 
 .ai-input-hint code {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--overlay-rgb), 0.1);
   padding: 0.125rem 0.375rem;
   border-radius: var(--radius-sm);
   font-size: 0.75rem;
@@ -641,7 +641,7 @@
   align-items: center;
   padding: 1.25rem 1.5rem;
   border-bottom: 3px solid var(--color-primary);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--overlay-rgb), 0.03);
 }
 
 .task-list-modal .modal-title-group {
@@ -658,7 +658,7 @@
 }
 
 .task-list-modal .modal-count {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--overlay-rgb), 0.1);
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -677,7 +677,7 @@
 }
 
 .task-list-modal .modal-close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--overlay-rgb), 0.1);
   color: var(--text-primary);
 }
 
@@ -706,7 +706,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--overlay-rgb), 0.05);
   border-radius: var(--radius-md);
   margin-bottom: 0.75rem;
   font-weight: 600;
@@ -719,7 +719,7 @@
 
 .assignee-task-count {
   margin-left: auto;
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(var(--color-primary-rgb), 0.2);
   color: var(--color-primary);
   padding: 0.125rem 0.5rem;
   border-radius: 9999px;
@@ -743,7 +743,7 @@
 }
 
 .task-list-item:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--overlay-rgb), 0.03);
 }
 
 .task-bullet {
@@ -900,7 +900,7 @@
 }
 
 .ai-detail-table thead {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--overlay-rgb), 0.03);
 }
 
 .ai-detail-table th {
@@ -916,7 +916,7 @@
 
 .ai-detail-table td {
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.05);
   color: var(--text-primary);
   font-size: 0.875rem;
 }
@@ -943,7 +943,7 @@
   position: relative;
   width: 120px;
   height: 24px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--overlay-rgb), 0.1);
   border-radius: var(--radius-full);
   overflow: hidden;
 }
@@ -1043,7 +1043,7 @@
 }
 
 .sync-rec-item:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--overlay-rgb), 0.04);
 }
 
 .sync-rec-item.sync-selected {

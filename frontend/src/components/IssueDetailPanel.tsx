@@ -102,7 +102,7 @@ function priorityBadgeStyle(priority: string): { background: string; color: stri
   if (p.includes('major'))
     return { background: 'rgba(245,158,11,0.18)', color: '#fbbf24' }
   if (p.includes('minor') || p.includes('cosmetic'))
-    return { background: 'rgba(99,102,241,0.18)', color: '#818cf8' }
+    return { background: 'rgba(var(--color-primary-rgb),0.18)', color: 'var(--color-primary-light)' }
   return { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' }
 }
 

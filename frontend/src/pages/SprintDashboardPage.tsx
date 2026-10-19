@@ -1778,7 +1778,7 @@ function Design3({
                 <div className="db-oc-mini-bar">
                   {dev.total > 0 && <>
                     <div className="db-oc-mini-bar-active"  style={{ width: `${(dev.inProgress / dev.total) * 100}%` }} />
-                    <div className="db-oc-mini-bar-queued"  style={{ width: `${(dev.queued     / dev.total) * 100}%`, background: 'rgba(255,255,255,0.12)' }} />
+                    <div className="db-oc-mini-bar-queued"  style={{ width: `${(dev.queued     / dev.total) * 100}%`, background: 'rgba(var(--overlay-rgb),0.12)' }} />
                     {dev.blocked > 0 && <div className="db-oc-mini-bar-blocked" style={{ width: `${(dev.blocked / dev.total) * 100}%` }} />}
                   </>}
                 </div>

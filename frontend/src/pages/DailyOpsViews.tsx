@@ -20,8 +20,8 @@ const C = {
 } as const
 
 // ── Inline style constants (matching existing CSS vars) ──────────────────────
-const GLASS  = 'rgba(255,255,255,0.05)'
-const BORDER = 'rgba(255,255,255,0.09)'
+const GLASS  = 'rgba(var(--overlay-rgb),0.05)'
+const BORDER = 'rgba(var(--overlay-rgb),0.09)'
 
 // ── Shared context (ytBaseUrl + detail panel opener) ────────────────────────
 export interface OpsCtx {
@@ -410,7 +410,7 @@ function OpsRingCard({ dev, index, ctx }: { dev: OpsDev; index: number; ctx?: Op
 
       <div style={{ position: 'relative', width: size, height: size, marginTop: 18 }}>
         <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={stroke} />
+          <circle cx={cx} cy={cy} r={r} fill="none" style={{ stroke: 'rgba(var(--overlay-rgb),0.07)' }} strokeWidth={stroke} />
           <motion.circle cx={cx} cy={cy} r={r} fill="none" stroke={ringColor} strokeWidth={stroke}
             strokeLinecap={gapCount ? 'butt' : 'round'}
             strokeDasharray={dashArray || circ}
@@ -502,7 +502,7 @@ function OpsRingCard({ dev, index, ctx }: { dev: OpsDev; index: number; ctx?: Op
                     <motion.span key={i} initial={{ scaleY: 0 }} animate={{ scaleY: 1 }}
                       transition={{ delay: 0.6 + i * 0.05, type: 'spring', bounce: 0.3 }}
                       style={{ width: 7, height: 22, borderRadius: 2, transformOrigin: 'bottom',
-                        background: filled ? C.done : 'rgba(255,255,255,0.10)' }} />
+                        background: filled ? C.done : 'rgba(var(--overlay-rgb),0.10)' }} />
                   )
                 })}
               </div>
@@ -549,7 +549,7 @@ const RING_LEGEND: { color: string; fill?: boolean; label: string; sub: string }
   { color: '#ef4444', fill: true,  label: '● Red dot',      sub: 'stuck 48h+ (danger)' },
   { color: '#fbbf24', fill: true,  label: '● Amber dot',    sub: 'stuck 16h+ (warn)' },
   { color: 'rgba(148,163,184,0.7)', fill: false, label: '○ Grey dot', sub: 'idle 8h+ (watch)' },
-  { color: 'rgba(255,255,255,0.25)', fill: true, label: 'Ring gap',   sub: 'blocked ticket (one gap each)' },
+  { color: 'rgba(var(--overlay-rgb),0.25)', fill: true, label: 'Ring gap',   sub: 'blocked ticket (one gap each)' },
 ]
 
 export function OpsViewRings({ devStats, ctx }: { devStats: DevStatLike[]; ctx?: OpsCtx }) {
@@ -562,7 +562,7 @@ export function OpsViewRings({ devStats, ctx }: { devStats: DevStatLike[]; ctx?:
       <div style={{
         display: 'flex', flexWrap: 'wrap', gap: '6px 18px', marginBottom: 20,
         padding: '10px 14px', borderRadius: 8,
-        background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+        background: 'rgba(var(--overlay-rgb),0.03)', border: '1px solid rgba(var(--overlay-rgb),0.08)',
       }}>
         {RING_LEGEND.map(({ color, fill, label, sub }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -592,17 +592,17 @@ function OpsDonut({ dev, index, size = 92 }: { dev: OpsDev; index: number; size?
     { n: dev.doneCount,              c: C.done },
     { n: dev.activeIssues.length,    c: C.active },
     { n: dev.blockedIssues.length,   c: C.blocked },
-    { n: dev.queuedIssues.length,    c: 'rgba(255,255,255,0.12)' },
+    { n: dev.queuedIssues.length,    c: 'rgba(var(--overlay-rgb),0.12)' },
   ]
   let acc = 0
   return (
     <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={stroke} />
+      <circle cx={cx} cy={cy} r={r} fill="none" style={{ stroke: 'rgba(var(--overlay-rgb),0.06)' }} strokeWidth={stroke} />
       {segs.map((s, i) => {
         if (!s.n) return null
         const len = circ * (s.n / tracked)
         const node = (
-          <motion.circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.c} strokeWidth={stroke}
+          <motion.circle key={i} cx={cx} cy={cy} r={r} fill="none" style={{ stroke: s.c }} strokeWidth={stroke}
             strokeDasharray={`${len} ${circ - len}`}
             initial={{ strokeDashoffset: circ }} animate={{ strokeDashoffset: -acc }}
             transition={{ type: 'spring', bounce: 0.05, duration: 1, delay: 0.3 + index * 0.1 + i * 0.08 }} />
@@ -626,7 +626,7 @@ function OpsActivityStrip({ dev }: { dev: OpsDev }) {
   const shown = events.slice(0, 6)
   return (
     <div style={{ position: 'relative', paddingTop: 13, marginTop: 4 }}>
-      <div style={{ position: 'absolute', left: 4, right: 4, top: 19, height: 1.5, background: 'rgba(255,255,255,0.08)' }} />
+      <div style={{ position: 'absolute', left: 4, right: 4, top: 19, height: 1.5, background: 'rgba(var(--overlay-rgb),0.08)' }} />
       <div style={{ display: 'flex', justifyContent: shown.length > 1 ? 'space-between' : 'flex-start',
         gap: shown.length > 1 ? 0 : 14, position: 'relative' }}>
         {shown.length === 0 && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>no transitions today</span>}
@@ -678,8 +678,8 @@ function OpsMissionCard({ dev, index, ctx }: { dev: OpsDev; index: number; ctx?:
       transition={hasBlock ? { duration: 2, repeat: Infinity, ease: 'easeInOut' }
         : danger.length ? { duration: 3, repeat: Infinity, ease: 'easeInOut' } : undefined}
       style={{ background: GLASS, borderRadius: 16, padding: 16, backdropFilter: 'blur(14px)',
-        border: `1px solid ${borderGlow}55`, cursor: 'default',
-        boxShadow: shippingGlow ? `0 0 16px ${C.done}22` : `0 0 14px ${borderGlow}14` }}>
+        border: borderGlow === C.accent ? '1px solid rgba(var(--color-primary-rgb),0.33)' : `1px solid ${borderGlow}55`, cursor: 'default',
+        boxShadow: shippingGlow ? `0 0 16px ${C.done}22` : borderGlow === C.accent ? '0 0 14px rgba(var(--color-primary-rgb),0.08)' : `0 0 14px ${borderGlow}14` }}>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
         <OpsAvatar dev={dev} size={32} glow={hasBlock ? C.blocked + '55' : null} />
@@ -905,7 +905,7 @@ function OpsCriticalCard({ t, index, ctx }: { t: FlatTicket; index: number; ctx?
           onClick={ctx?.ytBaseUrl ? () => window.open(`${ctx.ytBaseUrl}/issue/${t.id}`, '_blank', 'noopener,noreferrer') : undefined}
           style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: 'var(--text-primary)',
             cursor: ctx?.ytBaseUrl ? 'pointer' : 'default',
-            textDecoration: ctx?.ytBaseUrl ? 'underline' : 'none', textDecorationColor: 'rgba(255,255,255,0.3)' }}>
+            textDecoration: ctx?.ytBaseUrl ? 'underline' : 'none', textDecorationColor: 'rgba(var(--overlay-rgb),0.3)' }}>
           {t.id}
         </span>
         <span
@@ -928,7 +928,7 @@ function OpsCriticalCard({ t, index, ctx }: { t: FlatTicket; index: number; ctx?
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 14, fontWeight: 700, color: timeColor, fontFamily: 'monospace' }}>{timeTxt}</span>
       </div>
-      <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.07)', overflow: 'hidden', marginTop: 14 }}>
+      <div style={{ height: 4, borderRadius: 999, background: 'rgba(var(--overlay-rgb),0.07)', overflow: 'hidden', marginTop: 14 }}>
         <motion.div initial={{ width: 0 }} animate={{ width: `${agePct}%` }}
           transition={{ type: 'spring', bounce: 0.05, duration: 1, delay: 0.3 + index * 0.08 }}
           style={{ height: '100%', borderRadius: 999,
@@ -965,7 +965,7 @@ function opsDaySegments(dev: OpsDev): Segment[] {
   dev.doneTodayIssues.forEach(d => segs.push({ id: d.id, kind: 'done', hours: d.hoursSpent ?? 1, c: C.done }))
   dev.activeIssues.forEach(a => segs.push({ id: a.id, kind: 'active', hours: a.hoursInState, c: opsStuckColor(a.hoursInState), fire: a.isHotfix, reg: a.isRegression }))
   dev.blockedIssues.forEach(b => segs.push({ id: b.id, kind: 'blocked', hours: b.hoursInState || 2, c: C.blocked, fire: b.isHotfix, blocked: true }))
-  if (dev.queuedIssues.length) segs.push({ id: 'queue', kind: 'queued', hours: 2.5, c: 'rgba(255,255,255,0.14)', queued: true, count: dev.queuedIssues.length })
+  if (dev.queuedIssues.length) segs.push({ id: 'queue', kind: 'queued', hours: 2.5, c: 'rgba(var(--overlay-rgb),0.14)', queued: true, count: dev.queuedIssues.length })
   return segs
 }
 
@@ -1009,11 +1009,11 @@ function OpsStripCard({ dev, ctx }: { dev: OpsDev; ctx?: OpsCtx }) {
               title={`${seg.id} · ${opsFmtHours(seg.hours)}${seg.queued ? ` · ${seg.count} queued` : ''}`}
               style={{ flexGrow: grow, flexBasis: 0, minWidth: seg.queued ? 28 : 36, transformOrigin: 'left center',
                 background: seg.queued
-                  ? 'repeating-linear-gradient(45deg, rgba(255,255,255,0.10), rgba(255,255,255,0.10) 4px, transparent 4px, transparent 8px)'
+                  ? 'repeating-linear-gradient(45deg, rgba(var(--overlay-rgb),0.10), rgba(var(--overlay-rgb),0.10) 4px, transparent 4px, transparent 8px)'
                   : seg.kind === 'done'
                     ? `${seg.c}45`
                     : `linear-gradient(180deg, ${seg.c}dd, ${seg.c}99)`,
-                border: `1px solid ${seg.queued ? 'rgba(255,255,255,0.12)' : seg.c}88`,
+                border: `1px solid ${seg.queued ? 'rgba(var(--overlay-rgb),0.12)' : seg.c}88`,
                 borderRadius: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
                 position: 'relative', overflow: 'hidden',
                 boxShadow: seg.blocked ? `0 0 10px ${seg.c}aa` : 'none' }}>
@@ -1134,7 +1134,7 @@ function OpsSnapshotCard({ dev, index, ctx }: { dev: OpsDev; index: number; ctx?
 
       {/* Done progress bar with percentage */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-        <div style={{ flex: 1, height: 6, borderRadius: 999, overflow: 'hidden', background: 'rgba(255,255,255,0.07)' }}>
+        <div style={{ flex: 1, height: 6, borderRadius: 999, overflow: 'hidden', background: 'rgba(var(--overlay-rgb),0.07)' }}>
           <motion.div initial={{ width: 0 }} animate={{ width: `${donePct}%` }}
             transition={{ type: 'spring', bounce: 0.05, duration: 1, delay: 0.2 + index * 0.05 }}
             style={{ height: '100%', background: barColor }} />
@@ -1299,7 +1299,7 @@ function SkMission() {
 
 function SkStuck() {
   const SECTION_ROWS = [3, 2, 2] // DANGER / WARNING / WATCH row counts
-  const SECTION_COLORS = ['rgba(248,113,113,0.25)', 'rgba(251,191,36,0.2)', 'rgba(255,255,255,0.1)']
+  const SECTION_COLORS = ['rgba(248,113,113,0.25)', 'rgba(251,191,36,0.2)', 'rgba(var(--overlay-rgb),0.1)']
   return (
     <div>
       <SkHead />
@@ -1365,7 +1365,7 @@ function SkHotfix() {
               <Sk w={120} h={14} r={3} />
             </div>
             {/* Progress bar */}
-            <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.07)', overflow: 'hidden', marginTop: 14 }}>
+            <div style={{ height: 4, borderRadius: 999, background: 'rgba(var(--overlay-rgb),0.07)', overflow: 'hidden', marginTop: 14 }}>
               <div className="skeleton" style={{ height: '100%', borderRadius: 999,
                 width: `${[45, 70, 30][i % 3]}%` }} />
             </div>
@@ -1385,7 +1385,7 @@ function SkStrips() {
     [0.22, 0.16, 0.30, 0.20, 0.10],
     [0.28, 0.24, 0.18, 0.16, 0.12],
   ]
-  const SEG_COLORS = ['rgba(74,222,128,0.25)','rgba(96,165,250,0.25)','rgba(251,191,36,0.25)','rgba(248,113,113,0.25)','rgba(255,255,255,0.08)']
+  const SEG_COLORS = ['rgba(74,222,128,0.25)','rgba(96,165,250,0.25)','rgba(251,191,36,0.25)','rgba(248,113,113,0.25)','rgba(var(--overlay-rgb),0.08)']
   return (
     <div>
       <SkHead />
@@ -1436,7 +1436,7 @@ function SkSnapshot() {
               </div>
             </div>
             {/* Progress bar */}
-            <div style={{ height: 7, borderRadius: 999, background: 'rgba(255,255,255,0.07)', overflow: 'hidden', marginBottom: 13 }}>
+            <div style={{ height: 7, borderRadius: 999, background: 'rgba(var(--overlay-rgb),0.07)', overflow: 'hidden', marginBottom: 13 }}>
               <div className="skeleton" style={{ height: '100%', borderRadius: 999,
                 width: `${[55, 38, 72, 44, 60, 30, 80, 50][i % 8]}%` }} />
             </div>

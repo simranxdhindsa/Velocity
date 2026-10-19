@@ -411,7 +411,7 @@ export default function DailyOpsTab({ onBlockersChange, sprintId }: Props) {
                 ['#fbbf24', 'Stuck 16h+'],
                 ['#60a5fa', 'Active'],
                 ['#4ade80', 'Done today'],
-                ['rgba(255,255,255,0.28)', 'Queued'],
+                ['rgba(var(--overlay-rgb),0.28)', 'Queued'],
               ] as [string, string][]).map(([c, label]) => (
                 <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span style={{ width: 10, height: 10, borderRadius: 2, background: c, flexShrink: 0 }} />
@@ -519,14 +519,14 @@ export default function DailyOpsTab({ onBlockersChange, sprintId }: Props) {
           return (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, padding: '0.5rem 0' }}>
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '0.875rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div key={i} style={{ background: 'rgba(var(--overlay-rgb),0.04)', border: '1px solid rgba(var(--overlay-rgb),0.08)', borderRadius: 10, padding: '0.875rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     {sk(36, 36, '50%')}{sk(80 + (i * 17 % 50), 13, 4)}
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {sk(60, 20, 99)}{sk(60, 20, 99)}{sk(55, 20, 99)}
                   </div>
-                  <div style={{ height: 4, borderRadius: 4, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                  <div style={{ height: 4, borderRadius: 4, background: 'rgba(var(--overlay-rgb),0.06)', overflow: 'hidden' }}>
                     <div className="skeleton" style={{ height: '100%', width: `${[60,40,75,50,85,30,65,45][i % 8]}%`, borderRadius: 4 }} />
                   </div>
                   {Array.from({ length: 3 }).map((_, j) => (

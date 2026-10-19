@@ -1417,7 +1417,7 @@ function AssigneeStatsTab({ sprintId }: { sprintId?: string }) {
                     <span className="pm-col-as-stat">{sk(22, 18, 10)}</span>
                     <span className="pm-col-as-avg">{sk(50, 12, 4)}</span>
                     <span className="pm-col-as-workload">
-                      <div style={{ height: 6, borderRadius: 4, background: 'rgba(255,255,255,0.06)', width: '100%', overflow: 'hidden' }}>
+                      <div style={{ height: 6, borderRadius: 4, background: 'rgba(var(--overlay-rgb),0.06)', width: '100%', overflow: 'hidden' }}>
                         <div className="skeleton" style={{ height: '100%', width: `${barW[i % barW.length]}%`, borderRadius: 4 }} />
                       </div>
                     </span>
@@ -1492,7 +1492,7 @@ function AssigneeStatsTab({ sprintId }: { sprintId?: string }) {
                   {/* Workload bar */}
                   <div className="pm-col-as-workload workload-cell">
                     <div className="tt-time-bar">
-                      <div className="tt-time-bar-fill" style={{ width: `${pct}%`, background: '#6366f1' }} />
+                      <div className="tt-time-bar-fill" style={{ width: `${pct}%`, background: 'var(--color-primary)' }} />
                     </div>
                     <span className="tt-threshold">{total}</span>
                   </div>
@@ -1732,7 +1732,7 @@ function delayBarHoverContent(issue: SprintBoardIssue, workDays: number, bounceD
       {workDays > 0 && (
         <div>
           <HCRow label="Working"     value={`${workDays.toFixed(1)}d`} />
-          <HCBar pct={(workDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="#6366f1" />
+          <HCBar pct={(workDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="var(--color-primary)" />
         </div>
       )}
       {bounceDays > 0 && (
@@ -1744,7 +1744,7 @@ function delayBarHoverContent(issue: SprintBoardIssue, workDays: number, bounceD
       {reviewDays > 0 && (
         <div style={{ marginTop: 4 }}>
           <HCRow label="Review/Idle" value={`${reviewDays.toFixed(1)}d`} />
-          <HCBar pct={(reviewDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="#818cf8" />
+          <HCBar pct={(reviewDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="var(--color-primary-light)" />
         </div>
       )}
       {slaDays > 0 && (
@@ -3627,10 +3627,10 @@ function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: s
               </div>
               <div className="pm-tracking-split-donut-wrap">
                 <svg width="100" height="100" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={stroke} />
+                  <circle cx="50" cy="50" r={r} fill="none" style={{ stroke: 'rgba(var(--overlay-rgb),0.07)' }} strokeWidth={stroke} />
                   <circle
                     cx="50" cy="50" r={r} fill="none"
-                    stroke="#6366f1" strokeWidth={stroke}
+                    style={{ stroke: 'var(--color-primary)' }} strokeWidth={stroke}
                     strokeDasharray={circ}
                     strokeDashoffset={arc}
                     strokeLinecap="round"

@@ -40,7 +40,7 @@
 }
 
 [data-theme="light"] .ctp-dialog {
-  background: #fff;
+  background: rgb(var(--panel-rgb));
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 }
 
@@ -84,7 +84,7 @@
   color: var(--color-primary);
 }
 
-[data-theme="light"] .ctp-display-seg { background: #f1f5f9; color: #475569; }
+[data-theme="light"] .ctp-display-seg { background: rgb(var(--panel-sunk-rgb)); color: #475569; }
 [data-theme="light"] .ctp-display-seg--active { background: rgba(var(--color-primary-rgb), 0.1); color: var(--color-primary); }
 
 .ctp-display-colon {
@@ -120,7 +120,7 @@
   color: var(--color-primary);
 }
 
-[data-theme="light"] .ctp-ampm-btn { background: #f1f5f9; color: #64748b; }
+[data-theme="light"] .ctp-ampm-btn { background: rgb(var(--panel-sunk-rgb)); color: #64748b; }
 
 /* Clock SVG */
 .ctp-clock-svg { display: block; }
