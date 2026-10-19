@@ -3,8 +3,12 @@
 ## 2026-10-19
 
 ### Enhancements
+- Theme background colour now tints every card, menu, left nav and header with matching Page, Panel and Hover shades, the accent colour reaches every highlight, and the developer dropdown search sits cleanly inside its menu
 - Activity Feed has a team roster showing who is working now, their latest update, finished and blocked tickets and last active, and clicking a person filters the timeline. Team and Activity sit in separate cards, the activity list fills the page with pinned headings, and numbers are readable in light mode
 
+
+### Features
+- Theme colours can be picked from a colour wheel as well as the classic picker, with a Classic or Wheel switch on each colour card that is remembered
 
 ## 2026-10-17
 
