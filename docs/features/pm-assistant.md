@@ -31,7 +31,31 @@ Selected via `AI_PROVIDER` env var: `groq`, `openai`, or `gemini`. Bot prompts e
 
 - `backend/internal/handlers/ai.go` — chat handler
 - `backend/internal/services/youtrack/` — YQL execution
-- `frontend/src/pages/` — PM Assistant UI
+- `frontend/src/components/assistant/` — PM Assistant UI (floating panel, mounted in `Dashboard.tsx`)
+
+## UI: thinking orb + pill input
+
+Redesigned around the 21st.dev "ai thinking orb and input" component (@anark17r). The original was a single-question widget with a 108px answer card, so it was adapted to a running thread:
+
+1. **Idle**: faint turning orb, heading, 4 suggestion chips, glowing pill input.
+2. **Ask**: a ball flies (WAAPI, appended to `<body>`) from the pill's send button to the orb slot in the thread; chips launch from the send button too.
+3. **Think**: canvas dotted orb with 4 light patterns, labels rotate every 1150ms. **Esc** stops waiting (the request can't be cancelled; its reply is ignored via `reqRef`) and puts the question back in the input.
+4. **Done**: green sweep + "Done", collapses into a green ball, then `onFinished` swaps the slot for the answer card, which unfolds with `clip-path` from the ball and reveals its blocks with a staggered blur.
+
+| File | Role |
+|---|---|
+| `PMAssistant.tsx` | State + logic: sprint picker, `pmAssistantQuery` (via `pmDataService`, respects the active PM source), retry under 5s rate limits, friendly limit copy, `select_sprint` action |
+| `ThinkingOrb.tsx` | Orb modes `idle` / `think` / `done`, flight, labels, done sequence |
+| `orb-engine.ts` | Pure TS canvas orb + track tweener (radius is a parameter; dot and "done" colours resolved from `--text-primary` / `--color-success`) |
+| `AssistantPill.tsx` | Pill input: rainbow rim, aurora, shake on empty submit, squeeze on send |
+| `assistant-markdown.ts` | Markdown → HTML for answers + `SUGGESTED_QUERIES` |
+| `styles/components/pm-assistant.css` | All `.pa-*` styles, light mode, reduced motion, mobile |
+
+Gotchas:
+- Answer body reuses the old markdown styles (`.pm-chat-assistant .pm-chat-content`) for tables/lists; its reset selector must outrank the old light-mode bubble rule in `pm-reports.css`, or the text gets a box behind it.
+- The global light-mode `input` rule uses `!important`; `.pa-field` overrides it with `!important` to stay transparent.
+- Hero centring uses `margin: auto`, not `justify-content: center`, which clips the orb when the panel is short.
+- The rainbow rim/aurora colours are fixed hex on purpose (the component's signature); everything else uses theme tokens.
 
 ## MCP Server (Velocity connector)
 

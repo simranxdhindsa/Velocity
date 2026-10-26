@@ -38,7 +38,7 @@ import {
 } from 'lucide-react'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { GlobalHoverCard } from '@/components/HoverCard'
-import { PMAssistantTab } from './PMReportsPage'
+import { PMAssistant } from '../components/assistant/PMAssistant'
 import { SprintDashboardPage } from './SprintDashboardPage'
 import { IntegrationsPage } from './IntegrationsPage'
 import { SettingsPage } from './SettingsPage'
@@ -867,7 +867,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="pm-chat-panel-body">
-            <PMAssistantTab />
+            <PMAssistant />
           </div>
         </div>
       )}
