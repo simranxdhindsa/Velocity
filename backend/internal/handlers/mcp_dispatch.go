@@ -137,9 +137,9 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 	return resp
 }
 
-// mcpActivityDetail is the start of the message a Slack send/queue/edit call carried,
-// whitespace collapsed and capped at 280 characters, so the Claude actions list
-// shows what was sent and not only where. Empty for every other tool.
+// mcpActivityDetail is the message a Slack send/queue/edit call carried, kept with its
+// line breaks (the Claude actions list renders it like Slack does) and capped at 8000
+// characters as a safety limit. Empty for every other tool.
 func mcpActivityDetail(tool string, args json.RawMessage) string {
 	switch tool {
 	case "send_slack_message_now", "queue_slack_message", "edit_slack_message":
@@ -152,9 +152,9 @@ func mcpActivityDetail(tool string, args json.RawMessage) string {
 	if json.Unmarshal(args, &a) != nil {
 		return ""
 	}
-	msg := strings.Join(strings.Fields(a.Message), " ")
-	if r := []rune(msg); len(r) > 280 {
-		msg = strings.TrimSpace(string(r[:280])) + "…"
+	msg := strings.TrimSpace(a.Message)
+	if r := []rune(msg); len(r) > 8000 {
+		msg = strings.TrimSpace(string(r[:8000])) + "…"
 	}
 	return msg
 }

@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, memo } from 'react'
 import {
   Activity, RefreshCw, CheckCircle2, XCircle, Ticket, MessageSquare,
-  Search, Link2, Paperclip, ListTree, Users, Zap,
+  Search, Link2, Paperclip, ListTree, Users, Zap, ChevronDown,
 } from 'lucide-react'
+import { SlackMessageText } from '@/components/SlackMessageText'
 import api from '@/services/api'
 import type { MCPActivityEntry } from '@/services/api'
 import { Pagination } from '@/components/Pagination'
@@ -44,6 +45,37 @@ function ActivitySummary({ text }: { text: string }) {
   const json = useMemo(() => parseJsonObject(text), [text])
   return json ? <JsonBlock value={json} /> : <p className="mcpa-row-summary">{text}</p>
 }
+
+// The Slack message a send/queue/edit carried, rendered the way Slack shows it
+// (line breaks, bullets, bold, tables). Long messages show their first lines with
+// a fade and a "Show full message" toggle.
+const ActivityMessage = memo(function ActivityMessage({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const [long, setLong] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = boxRef.current
+    if (!el || open) return
+    const check = () => setLong(el.scrollHeight > el.clientHeight + 4)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [text, open])
+  return (
+    <div className={`mcpa-msg${open ? ' mcpa-msg--open' : ''}${long && !open ? ' mcpa-msg--clipped' : ''}`}>
+      <div className="mcpa-msg-body" ref={boxRef}>
+        <SlackMessageText text={text} />
+      </div>
+      {(long || open) && (
+        <button type="button" className="mcpa-msg-toggle" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+          <ChevronDown size={13} className={open ? 'mcpa-msg-chev--up' : undefined} />
+          {open ? 'Show less' : 'Show full message'}
+        </button>
+      )}
+    </div>
+  )
+})
 
 // ── Skeleton ─────────────────────────────────────────────────────────────────
 
@@ -180,7 +212,7 @@ export function McpActivityView() {
                       )}
                     </div>
                     <ActivitySummary text={e.summary} />
-                    {e.detail && <p className="mcpa-row-detail" title={e.detail}>{e.detail}</p>}
+                    {e.detail && <ActivityMessage text={e.detail} />}
                     <div className="mcpa-row-meta">
                       <span>{e.user_name}</span>
                       <span className="mcpa-dot">•</span>

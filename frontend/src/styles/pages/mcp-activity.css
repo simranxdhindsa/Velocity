@@ -158,22 +158,47 @@
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
-/* What was sent (Slack send/queue/edit): a quoted two-line preview, full text on hover */
-.mcpa-row-detail {
-  margin: 6px 0 0;
-  padding: 6px 10px;
-  border-left: 2px solid rgba(var(--color-primary-rgb), 0.45);
-  border-radius: 0 6px 6px 0;
-  background: rgba(var(--overlay-rgb), 0.04);
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-muted);
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+/* What was sent (Slack send/queue/edit), rendered like Slack: first ~6 lines, then
+   a fade and a "Show full message" toggle */
+.mcpa-msg {
+  margin: 8px 0 0;
+  padding: 10px 12px 8px;
+  border-left: 2px solid rgba(var(--color-primary-rgb), 0.5);
+  border-radius: 0 8px 8px 0;
+  background: rgba(var(--overlay-rgb), 0.035);
 }
+.mcpa-msg-body {
+  position: relative;
+  max-height: 9.6em;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.mcpa-msg--open .mcpa-msg-body { max-height: none; }
+.mcpa-msg--clipped .mcpa-msg-body {
+  -webkit-mask-image: linear-gradient(#000 65%, transparent);
+  mask-image: linear-gradient(#000 65%, transparent);
+}
+.mcpa-msg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary-light);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mcpa-msg-toggle:hover { text-decoration: underline; }
+.mcpa-msg-toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 4px; }
+.mcpa-msg-chev--up { transform: rotate(180deg); }
+[data-theme="light"] .mcpa-msg-toggle { color: var(--color-primary); }
 
 .mcpa-row-meta {
   display: flex;
