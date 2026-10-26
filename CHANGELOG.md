@@ -7,6 +7,7 @@
 
 
 ### Bug Fixes
+- Claude actions show the full Slack message laid out like Slack, with line breaks, bullets and bold, and a Show full message toggle for long ones, instead of a cut-off two-line preview
 - When Claude can't find a Velocity message to delete in the place you named, it now tells you where that message was actually sent instead of asking for a link
 - Claude can no longer send Slack messages to #project-managers by copying an example channel ID, messages sent by channel ID show the channel name, and Claude actions show a preview of what was sent
 
