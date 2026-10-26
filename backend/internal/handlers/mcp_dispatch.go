@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
@@ -126,6 +127,7 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		ToolName:    p.Name,
 		ActionLabel: label,
 		Summary:     summary,
+		Detail:      mcpActivityDetail(p.Name, p.Arguments),
 		Success:     success,
 		DurationMs:  int(elapsed.Milliseconds()),
 	}); err != nil {
@@ -133,6 +135,28 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 	}
 
 	return resp
+}
+
+// mcpActivityDetail is the start of the message a Slack send/queue/edit call carried,
+// whitespace collapsed and capped at 280 characters, so the Claude actions list
+// shows what was sent and not only where. Empty for every other tool.
+func mcpActivityDetail(tool string, args json.RawMessage) string {
+	switch tool {
+	case "send_slack_message_now", "queue_slack_message", "edit_slack_message":
+	default:
+		return ""
+	}
+	var a struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return ""
+	}
+	msg := strings.Join(strings.Fields(a.Message), " ")
+	if r := []rune(msg); len(r) > 280 {
+		msg = strings.TrimSpace(string(r[:280])) + "…"
+	}
+	return msg
 }
 
 // mcpResultSummary pulls the plain-text result (or error) out of an rpcResponse

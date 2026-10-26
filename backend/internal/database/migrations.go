@@ -1343,6 +1343,9 @@ WHERE bot_type = 'ticket_parser'`,
 			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_mcp_activity_created_at ON mcp_activity_log(created_at DESC)`,
+		// What the call acted on, e.g. the start of a Slack message, so the
+		// Claude actions list shows what was sent and not just "Sent."
+		`ALTER TABLE mcp_activity_log ADD COLUMN IF NOT EXISTS detail TEXT NOT NULL DEFAULT ''`,
 
 		// Slack bot conversation log — full-fidelity transcript of every DM/
 		// mention <-> reply round trip the Velocity Slack bot has, separate from

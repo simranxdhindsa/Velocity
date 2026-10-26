@@ -18,13 +18,13 @@ var slackConvIDRe = regexp.MustCompile(`^[CGD][A-Z0-9]{8,}$`)
 
 // slackPermalinkRe matches a Slack message permalink's channel ID and
 // timestamp segment, e.g.
-// https://workspace.slack.com/archives/C0B30MXMDHQ/p1791268330344489
+// https://workspace.slack.com/archives/C0XXXXXXXXX/p1700000000000000
 var slackPermalinkRe = regexp.MustCompile(`archives/([CGD][A-Z0-9]{8,})/p(\d{10})(\d{6})`)
 
 // parseSlackPermalink extracts the channel ID and message timestamp from a
 // Slack message permalink URL. The URL's p<digits> segment is the message's
-// ts with the decimal point removed (e.g. p1791268330344489 ->
-// "1791268330.344489"). Returns ok=false if link doesn't match the expected
+// ts with the decimal point removed (e.g. p1700000000000000 ->
+// "1700000000.000000"). Returns ok=false if link doesn't match the expected
 // shape (not a Slack permalink, or malformed).
 func parseSlackPermalink(link string) (channelID, ts string, ok bool) {
 	m := slackPermalinkRe.FindStringSubmatch(link)
@@ -36,15 +36,25 @@ func parseSlackPermalink(link string) (channelID, ts string, ok bool) {
 
 // resolveChannel looks up a human-readable channel name (e.g. "ardoise-pm", "#general")
 // and returns (channelID, "#channelName"). A raw Slack conversation ID (channel, group
-// DM, or DM — anything matching slackConvIDRe) is passed through unchanged, skipping
-// name resolution entirely, since group DMs have no name to resolve by. Returns ("", "")
-// if name is blank or not found.
+// DM, or DM — anything matching slackConvIDRe) is passed through unchanged; its label is
+// "#name" when it's a channel, otherwise the ID itself (group DMs have no name). Returns
+// ("", "") if name is blank or not found.
 func (h *MCPHandler) resolveChannel(ctx context.Context, userID, name string) (string, string) {
 	if name == "" {
 		return "", ""
 	}
 	trimmed := strings.TrimSpace(name)
 	if slackConvIDRe.MatchString(trimmed) {
+		// Label it "#name" when the ID is a channel, so Claude Queue and the
+		// activity log say where a message went instead of a bare ID. Group DMs
+		// and lookup failures keep the ID as the label.
+		if channels, err := h.slackSvc.GetChannels(ctx, userID); err == nil {
+			for _, ch := range channels {
+				if ch.ID == trimmed {
+					return trimmed, "#" + ch.Name
+				}
+			}
+		}
 		return trimmed, trimmed
 	}
 	name = strings.TrimPrefix(strings.ToLower(trimmed), "#")

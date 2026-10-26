@@ -85,7 +85,7 @@ func mcpReadSlackMessages(ctx context.Context, h *MCPHandler, userID string, id 
 		var ok bool
 		linkCh, linkTS, ok = parseSlackPermalink(a.Link)
 		if !ok {
-			return toolError(id, "that doesn't look like a Slack message link. Expected something like https://workspace.slack.com/archives/C0B30MXMDHQ/p1791268330344489")
+			return toolError(id, "that doesn't look like a Slack message link. Expected something like https://workspace.slack.com/archives/C0XXXXXXXXX/p1700000000000000")
 		}
 		if u, err := url.Parse(strings.TrimSpace(a.Link)); err == nil {
 			linkThread = u.Query().Get("thread_ts")

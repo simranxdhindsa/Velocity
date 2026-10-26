@@ -158,6 +158,22 @@
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
+/* What was sent (Slack send/queue/edit): a quoted two-line preview, full text on hover */
+.mcpa-row-detail {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid rgba(var(--color-primary-rgb), 0.45);
+  border-radius: 0 6px 6px 0;
+  background: rgba(var(--overlay-rgb), 0.04);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 .mcpa-row-meta {
   display: flex;

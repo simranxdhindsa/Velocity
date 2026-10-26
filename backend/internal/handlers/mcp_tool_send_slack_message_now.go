@@ -24,8 +24,10 @@ var sendSlackMessageNowToolSchema = map[string]interface{}{
 			"channel": map[string]string{
 				"type": "string",
 				"description": "Channel name as the user mentioned it, e.g. 'ardoise-pm', '#general'. Also accepts a raw Slack " +
-					"conversation ID (e.g. 'C0B30MXMDHQ') for destinations with no name to look up, such as a group DM — " +
-					"pass the ID directly here, not in dm_user. Omit if sending a 1:1 DM via dm_user.",
+					"conversation ID (e.g. 'C0XXXXXXXXX') for destinations with no name to look up, such as a group DM — " +
+					"pass the ID directly here, not in dm_user. Omit if sending a 1:1 DM via dm_user. " +
+					"Only pass an ID the user gave you or one returned by a Velocity tool; never reuse the example ID. " +
+					"To message one person, use dm_user instead of a channel.",
 			},
 			"dm_user": map[string]string{
 				"type":        "string",

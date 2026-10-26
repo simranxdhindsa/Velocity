@@ -22,13 +22,13 @@ var deleteSlackMessageToolSchema = map[string]interface{}{
 		"properties": map[string]interface{}{
 			"link": map[string]string{
 				"type": "string",
-				"description": "A Slack message permalink, e.g. 'https://workspace.slack.com/archives/C0B30MXMDHQ/p1791268330344489'. " +
+				"description": "A Slack message permalink, e.g. 'https://workspace.slack.com/archives/C0XXXXXXXXX/p1700000000000000'. " +
 					"Targets that exact message directly — when given, channel/dm_user/contains are not needed.",
 			},
 			"channel": map[string]string{
 				"type": "string",
 				"description": "Channel name as the user mentioned it, e.g. 'ardoise-pm', '#general'. Also accepts a raw Slack " +
-					"conversation ID (e.g. 'C0B30MXMDHQ') for destinations with no name, such as a group DM. Omit if it was a 1:1 DM.",
+					"conversation ID (e.g. 'C0XXXXXXXXX') for destinations with no name, such as a group DM. Omit if it was a 1:1 DM.",
 			},
 			"dm_user": map[string]string{
 				"type":        "string",
@@ -138,7 +138,7 @@ func mcpDeleteSlackMessage(ctx context.Context, h *MCPHandler, userID string, id
 func mcpDeleteSlackMessageByLink(ctx context.Context, h *MCPHandler, userID string, id interface{}, link string) rpcResponse {
 	channelID, targetTS, ok := parseSlackPermalink(link)
 	if !ok {
-		return toolError(id, "that doesn't look like a Slack message link — expected something like https://workspace.slack.com/archives/C0B30MXMDHQ/p1791268330344489")
+		return toolError(id, "that doesn't look like a Slack message link — expected something like https://workspace.slack.com/archives/C0XXXXXXXXX/p1700000000000000")
 	}
 
 	live, err := h.slackSvc.GetLiveChannelMessages(ctx, userID, channelID, "")

@@ -13,6 +13,7 @@ type MCPActivityEntry struct {
 	ToolName    string    `json:"tool_name"`
 	ActionLabel string    `json:"action_label"`
 	Summary     string    `json:"summary"`
+	Detail      string    `json:"detail"`
 	Success     bool      `json:"success"`
 	DurationMs  int       `json:"duration_ms"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -37,9 +38,9 @@ func (r *MCPActivityRepository) Log(ctx context.Context, e MCPActivityEntry) err
 		userID = &e.UserID
 	}
 	_, err := pool.Exec(ctx, `
-		INSERT INTO mcp_activity_log (user_id, tool_name, action_label, summary, success, duration_ms)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, userID, e.ToolName, e.ActionLabel, e.Summary, e.Success, e.DurationMs)
+		INSERT INTO mcp_activity_log (user_id, tool_name, action_label, summary, detail, success, duration_ms)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, userID, e.ToolName, e.ActionLabel, e.Summary, e.Detail, e.Success, e.DurationMs)
 	return err
 }
 
@@ -63,7 +64,7 @@ func (r *MCPActivityRepository) ListPage(ctx context.Context, limit, offset int)
 	}
 	rows, err := pool.Query(ctx, `
 		SELECT l.id, COALESCE(l.user_id, ''), COALESCE(u.name, 'Unknown user'),
-		       l.tool_name, l.action_label, l.summary, l.success, l.duration_ms, l.created_at
+		       l.tool_name, l.action_label, l.summary, l.detail, l.success, l.duration_ms, l.created_at
 		FROM mcp_activity_log l
 		LEFT JOIN users u ON u.id = l.user_id
 		ORDER BY l.created_at DESC, l.id
@@ -78,7 +79,7 @@ func (r *MCPActivityRepository) ListPage(ctx context.Context, limit, offset int)
 	for rows.Next() {
 		var e MCPActivityEntry
 		if err := rows.Scan(&e.ID, &e.UserID, &e.UserName, &e.ToolName, &e.ActionLabel,
-			&e.Summary, &e.Success, &e.DurationMs, &e.CreatedAt); err != nil {
+			&e.Summary, &e.Detail, &e.Success, &e.DurationMs, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)

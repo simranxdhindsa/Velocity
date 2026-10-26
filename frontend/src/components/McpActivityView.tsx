@@ -180,6 +180,7 @@ export function McpActivityView() {
                       )}
                     </div>
                     <ActivitySummary text={e.summary} />
+                    {e.detail && <p className="mcpa-row-detail" title={e.detail}>{e.detail}</p>}
                     <div className="mcpa-row-meta">
                       <span>{e.user_name}</span>
                       <span className="mcpa-dot">•</span>

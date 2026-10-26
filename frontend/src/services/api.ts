@@ -2250,6 +2250,8 @@ export interface MCPActivityEntry {
   tool_name: string
   action_label: string
   summary: string
+  /** Start of the message a Slack send/queue/edit carried; '' for other tools */
+  detail?: string
   success: boolean
   duration_ms: number
   created_at: string
