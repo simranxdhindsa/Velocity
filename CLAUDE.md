@@ -501,3 +501,11 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 
 ### 2026-10-16
 - Velocity: Gantt redesigned (ReUI style): tasks grouped by status with Owner/Status columns, week/day header, hatched weekends, today line, progress bars, Today/prev/next, zoom, off-screen arrows; fixed Gantt tickets showing no state/assignee/priority
+
+### 2026-10-26
+- Velocity: PM Assistant redesigned around the 21st.dev thinking orb (pill input, ball flies into a dotted orb, green "Done", answer card unfolds); moved to `components/assistant/`
+- Velocity: Dashboard Delay Analysis ticket IDs no longer run under their bars
+- Velocity: Slack tools no longer carry a real channel ID as their example (a weekly report meant for Rohit's DM went to #project-managers); channel-ID sends show the channel name
+- Velocity: Claude actions cards show a preview of the Slack message that was sent
+- Velocity: delete_slack_message says where a message actually went when it isn't in the place named
+- Velocity: fixed the stale TestGetStateIndex test (state order now covers the full DEV to PROD pipeline)

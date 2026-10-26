@@ -139,8 +139,13 @@ func TestGetStateIndex(t *testing.T) {
 		{"In Progress", 1},
 		{"Blocked", 1},
 		{"DEV", 2},
-		{"Done", 3},
-		{"Fixed", 3},
+		{"Ready for Stage", 3},
+		{"Stage", 4},
+		{"Ready for PROD", 5},
+		{"PROD", 6},
+		{"Mobile Done", 6},
+		{"Done", 7}, // past the full DEV → Stage → PROD pipeline
+		{"Fixed", 7},
 		{"Unknown", 0}, // default
 	}
 

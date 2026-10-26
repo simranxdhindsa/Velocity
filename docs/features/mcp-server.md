@@ -104,7 +104,9 @@ All three paths send through `updatesvc.Service.QuickSend`, which now calls `sla
 
 ### Raw conversation IDs (`queue_slack_message`, `send_slack_message_now`, `delete_slack_message`)
 
-`resolveChannel` (`mcp_slack.go`) accepts a raw Slack conversation ID — any channel, group DM, or DM ID matching `^[CGD][A-Z0-9]{8,}$` — in the `channel` param, passed straight through with no name lookup. This covers group DMs, which have no name to resolve by. Passing a raw ID doesn't grant access by itself — the Velocity bot still has to actually be a member of that conversation, or Slack returns `channel_not_found` just like it would for any other unauthorized conversation.
+`resolveChannel` (`mcp_slack.go`) accepts a raw Slack conversation ID — any channel, group DM, or DM ID matching `^[CGD][A-Z0-9]{8,}$` — in the `channel` param, passed straight through. When the ID is a channel the bot can list, the label becomes `#name` (so Claude Queue and the Claude actions log say "#project-managers", not a bare ID); group DMs keep the ID as their label since they have no name. Passing a raw ID doesn't grant access by itself — the Velocity bot still has to actually be a member of that conversation, or Slack returns `channel_not_found` just like it would for any other unauthorized conversation.
+
+**Example IDs in tool descriptions must be fake.** The descriptions used to show a real channel ID (`C0B30MXMDHQ`, which is #project-managers) as the example, and a weekly report Claude was meant to DM ended up in that channel (26 Oct 2026). Examples now use the placeholder `C0XXXXXXXXX` / `https://workspace.slack.com/archives/C0XXXXXXXXX/p1700000000000000`, which Slack rejects as `channel_not_found` if copied, and the send/queue descriptions tell Claude to pass only IDs the user gave it and to use `dm_user` for one person. Never put a real workspace ID in a schema description.
 
 ### `send_slack_message_now` notes
 
@@ -119,6 +121,11 @@ All three paths send through `updatesvc.Service.QuickSend`, which now calls `sla
 - Without `contains`, deletes the most recent Velocity message in that channel/DM (`GetLiveChannelMessages` returns newest-first). Pass `contains` to target an older one by a text snippet.
 - After deleting from Slack, separately looks up and removes the matching `pending_slack_messages` row by `slack_ts` (a second lookup — `GetLiveChannelMessages`'s own `ID` field belongs to the hub-log table, not the queue table, so it can't be reused for this) so the Claude Queue "Recent" list doesn't keep a dangling card pointing at a deleted message.
 - DM destinations open the DM channel via a fresh `slacksvc.Client.OpenDirectMessageChannel` call rather than through `Service`, since `Service` doesn't expose that resolution itself.
+- When nothing matches in the named destination, the error carries a "sent elsewhere" hint (`sentElsewhereHint`, `mcp_slack_delete_hint.go`): up to 3 of the user's recent sent rows from `pending_slack_messages` in *other* destinations (text matches for `contains` first, otherwise the latest sends), each with a preview and the exact `channel:` / `dm_user:` to retry with, plus an instruction to tell the user where the message went before deleting. Read-only, it never deletes elsewhere on its own. Added after Claude reported "not found in Rohit's DM" for a report that had actually gone to #project-managers.
+
+### Claude actions log (`mcp_activity_log`)
+
+Every tools/call is logged by `callTool` (`mcp_dispatch.go`): action label, the tool's one-line result (`summary`), success, duration. `detail` holds the start of the message for `send_slack_message_now`, `queue_slack_message` and `edit_slack_message` (whitespace collapsed, 280 chars, `mcpActivityDetail`), shown as a two-line quoted preview on each Claude actions card so you can see what was sent, not just "Sent. DM sent to Rohit." Rows are pruned after 7 days.
 
 ### `edit_slack_message` notes
 
