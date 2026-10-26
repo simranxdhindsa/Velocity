@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-26
+
+### Enhancements
+- PM Assistant redesigned: questions fly from a glowing input into a thinking orb that turns green and unfolds into the answer card, and Delay Analysis ticket IDs no longer run under their bars
+
+
 ## 2026-10-19
 
 ### Enhancements
