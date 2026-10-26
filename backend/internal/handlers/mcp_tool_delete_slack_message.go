@@ -61,9 +61,9 @@ func mcpDeleteSlackMessage(ctx context.Context, h *MCPHandler, userID string, id
 		return toolError(id, "either link, channel, or dm_user is required")
 	}
 
-	var channelID, label string
+	var channelID, label, dmUserID string
 	if a.DmUser != "" {
-		dmUserID := h.resolveSlackUser(ctx, userID, a.DmUser)
+		dmUserID = h.resolveSlackUser(ctx, userID, a.DmUser)
 		if dmUserID == "" {
 			return toolError(id, "couldn't find a Slack user matching '"+a.DmUser+"'")
 		}
@@ -104,10 +104,12 @@ func mcpDeleteSlackMessage(ctx context.Context, h *MCPHandler, userID string, id
 		break // GetLiveChannelMessages returns newest-first
 	}
 	if targetTS == "" {
+		// Often the message simply went somewhere else; say where instead of only "not found"
+		hint := h.sentElsewhereHint(ctx, userID, a.Contains, channelID, dmUserID)
 		if a.Contains != "" {
-			return toolError(id, "couldn't find a Velocity message containing '"+a.Contains+"' in "+label)
+			return toolError(id, "couldn't find a Velocity message containing '"+a.Contains+"' in "+label+"."+hint)
 		}
-		return toolError(id, "couldn't find a Velocity-sent message to delete in "+label)
+		return toolError(id, "couldn't find a Velocity-sent message to delete in "+label+"."+hint)
 	}
 
 	if err := h.updateSvc.DeleteSlackMessage(ctx, userID, channelID, targetTS); err != nil {
