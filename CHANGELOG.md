@@ -6,6 +6,10 @@
 - PM Assistant redesigned: questions fly from a glowing input into a thinking orb that turns green and unfolds into the answer card, and Delay Analysis ticket IDs no longer run under their bars
 
 
+### Bug Fixes
+- When Claude can't find a Velocity message to delete in the place you named, it now tells you where that message was actually sent instead of asking for a link
+- Claude can no longer send Slack messages to #project-managers by copying an example channel ID, messages sent by channel ID show the channel name, and Claude actions show a preview of what was sent
+
 ## 2026-10-19
 
 ### Enhancements
