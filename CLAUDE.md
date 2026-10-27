@@ -509,3 +509,10 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - Velocity: Claude actions cards show a preview of the Slack message that was sent
 - Velocity: delete_slack_message says where a message actually went when it isn't in the place named
 - Velocity: fixed the stale TestGetStateIndex test (state order now covers the full DEV to PROD pipeline)
+
+### 2026-10-27
+- Velocity: Velocity can now edit and delete its own Slack DMs (DMs and split message parts were never recorded, so Claude reported "couldn't find" in Rohit's and Suryansh's DMs)
+- Velocity: queued DMs store the real message timestamp and DM channel (scheduler and "Send now" read QuickSend's return values the wrong way round); one shared `sendQueuedMessage`
+- Velocity: edits through Claude or Claude Queue update the stored text; `edit_slack_message` accepts a Slack link; not-found hints no longer read as "never sent"
+- Velocity: Claude Queue "Delete from Slack" works for DMs; Recent cards get the users list
+- Velocity: unit tests with a fake Slack (`update_reminder`) and a 5-user end-to-end MCP regression (`TestMCPSlackE2E`, opt-in, real Slack, #velocity-app + own DM only)

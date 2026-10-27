@@ -123,6 +123,14 @@ All three paths send through `updatesvc.Service.QuickSend`, which now calls `sla
 - DM destinations open the DM channel via a fresh `slacksvc.Client.OpenDirectMessageChannel` call rather than through `Service`, since `Service` doesn't expose that resolution itself.
 - When nothing matches in the named destination, the error carries a "sent elsewhere" hint (`sentElsewhereHint`, `mcp_slack_delete_hint.go`): up to 3 of the user's recent sent rows from `pending_slack_messages` in *other* destinations (text matches for `contains` first, otherwise the latest sends), each with a preview and the exact `channel:` / `dm_user:` to retry with, plus an instruction to tell the user where the message went before deleting. Read-only, it never deletes elsewhere on its own. Added after Claude reported "not found in Rohit's DM" for a report that had actually gone to #project-managers.
 
+### Every send is recorded (DMs and split parts included)
+
+`edit_slack_message` / `delete_slack_message` only act on messages whose ts is in `sent_slack_messages` (`IsVelocity`). `QuickSend` used to skip DMs ("not shown in the hub") and log only the first part of a split message, so Velocity could never find its own DMs again (26-27 Oct 2026: "couldn't find a Velocity-sent message in DM with Rohit/suryansh"). Now every posted part is logged, DMs included; edits and deletes keep `sent_slack_messages` and the Claude Queue row in step. DMs sent before the fix aren't recorded: target them with the message's Slack `link` (both tools accept it).
+
+Queued DMs (`sendQueuedMessage`, shared by the scheduler and "Send now") store the real ts plus the DM channel (`MarkSentTo`). Both paths used to read QuickSend's `(ts, channel)` the wrong way round and stored the channel ID as the ts; a startup migration moves those IDs into `channel_id`.
+
+**Regression:** `VELOCITY_E2E_SLACK=1 go test -race ./internal/handlers -run TestMCPSlackE2E -v -count=1` runs 5 simulated users at once through the real tools, dev DB and real Slack (#velocity-app and the DM with Simran Dhindsa only, everything deleted afterwards), plus every read-only tool. Unit tests with a fake Slack: `go test -race ./internal/services/update_reminder/`.
+
 ### Claude actions log (`mcp_activity_log`)
 
 Every tools/call is logged by `callTool` (`mcp_dispatch.go`): action label, the tool's one-line result (`summary`), success, duration. `detail` holds the start of the message for `send_slack_message_now`, `queue_slack_message` and `edit_slack_message` (whitespace collapsed, 280 chars, `mcpActivityDetail`), shown as a two-line quoted preview on each Claude actions card so you can see what was sent, not just "Sent. DM sent to Rohit." Rows are pruned after 7 days.
