@@ -22,7 +22,9 @@ var getYoutrackTicketToolSchema = map[string]interface{}{
 		"Returns summary, description, status, subsystem, priority, type, assignee, reporter, " +
 		"created/updated timestamps, URL, the full comment thread (oldest first, each with author, " +
 		"created/updated time, text and its own attachments), and every attachment with whether it belongs " +
-		"to the description or to a specific comment. Image attachments (png/jpeg/gif/webp) are returned as " +
+		"to the description or to a specific comment, and the ticket's status history: every column move " +
+		"(from → to), who moved it and when, with hours spent in the previous column, plus who made the latest " +
+		"status change. Image attachments (png/jpeg/gif/webp) are returned as " +
 		"image content so you can see them; markdown image references like ![](image.png) are mapped to " +
 		"their attachments. Comments are often where a ticket is concluded, so read them to judge whether " +
 		"it's resolved, what was done, and who (PM, QA, developer) still owes a reply. " +
@@ -46,6 +48,14 @@ var getYoutrackTicketToolSchema = map[string]interface{}{
 				"type":        "integer",
 				"description": fmt.Sprintf("Max images to return. Default %d, max %d. Images over ~1MB or 1568px are downscaled; any that can't fit are listed as skipped.", ticketDefaultMaxImages, ticketHardMaxImages),
 			},
+			"include_history": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Include the status history (column moves with who and when). Default true.",
+			},
+			"history_limit": map[string]interface{}{
+				"type":        "integer",
+				"description": fmt.Sprintf("Max status changes to return, newest kept (listed oldest first). Default %d, max %d.", ticketDefaultHistoryLimit, ticketMaxHistoryLimit),
+			},
 			"image_names": map[string]interface{}{
 				"type":        "array",
 				"items":       map[string]string{"type": "string"},
@@ -57,11 +67,13 @@ var getYoutrackTicketToolSchema = map[string]interface{}{
 }
 
 type getTicketArgs struct {
-	IssueID       string   `json:"issue_id"`
-	CommentsLimit *int     `json:"comments_limit"`
-	IncludeImages *bool    `json:"include_images"`
-	MaxImages     *int     `json:"max_images"`
-	ImageNames    []string `json:"image_names"`
+	IssueID        string   `json:"issue_id"`
+	CommentsLimit  *int     `json:"comments_limit"`
+	IncludeImages  *bool    `json:"include_images"`
+	MaxImages      *int     `json:"max_images"`
+	ImageNames     []string `json:"image_names"`
+	IncludeHistory *bool    `json:"include_history"`
+	HistoryLimit   *int     `json:"history_limit"`
 }
 
 func mcpGetYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, id interface{}, args json.RawMessage) rpcResponse {
@@ -117,6 +129,16 @@ func mcpGetYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, id 
 		"updated":     issue.Updated,
 		"updated_at":  msToISO(issue.Updated),
 		"url":         fmt.Sprintf("%s/issue/%s", ytBaseURL, displayID),
+	}
+
+	if a.IncludeHistory == nil || *a.IncludeHistory {
+		limit := ticketDefaultHistoryLimit
+		if a.HistoryLimit != nil && *a.HistoryLimit > 0 {
+			limit = min(*a.HistoryLimit, ticketMaxHistoryLimit)
+		}
+		for k, v := range loadTicketHistory(ctx, displayID, limit) {
+			payload[k] = v
+		}
 	}
 
 	d := buildTicketDiscussion(ctx, ytClient, issue, commentsLimit)

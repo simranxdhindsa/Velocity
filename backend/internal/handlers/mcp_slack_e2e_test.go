@@ -292,6 +292,25 @@ func TestMCPSlackE2E(t *testing.T) {
 					t.Errorf("%s returned nothing", c.tool)
 				}
 			}
+			// Ticket details include the status history: from → to, who, when
+			if out, ok := env.call(t, "get_youtrack_ticket", map[string]any{"issue_id": "ARD-3076", "include_images": false}); !ok {
+				t.Errorf("get_youtrack_ticket: %.300s", out)
+			} else {
+				var tk struct {
+					Raw             []map[string]any `json:"history"`
+					StatusChangedBy string           `json:"status_changed_by"`
+				}
+				_ = json.Unmarshal([]byte(out), &tk)
+				if len(tk.Raw) == 0 || tk.StatusChangedBy == "" {
+					t.Errorf("ARD-3076 history missing: %d moves, changed_by=%q", len(tk.Raw), tk.StatusChangedBy)
+				}
+				for _, m := range tk.Raw {
+					if m["to"] == nil || m["moved_by"] == nil || m["at"] == nil {
+						t.Errorf("incomplete move: %v", m)
+					}
+				}
+				t.Logf("ARD-3076 history: %v (latest by %s)", tk.Raw, tk.StatusChangedBy)
+			}
 			// get_developer_load needs real logins: take one from the developer configs
 			if out, ok := env.call(t, "get_developer_configs", map[string]any{}); ok {
 				var cfg any
