@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-27
+
+### Bug Fixes
+- Claude can now edit and delete the Slack DMs Velocity sends, queued DMs keep the right message so Delete from Slack works, and edits update the text shown in Claude Queue
+
+
 ## 2026-10-26
 
 ### Enhancements
