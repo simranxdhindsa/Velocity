@@ -77,7 +77,7 @@ func mcpSendSlackMessageNow(ctx context.Context, h *MCPHandler, userID string, i
 		return toolError(id, "Failed to send message: "+err.Error())
 	}
 	if qerr == nil {
-		_ = h.msgRepo.MarkSent(ctx, queued.ID, ts)
+		_ = h.msgRepo.MarkSentTo(ctx, queued.ID, ts, resolvedChannelID)
 	}
 
 	result := "Sent."

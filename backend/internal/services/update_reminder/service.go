@@ -12,11 +12,32 @@ import (
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 )
 
+// slackIntegrations, sentLog and queueLog are the slices of the repositories the
+// send/edit/delete paths use, as interfaces so tests can swap in fakes.
+type slackIntegrations interface {
+	GetSlackIntegration(ctx context.Context, userID string) (*models.SlackIntegration, error)
+}
+
+// sentLog is the sent_slack_messages log. A message is only "Velocity's own" (and so
+// editable/deletable through Velocity and Claude) if its ts is in here, so every
+// successful post must be logged, DMs and every split part included.
+type sentLog interface {
+	Log(ctx context.Context, userID, source, channelID, channelLabel, message, slackTs string) (*database.SentSlackMessage, error)
+	UpdateTextByTs(ctx context.Context, userID, channelID, slackTs, message string) error
+	DeleteByTs(ctx context.Context, userID, channelID, slackTs string) error
+}
+
+// queueLog is the Claude Queue table (pending_slack_messages), synced on edit.
+type queueLog interface {
+	UpdateSentText(ctx context.Context, userID, slackTs, message string) error
+}
+
 // Service handles all update-reminder business logic
 type Service struct {
 	repo            *database.UpdateReminderRepository
-	integrationRepo *database.IntegrationRepository
-	sentRepo        *database.SentSlackMessagesRepository
+	integrationRepo slackIntegrations
+	sentRepo        sentLog
+	queueRepo       queueLog
 }
 
 func NewService() *Service {
@@ -24,6 +45,7 @@ func NewService() *Service {
 		repo:            database.NewUpdateReminderRepository(),
 		integrationRepo: database.NewIntegrationRepository(),
 		sentRepo:        database.NewSentSlackMessagesRepository(),
+		queueRepo:       database.NewPendingMessagesRepository(),
 	}
 }
 
@@ -434,6 +456,8 @@ func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmU
 	parts := slacksvc.BuildSendParts(message)
 	var firstTS string
 	for i, part := range parts {
+		// Log each part as it lands (DMs included): edit/delete only ever target
+		// messages whose ts is in the log, so an unlogged send can never be found again.
 		var ts string
 		var e error
 		if len(part.Blocks) > 0 {
@@ -450,11 +474,11 @@ func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmU
 		if i == 0 {
 			firstTS = ts
 		}
-	}
-
-	// DMs aren't shown in the channel-scoped Slack Messages hub — not logged.
-	if dmUserID == "" {
-		s.logSent(ctx, userID, source, targetChannel, message, firstTS)
+		logText := message
+		if len(parts) > 1 {
+			logText = part.Text
+		}
+		s.logSent(ctx, userID, source, targetChannel, logText, ts)
 	}
 	return firstTS, targetChannel, nil
 }
@@ -464,7 +488,13 @@ func (s *Service) DeleteSlackMessage(ctx context.Context, userID, channelID, ts 
 	if err != nil || !integration.Connected {
 		return fmt.Errorf("slack not connected")
 	}
-	return slacksvc.NewClient(integration.BotToken).DeleteMessage(ctx, channelID, ts)
+	if err := slacksvc.NewClient(integration.BotToken).DeleteMessage(ctx, channelID, ts); err != nil {
+		return err
+	}
+	if err := s.sentRepo.DeleteByTs(ctx, userID, channelID, ts); err != nil {
+		fmt.Printf("[update_reminder] warning: failed to drop sent log row: %v\n", err)
+	}
+	return nil
 }
 
 func (s *Service) UpdateSlackMessage(ctx context.Context, userID, channelID, ts, text string) error {
@@ -472,7 +502,19 @@ func (s *Service) UpdateSlackMessage(ctx context.Context, userID, channelID, ts,
 	if err != nil || !integration.Connected {
 		return fmt.Errorf("slack not connected")
 	}
-	return slacksvc.NewClient(integration.BotToken).UpdateMessage(ctx, channelID, ts, text)
+	if err := slacksvc.NewClient(integration.BotToken).UpdateMessage(ctx, channelID, ts, text); err != nil {
+		return err
+	}
+	// Keep both logs in step with Slack, so Claude Queue and the bot's memory show the edit
+	if err := s.sentRepo.UpdateTextByTs(ctx, userID, channelID, ts, text); err != nil {
+		fmt.Printf("[update_reminder] warning: failed to update sent log text: %v\n", err)
+	}
+	if s.queueRepo != nil {
+		if err := s.queueRepo.UpdateSentText(ctx, userID, ts, text); err != nil {
+			fmt.Printf("[update_reminder] warning: failed to update queue text: %v\n", err)
+		}
+	}
+	return nil
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

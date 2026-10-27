@@ -9,16 +9,20 @@ import (
 	"github.com/dhindsa/project-management/internal/database"
 )
 
-// sentElsewhereHint is appended to delete_slack_message's "couldn't find" error. When
+// sentElsewhereHint is appended to delete/edit_slack_message's "couldn't find" error. When
 // the message isn't in the destination Claude looked in, it lists Velocity's recent
 // sends to other destinations (matching `needle` first, if given) with the exact
 // channel/dm_user value to retry with, so Claude can say where the message actually
 // went instead of asking for a permalink. Read-only: it never deletes anything itself.
 // excludeChannelID / excludeDmUserID identify the destination already searched.
-func (h *MCPHandler) sentElsewhereHint(ctx context.Context, userID, needle, excludeChannelID, excludeDmUserID string) string {
+func (h *MCPHandler) sentElsewhereHint(ctx context.Context, userID, verb, needle, excludeChannelID, excludeDmUserID, searchedLabel string) string {
+	// Always say how to target an unlogged message: DMs sent before 27 Oct 2026 were
+	// never recorded, so they can exist in Slack yet not match here.
+	linkTip := " If the user says it was sent to " + searchedLabel + ", it may predate Velocity recording DMs " +
+		"(before 27 Oct 2026): ask for its Slack link (Copy link) and pass it as `link`. Do not tell the user it was never sent."
 	rows, err := h.msgRepo.ListByUser(ctx, userID)
 	if err != nil || len(rows) == 0 {
-		return ""
+		return linkTip
 	}
 	needle = strings.ToLower(strings.TrimSpace(needle))
 
@@ -37,12 +41,12 @@ func (h *MCPHandler) sentElsewhereHint(ctx context.Context, userID, needle, excl
 			recent = append(recent, r)
 		}
 	}
-	list, intro := matches, "Velocity did send a matching message elsewhere:"
+	list, intro := matches, "Velocity sent a matching message somewhere else:"
 	if len(list) == 0 {
 		if len(recent) == 0 {
-			return ""
+			return linkTip
 		}
-		list, intro = recent, "Velocity's most recent sends to other places:"
+		list, intro = recent, "Velocity's recent sends to other places (this list leaves out "+searchedLabel+" itself, it is not a full history):"
 	}
 	if len(list) > 3 {
 		list = list[:3]
@@ -57,9 +61,10 @@ func (h *MCPHandler) sentElsewhereHint(ctx context.Context, userID, needle, excl
 		if r.SentAt != nil {
 			at = *r.SentAt
 		}
-		fmt.Fprintf(&b, "\n- %s, %s: \"%s\" (to delete it, retry with %s)", dest, sendAgo(at), previewText(r.Message, 80), retry)
+		fmt.Fprintf(&b, "\n- %s, %s: \"%s\" (to %s it, retry with %s)", dest, sendAgo(at), previewText(r.Message, 80), verb, retry)
 	}
-	b.WriteString("\nTell the user where the message actually went before deleting anything.")
+	b.WriteString("\nTell the user where the message actually went before changing anything.")
+	b.WriteString(linkTip)
 	return b.String()
 }
 

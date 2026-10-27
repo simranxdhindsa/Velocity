@@ -188,3 +188,29 @@ func (r *SentSlackMessagesRepository) DeleteOld(ctx context.Context, days int) (
 	}
 	return result.RowsAffected(), nil
 }
+
+// UpdateTextByTs keeps the log in step with an edit made by Slack ts (MCP edit,
+// Claude Queue edit), so the stored text matches what's in Slack.
+func (r *SentSlackMessagesRepository) UpdateTextByTs(ctx context.Context, userID, channelID, slackTs, message string) error {
+	pool := GetPool()
+	if pool == nil {
+		return nil
+	}
+	_, err := pool.Exec(ctx, `
+		UPDATE sent_slack_messages SET message = $4, edited_at = NOW()
+		WHERE user_id = $1 AND channel_id = $2 AND slack_ts = $3
+	`, userID, channelID, slackTs, message)
+	return err
+}
+
+// DeleteByTs drops the log row for a message deleted from Slack by ts.
+func (r *SentSlackMessagesRepository) DeleteByTs(ctx context.Context, userID, channelID, slackTs string) error {
+	pool := GetPool()
+	if pool == nil {
+		return nil
+	}
+	_, err := pool.Exec(ctx, `
+		DELETE FROM sent_slack_messages WHERE user_id = $1 AND channel_id = $2 AND slack_ts = $3
+	`, userID, channelID, slackTs)
+	return err
+}

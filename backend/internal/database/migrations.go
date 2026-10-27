@@ -1346,6 +1346,12 @@ WHERE bot_type = 'ticket_parser'`,
 		// What the call acted on, e.g. the start of a Slack message, so the
 		// Claude actions list shows what was sent and not just "Sent."
 		`ALTER TABLE mcp_activity_log ADD COLUMN IF NOT EXISTS detail TEXT NOT NULL DEFAULT ''`,
+		// Queued DMs used to store the DM's conversation ID in slack_ts (QuickSend's return
+		// values were read the wrong way round). Move it to channel_id where it belongs;
+		// the real ts was never kept, so those rows simply have none. Idempotent.
+		`UPDATE pending_slack_messages
+		 SET channel_id = slack_ts, slack_ts = ''
+		 WHERE COALESCE(dm_user_id, '') <> '' AND slack_ts ~ '^D[A-Z0-9]{8,}$'`,
 
 		// Slack bot conversation log — full-fidelity transcript of every DM/
 		// mention <-> reply round trip the Velocity Slack bot has, separate from

@@ -9,12 +9,20 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"os"
 	"time"
 )
 
-const (
-	BaseURL = "https://slack.com/api"
+// BaseURL is the Slack Web API root. A variable so tests can point it at a fake
+// Slack server; SLACK_API_BASE_URL overrides it for local test runs.
+var BaseURL = func() string {
+	if u := os.Getenv("SLACK_API_BASE_URL"); u != "" {
+		return u
+	}
+	return "https://slack.com/api"
+}()
 
+const (
 	// slackTextLimit is kept below Slack's hard 4000-char cap on the plain-text
 	// `text` field (chat.postMessage/chat.update) — sending anything longer fails
 	// the whole request with "slack API error: msg_too_long" instead of posting

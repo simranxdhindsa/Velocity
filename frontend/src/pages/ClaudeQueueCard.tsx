@@ -291,7 +291,7 @@ function QueuedMessageCard({
   userNames: Map<string, string>
   onUpdated: (m: PendingSlackMessage) => void
   onDeleted: (id: string) => void
-  onSent: (id: string, slackTs: string) => void
+  onSent: (id: string, slackTs: string, channelId: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState(msg.message)
@@ -407,7 +407,8 @@ function QueuedMessageCard({
       const r = await api.sendQueuedMessageNow(msg.id)
       const raw = r as any
       const ts = raw?.slack_ts ?? raw?.data?.slack_ts ?? ''
-      onSent(msg.id, ts)
+      const ch = raw?.channel_id ?? raw?.data?.channel_id ?? ''
+      onSent(msg.id, ts, ch)
     } finally {
       setSending(false)
     }
@@ -534,7 +535,7 @@ function QueuedMessageCard({
               </button>
             </div>
           )}
-          {isSent && msg.slack_ts && (
+          {isSent && msg.slack_ts && msg.channel_id && (
             <div className="cq-msg-actions">
               <button
                 className="cq-panel-btn cq-panel-btn--danger"
@@ -871,8 +872,8 @@ export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?
                       key={m.id} msg={m} defaultTime={defaultTime} channels={channels} users={users} userNames={userNames}
                       onUpdated={u => setMessages(ms => ms.map(x => x.id === u.id ? u : x))}
                       onDeleted={id => setMessages(ms => ms.filter(x => x.id !== id))}
-                      onSent={(id, ts) => setMessages(ms => ms.map(x =>
-                        x.id === id ? { ...x, status: 'sent' as const, slack_ts: ts } : x
+                      onSent={(id, ts, ch) => setMessages(ms => ms.map(x =>
+                        x.id === id ? { ...x, status: 'sent' as const, slack_ts: ts, channel_id: x.channel_id || ch } : x
                       ))}
                     />
                   ))}
@@ -887,11 +888,11 @@ export function ClaudeQueueCard({ channels = [], autoOpen = false }: { channels?
                   <div className="cq-msg-list">
                     {recentMsgs.map(m => (
                       <QueuedMessageCard
-                        key={m.id} msg={m} defaultTime={defaultTime} channels={channels} userNames={userNames}
+                        key={m.id} msg={m} defaultTime={defaultTime} channels={channels} users={users} userNames={userNames}
                         onUpdated={u => setMessages(ms => ms.map(x => x.id === u.id ? u : x))}
                         onDeleted={id => setMessages(ms => ms.filter(x => x.id !== id))}
-                        onSent={(id, ts) => setMessages(ms => ms.map(x =>
-                          x.id === id ? { ...x, status: 'sent' as const, slack_ts: ts } : x
+                        onSent={(id, ts, ch) => setMessages(ms => ms.map(x =>
+                          x.id === id ? { ...x, status: 'sent' as const, slack_ts: ts, channel_id: x.channel_id || ch } : x
                         ))}
                       />
                     ))}

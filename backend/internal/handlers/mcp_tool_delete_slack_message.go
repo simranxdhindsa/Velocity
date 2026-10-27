@@ -105,7 +105,7 @@ func mcpDeleteSlackMessage(ctx context.Context, h *MCPHandler, userID string, id
 	}
 	if targetTS == "" {
 		// Often the message simply went somewhere else; say where instead of only "not found"
-		hint := h.sentElsewhereHint(ctx, userID, a.Contains, channelID, dmUserID)
+		hint := h.sentElsewhereHint(ctx, userID, "delete", a.Contains, channelID, dmUserID, label)
 		if a.Contains != "" {
 			return toolError(id, "couldn't find a Velocity message containing '"+a.Contains+"' in "+label+"."+hint)
 		}

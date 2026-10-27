@@ -216,6 +216,35 @@ func (r *PendingMessagesRepository) Delete(ctx context.Context, id, userID strin
 	return err
 }
 
+// MarkSentTo marks a row sent and records the conversation it landed in. For a DM the
+// row was queued with only dm_user_id, so without this the channel (needed to edit or
+// delete the message later) would be lost.
+func (r *PendingMessagesRepository) MarkSentTo(ctx context.Context, id, slackTs, channelID string) error {
+	pool := GetPool()
+	if pool == nil {
+		return nil
+	}
+	_, err := pool.Exec(ctx, `
+		UPDATE pending_slack_messages
+		SET status = 'sent', slack_ts = $2, sent_at = NOW(),
+		    channel_id = CASE WHEN COALESCE(channel_id, '') = '' THEN $3 ELSE channel_id END
+		WHERE id::text = $1
+	`, id, slackTs, channelID)
+	return err
+}
+
+// UpdateSentText keeps a sent row's text in step with an edit made in Slack.
+func (r *PendingMessagesRepository) UpdateSentText(ctx context.Context, userID, slackTs, message string) error {
+	pool := GetPool()
+	if pool == nil || slackTs == "" {
+		return nil
+	}
+	_, err := pool.Exec(ctx, `
+		UPDATE pending_slack_messages SET message = $3 WHERE user_id = $1 AND slack_ts = $2
+	`, userID, slackTs, message)
+	return err
+}
+
 func (r *PendingMessagesRepository) MarkSent(ctx context.Context, id, slackTs string) error {
 	pool := GetPool()
 	if pool == nil {

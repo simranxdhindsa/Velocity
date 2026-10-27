@@ -116,18 +116,9 @@ func RunPendingMessagesScheduler(notifHandler *NotificationHandler) {
 				continue
 			}
 			for _, msg := range msgs {
-				var slackTS string
-				var sendErr error
-				if msg.DmUserID != "" {
-					_, ts, e := svc.QuickSend(ctx, msg.UserID, "", msg.Message, msg.DmUserID, "claude_queue")
-					slackTS, sendErr = ts, e
-				} else {
-					ts, _, e := svc.QuickSend(ctx, msg.UserID, msg.ChannelID, msg.Message, "", "claude_queue")
-					slackTS, sendErr = ts, e
-				}
+				_, _, sendErr := sendQueuedMessage(ctx, svc, repo, msg)
 				if sendErr != nil {
 					log.Printf("⚠️  pending-messages scheduler: send failed for %s: %v", msg.ID, sendErr)
-					_ = repo.MarkFailed(ctx, msg.ID, sendErr.Error())
 					if notifHandler != nil {
 						_ = notifHandler.CreateAndBroadcast(ctx, &models.Notification{
 							UserID:  msg.UserID,
@@ -137,7 +128,6 @@ func RunPendingMessagesScheduler(notifHandler *NotificationHandler) {
 						})
 					}
 				} else {
-					_ = repo.MarkSent(ctx, msg.ID, slackTS)
 					log.Printf("✅ pending-messages scheduler: sent %s to %s", msg.ID, msg.ChannelLabel)
 					if notifHandler != nil {
 						_ = notifHandler.CreateAndBroadcast(ctx, &models.Notification{
@@ -151,6 +141,25 @@ func RunPendingMessagesScheduler(notifHandler *NotificationHandler) {
 			}
 		}
 	}()
+}
+
+// sendQueuedMessage sends one Claude Queue row now and records the outcome: the real
+// message ts plus the conversation it landed in (for a DM, the D-channel, which the row
+// didn't have), or the error. Shared by the scheduler and "Send now" so the two can't
+// drift apart again; both used to read QuickSend's (ts, channel) the wrong way round
+// for DMs, storing the channel ID as the ts.
+func sendQueuedMessage(ctx context.Context, svc *updatesvc.Service, repo *database.PendingMessagesRepository, msg database.PendingSlackMessage) (slackTS, channelID string, err error) {
+	chArg := msg.ChannelID
+	if msg.DmUserID != "" {
+		chArg = ""
+	}
+	slackTS, channelID, err = svc.QuickSend(ctx, msg.UserID, chArg, msg.Message, msg.DmUserID, "claude_queue")
+	if err != nil {
+		_ = repo.MarkFailed(ctx, msg.ID, err.Error())
+		return "", "", err
+	}
+	_ = repo.MarkSentTo(ctx, msg.ID, slackTS, channelID)
+	return slackTS, channelID, nil
 }
 
 func truncateStr(s string, max int) string {
@@ -230,25 +239,10 @@ func (h *PendingMessagesHandler) SendNow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var slackTS string
-	if target.DmUserID != "" {
-		_, ts, e := h.updateSvc.QuickSend(r.Context(), u.ID, "", target.Message, target.DmUserID, "claude_queue")
-		if e != nil {
-			_ = h.repo.MarkFailed(r.Context(), id, e.Error())
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": e.Error()})
-			return
-		}
-		slackTS = ts
-	} else {
-		ts, _, e := h.updateSvc.QuickSend(r.Context(), u.ID, target.ChannelID, target.Message, "", "claude_queue")
-		if e != nil {
-			_ = h.repo.MarkFailed(r.Context(), id, e.Error())
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": e.Error()})
-			return
-		}
-		slackTS = ts
+	slackTS, sentChannel, e := sendQueuedMessage(r.Context(), h.updateSvc, h.repo, *target)
+	if e != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": e.Error()})
+		return
 	}
-
-	_ = h.repo.MarkSent(r.Context(), id, slackTS)
-	writeJSON(w, http.StatusOK, map[string]string{"slack_ts": slackTS})
+	writeJSON(w, http.StatusOK, map[string]string{"slack_ts": slackTS, "channel_id": sentChannel})
 }
