@@ -6,6 +6,9 @@
 - Claude can now edit and delete the Slack DMs Velocity sends, queued DMs keep the right message so Delete from Slack works, and edits update the text shown in Claude Queue
 
 
+### Enhancements
+- `get_youtrack_ticket`: shows the status history, every column move with who moved it, when, and how long it sat in the previous column
+
 ## 2026-10-26
 
 ### Enhancements
