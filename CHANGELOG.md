@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-29
+
+### Enhancements
+- `create_youtrack_ticket`: new tickets end with a "#Created by Velocity 🤖" line, linked to Velocity, that AI edits can't remove
+
+
 ## 2026-10-27
 
 ### Bug Fixes
