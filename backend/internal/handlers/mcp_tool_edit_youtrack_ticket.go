@@ -24,7 +24,7 @@ var editYoutrackTicketToolSchema = map[string]interface{}{
 			},
 			"description": map[string]string{
 				"type":        "string",
-				"description": "New description (markdown). Omit to leave unchanged.",
+				"description": "New description (markdown). Omit to leave unchanged. A 'Created by Velocity 🤖' footer on the ticket is kept automatically and can't be removed.",
 			},
 			"type_name": map[string]string{
 				"type":        "string",
@@ -77,6 +77,15 @@ func mcpEditYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, id
 	}
 	if a.Description != "" {
 		req.Description = a.Description
+		// The "Created by Velocity" footer is permanent: an agent rewriting the
+		// description can't drop or reword it.
+		current, err := ytClient.GetIssue(ctx, a.IssueID)
+		if err != nil {
+			return toolError(id, "failed to read "+a.IssueID+" before editing: "+err.Error())
+		}
+		if youtrack.HasVelocityFooter(current.Description) {
+			req.Description = youtrack.WithVelocityFooter(a.Description)
+		}
 	}
 	if a.TypeName != "" {
 		req.CustomFields = append(req.CustomFields, youtrack.CustomField{

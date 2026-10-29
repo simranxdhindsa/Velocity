@@ -1919,9 +1919,15 @@ func (c *Client) embedAttachmentInDescription(ctx context.Context, issueID, atta
 		reference = fmt.Sprintf("[%s](%s)", attachedName, attachedName)
 	}
 
+	hasFooter := HasVelocityFooter(issue.Description)
+	body := StripVelocityFooter(issue.Description)
 	newDescription := reference
-	if strings.TrimSpace(issue.Description) != "" {
-		newDescription = issue.Description + "\n\n" + reference
+	if strings.TrimSpace(body) != "" {
+		newDescription = body + "\n\n" + reference
+	}
+	if hasFooter {
+		// Keep the footer as the last line, below the new attachment.
+		newDescription = WithVelocityFooter(newDescription)
 	}
 
 	if _, err := c.UpdateIssue(ctx, issueID, UpdateIssueRequest{Description: newDescription}); err != nil {

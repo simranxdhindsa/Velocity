@@ -516,3 +516,6 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - Velocity: edits through Claude or Claude Queue update the stored text; `edit_slack_message` accepts a Slack link; not-found hints no longer read as "never sent"
 - Velocity: Claude Queue "Delete from Slack" works for DMs; Recent cards get the users list
 - Velocity: unit tests with a fake Slack (`update_reminder`) and a 5-user end-to-end MCP regression (`TestMCPSlackE2E`, opt-in, real Slack, #velocity-app + own DM only)
+
+### 2026-10-29
+- Velocity: tickets created through MCP end with a permanent "#Created by Velocity 🤖" footer (linked, blank line above); AI edits and attachment uploads keep it in place (`youtrack/velocity_footer.go`)

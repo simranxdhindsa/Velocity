@@ -22,7 +22,7 @@ var createYoutrackTicketToolSchema = map[string]interface{}{
 			},
 			"description": map[string]string{
 				"type":        "string",
-				"description": "Full ticket description (markdown supported).",
+				"description": "Full ticket description (markdown supported). A 'Created by Velocity 🤖' footer is added automatically; don't write it yourself.",
 			},
 			"type_name": map[string]string{
 				"type":        "string",
@@ -67,7 +67,7 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 		return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 	}
 
-	req := youtrack.CreateIssueRequest{Summary: a.Summary, Description: a.Description}
+	req := youtrack.CreateIssueRequest{Summary: a.Summary, Description: youtrack.WithVelocityFooter(a.Description)}
 	var fields []youtrack.CustomField
 
 	// Always default state to "To Do"
