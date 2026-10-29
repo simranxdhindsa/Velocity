@@ -1,7 +1,29 @@
 import { useState, useEffect } from 'react'
-import { Palette, RotateCcw, Save, Moon, Sun } from 'lucide-react'
+import { Palette, RotateCcw, Save, Moon, Sun, Pipette, CircleDot } from 'lucide-react'
 import api from '@/services/api'
-import { applyUserTheme } from '@/utils/themeUtils'
+import { applyUserTheme, deriveBgShades } from '@/utils/themeUtils'
+import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
+import { ColorWheelPicker } from '@/components/ColorWheelPicker'
+import '@/styles/components/color-wheel-picker.css'
+
+type PickerStyle = 'classic' | 'wheel'
+const PICKER_STYLES: PickerStyle[] = ['classic', 'wheel']
+
+/** Classic (native colour input) / Wheel switch shown in each colour card's header. */
+function PickerSwitch({ value, onChange, label }: { value: PickerStyle; onChange: (v: PickerStyle) => void; label: string }) {
+  return (
+    <div className="tsp-picker-switch" role="radiogroup" aria-label={`${label} picker style`}>
+      <button type="button" role="radio" aria-checked={value === 'classic'}
+        className={`tsp-picker-switch-btn${value === 'classic' ? ' active' : ''}`} onClick={() => onChange('classic')}>
+        <Pipette size={11} /> Classic
+      </button>
+      <button type="button" role="radio" aria-checked={value === 'wheel'}
+        className={`tsp-picker-switch-btn${value === 'wheel' ? ' active' : ''}`} onClick={() => onChange('wheel')}>
+        <CircleDot size={11} /> Wheel
+      </button>
+    </div>
+  )
+}
 
 const DEFAULTS = {
   darkAccent:  '#6366f1',
@@ -23,6 +45,9 @@ export function ThemeSettingsPage() {
   const [saving,  setSaving]  = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [accentPicker, setAccentPicker] = usePersistedState<PickerStyle>(PERSIST.THEME_PICKER_ACCENT, 'classic', { validate: PICKER_STYLES })
+  const [bgPicker,     setBgPicker]     = usePersistedState<PickerStyle>(PERSIST.THEME_PICKER_BG,     'classic', { validate: PICKER_STYLES })
+  const [textPicker,   setTextPicker]   = usePersistedState<PickerStyle>(PERSIST.THEME_PICKER_TEXT,   'classic', { validate: PICKER_STYLES })
 
   useEffect(() => {
     api.getUserTheme().then(res => {
@@ -41,6 +66,7 @@ export function ThemeSettingsPage() {
   const accent = activeMode === 'dark' ? darkAccent : lightAccent
   const bg     = activeMode === 'dark' ? darkBg     : lightBg
   const text   = activeMode === 'dark' ? darkText   : lightText
+  const shades = deriveBgShades(bg, activeMode)
 
   function applyAll(da=darkAccent, db=darkBg, dt=darkText, la=lightAccent, lb=lightBg, lt=lightText) {
     applyUserTheme(da, db, la, lb, dt, lt)
@@ -120,10 +146,27 @@ export function ThemeSettingsPage() {
 
           {/* Accent color picker */}
           <div className="tsp-card">
-            <div className="tsp-card-header">
-              <span className="tsp-card-title">Accent Color</span>
-              <span className="tsp-card-desc">Buttons, badges, links, active states, logo gradient</span>
+            <div className="tsp-card-header-row">
+              <div className="tsp-card-header">
+                <span className="tsp-card-title">Accent Color</span>
+                <span className="tsp-card-desc">Buttons, badges, links, active states, logo gradient</span>
+              </div>
+              <PickerSwitch value={accentPicker} onChange={setAccentPicker} label="Accent" />
             </div>
+            {accentPicker === 'wheel' ? (
+              <div className="tsp-wheel-row">
+                <ColorWheelPicker value={accent} onChange={setAccent} label="Accent" />
+                <div className="tsp-wheel-side">
+                  <span className="tsp-hex-value">{accent}</span>
+                  <div className="tsp-derived-chips">
+                    <span className="tsp-chip" style={{ background: accent, opacity: 0.7 }}>Base</span>
+                    <span className="tsp-chip" style={{ background: accent, opacity: 0.45 }}>Hover</span>
+                    <span className="tsp-chip" style={{ background: accent, opacity: 0.25 }}>Muted</span>
+                  </div>
+                  <span className="tsp-wheel-hint">Tap a dot to pick it. Switch to Classic for an exact shade.</span>
+                </div>
+              </div>
+            ) : (
             <div className="tsp-picker-row">
               <label className="tsp-swatch-label" htmlFor="accent-picker">
                 <div className="tsp-swatch" style={{ background: accent }} />
@@ -142,14 +185,32 @@ export function ThemeSettingsPage() {
                 <span className="tsp-chip" style={{ background: accent, opacity: 0.25 }}>Muted</span>
               </div>
             </div>
+            )}
           </div>
 
           {/* Background color picker */}
           <div className="tsp-card">
-            <div className="tsp-card-header">
-              <span className="tsp-card-title">Background Color</span>
-              <span className="tsp-card-desc">Page background, surfaces, and ambient gradient</span>
+            <div className="tsp-card-header-row">
+              <div className="tsp-card-header">
+                <span className="tsp-card-title">Background Color</span>
+                <span className="tsp-card-desc">Page background, cards, left nav, header and menus</span>
+              </div>
+              <PickerSwitch value={bgPicker} onChange={setBgPicker} label="Background" />
             </div>
+            {bgPicker === 'wheel' ? (
+              <div className="tsp-wheel-row">
+                <ColorWheelPicker value={bg} onChange={setBg} label="Background" />
+                <div className="tsp-wheel-side">
+                  <span className="tsp-hex-value">{bg}</span>
+                  <div className="tsp-derived-chips">
+                    <span className="tsp-chip tsp-chip--bg" style={{ background: shades.page, color: text }} title="Page background">Page</span>
+                    <span className="tsp-chip tsp-chip--bg" style={{ background: shades.panel, color: text }} title="Cards, left nav, header, menus">Panel</span>
+                    <span className="tsp-chip tsp-chip--bg" style={{ background: shades.hover, color: text }} title="Hover on rows and buttons">Hover</span>
+                  </div>
+                  <span className="tsp-wheel-hint">{activeMode === 'light' ? 'The soft inner ring and white centre suit light mode best.' : 'Use Classic to pick a deep shade for dark mode.'}</span>
+                </div>
+              </div>
+            ) : (
             <div className="tsp-picker-row">
               <label className="tsp-swatch-label" htmlFor="bg-picker">
                 <div className="tsp-swatch" style={{ background: bg }} />
@@ -162,15 +223,34 @@ export function ThemeSettingsPage() {
                 />
               </label>
               <span className="tsp-hex-value">{bg}</span>
+              <div className="tsp-derived-chips">
+                <span className="tsp-chip tsp-chip--bg" style={{ background: shades.page, color: text }} title="Page background">Page</span>
+                <span className="tsp-chip tsp-chip--bg" style={{ background: shades.panel, color: text }} title="Cards, left nav, header, menus">Panel</span>
+                <span className="tsp-chip tsp-chip--bg" style={{ background: shades.hover, color: text }} title="Hover on rows and buttons">Hover</span>
+              </div>
             </div>
+            )}
           </div>
 
           {/* Text color picker */}
           <div className="tsp-card">
-            <div className="tsp-card-header">
-              <span className="tsp-card-title">Text Color</span>
-              <span className="tsp-card-desc">Primary text across the entire app</span>
+            <div className="tsp-card-header-row">
+              <div className="tsp-card-header">
+                <span className="tsp-card-title">Text Color</span>
+                <span className="tsp-card-desc">Primary text across the entire app</span>
+              </div>
+              <PickerSwitch value={textPicker} onChange={setTextPicker} label="Text" />
             </div>
+            {textPicker === 'wheel' ? (
+              <div className="tsp-wheel-row">
+                <ColorWheelPicker value={text} onChange={setText} label="Text" />
+                <div className="tsp-wheel-side">
+                  <span className="tsp-hex-value">{text}</span>
+                  <span className="tsp-text-sample" style={{ color: text, background: bg }}>Aa</span>
+                  <span className="tsp-wheel-hint">Tap a dot to pick it. Switch to Classic for an exact shade.</span>
+                </div>
+              </div>
+            ) : (
             <div className="tsp-picker-row">
               <label className="tsp-swatch-label" htmlFor="text-picker">
                 <div className="tsp-swatch tsp-swatch--text" style={{ background: text }} />
@@ -185,6 +265,7 @@ export function ThemeSettingsPage() {
               <span className="tsp-hex-value">{text}</span>
               <span className="tsp-text-sample" style={{ color: text, background: bg }}>Aa</span>
             </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -209,7 +290,7 @@ export function ThemeSettingsPage() {
           <span className="tsp-preview-label">Live Preview</span>
           <div className="tsp-preview-shell" style={{ background: bg, borderColor: accent }}>
             {/* Fake sidebar strip */}
-            <div className="tsp-preview-sidebar" style={{ borderColor: `${accent}30` }}>
+            <div className="tsp-preview-sidebar" style={{ borderColor: `${accent}30`, background: shades.panel }}>
               <div className="tsp-preview-logo" style={{ background: `linear-gradient(135deg, ${accent} 0%, ${accent}99 100%)` }} />
               {[1, 2, 3].map(i => (
                 <div key={i} className={`tsp-preview-nav-item${i === 1 ? ' active' : ''}`}
@@ -219,14 +300,14 @@ export function ThemeSettingsPage() {
             {/* Fake content */}
             <div className="tsp-preview-content">
               {/* Header strip */}
-              <div className="tsp-preview-header" style={{ borderColor: `${accent}20` }}>
+              <div className="tsp-preview-header" style={{ borderColor: `${accent}20`, background: shades.panel }}>
                 <div className="tsp-preview-title-bar" />
                 <div className="tsp-preview-action-btn" style={{ background: accent }} />
               </div>
               {/* Cards */}
               <div className="tsp-preview-cards">
                 {[1, 2, 3].map(i => (
-                  <div key={i} className="tsp-preview-card" style={{ borderColor: `${accent}22` }}>
+                  <div key={i} className="tsp-preview-card" style={{ borderColor: `${accent}22`, background: shades.panel }}>
                     <div className="tsp-preview-card-tag" style={{ background: `${accent}25`, color: accent }} />
                     <div className="tsp-preview-card-line" />
                     <div className="tsp-preview-card-line tsp-short" />

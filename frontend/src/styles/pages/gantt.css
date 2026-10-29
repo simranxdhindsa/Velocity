@@ -1,0 +1,307 @@
+/* ── Gantt page: layout, toolbar, task table ─────────────────────────────────
+   Timeline (header, grid, bars, arrows, zoom) lives in gantt-timeline.css. */
+
+.gt-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 20px 96px;  /* clear of the floating PM Assistant bubble */
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.gt-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+
+.gt-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.gt-toolbar-nav,
+.gt-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gt-tool-btn {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.gt-tool-btn:hover:not(:disabled) { border-color: var(--color-primary); }
+.gt-tool-btn:disabled { opacity: 0.45; cursor: default; }
+
+.gt-tool-btn--active {
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.12);
+  border-color: rgba(var(--color-primary-rgb), 0.5);
+}
+
+.gt-scale-dropdown { width: 96px; }
+.gt-chart-dropdown { width: 200px; }
+
+.gt-step {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.gt-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.gt-icon-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.gt-icon-btn:disabled { opacity: 0.35; cursor: default; }
+
+.gt-period {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* ── Body: task table | timeline ─────────────────────────────────────────── */
+
+.gt-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.gt-tb-scroll {
+  flex-shrink: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-right: 1px solid var(--border-color);
+  scrollbar-width: none;
+  padding-bottom: 10px;   /* matches the timeline's horizontal scrollbar */
+}
+.gt-tb-scroll::-webkit-scrollbar { display: none; }
+
+.gt-tb {
+  width: 470px;
+  flex-shrink: 0;
+}
+
+.gt-tb-hdr {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 8px;
+  box-sizing: border-box;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.gt-tb-row {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.gt-tb-row:hover { background: rgba(var(--color-primary-rgb), 0.05); }
+
+.gt-tb-row--group { background: var(--bg-card); }
+
+.gt-tb-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.gt-tb-task   { flex: 1; padding-left: 14px; }
+.gt-tb-owner  { width: 150px; flex-shrink: 0; }
+.gt-tb-status { width: 112px; flex-shrink: 0; }
+
+.gt-tb-task--issue { padding-left: 36px; }
+
+.gt-tb-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.gt-tb-chevron--open { transform: rotate(90deg); }
+
+.gt-tb-group-dot,
+.gt-tb-prio {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.gt-tb-group-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gt-tb-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 1px 7px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-full);
+}
+
+.gt-tb-id {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.gt-tb-name,
+.gt-tb-owner-name {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gt-tb-owner-name { color: var(--text-secondary); }
+
+.gt-tb-muted {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gt-tb-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.gt-tb-avatar--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.18);
+}
+
+.gt-tb-badge {
+  max-width: 100%;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--badge-color) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--badge-color) 35%, transparent);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Empty + skeleton ────────────────────────────────────────────────────── */
+
+.gt-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.gt-empty p {
+  font-size: 14px;
+  margin: 0;
+}
+
+.gt-tb--skeleton {
+  border-right: 1px solid var(--border-color);
+}
+
+.gt-tb--skeleton .gt-tb-row { cursor: default; }
+
+/* ── Light mode ──────────────────────────────────────────────────────────── */
+
+[data-theme="light"] .gt-card,
+[data-theme="light"] .gt-tb-hdr { background: var(--bg-elevated); }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .gt-tb { width: 340px; }
+  .gt-tb-owner { display: none; }
+}
+
+@media (max-width: 768px) {
+  .gt-page { padding: 10px 10px 96px; }
+  .gt-toolbar { flex-wrap: wrap; }
+  .gt-toolbar-actions { width: 100%; }
+  .gt-chart-dropdown { flex: 1; width: auto; }
+  .gt-tb { width: 170px; }
+  .gt-tb-status { display: none; }
+  .gt-tb-task--issue { padding-left: 14px; }
+  .gt-tb-id { display: none; }
+}

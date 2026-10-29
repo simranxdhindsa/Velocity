@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Save, Check, Loader2, RotateCcw } from 'lucide-react'
 import api from '../../services/api'
+import { SprintScanLoader } from '../brand/VelocityLoaders'
 import type { DeploymentBotConfig, DeploymentSectionConfig } from '../../services/api'
 
 const DEFAULT_CONFIG: DeploymentBotConfig = {
@@ -76,8 +77,10 @@ export default function DeploymentBotConfig({ onConfigChange }: Props) {
 
   if (loading) {
     return (
-      <div className="dr-bot-config" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-        <Loader2 size={14} className="animate-spin" /> Loading config…
+      <div className="dr-bot-config">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <SprintScanLoader size={40} />
+        </div>
       </div>
     )
   }

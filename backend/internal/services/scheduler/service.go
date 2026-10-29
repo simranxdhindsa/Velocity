@@ -12,45 +12,52 @@ import (
 	"github.com/dhindsa/project-management/internal/handlers"
 	"github.com/dhindsa/project-management/internal/models"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
+	updatesvc "github.com/dhindsa/project-management/internal/services/update_reminder"
 	"github.com/dhindsa/project-management/internal/services/youtrack"
 )
 
 // Service runs scheduled PM checks and creates notifications
 type Service struct {
-	notifHandler *handlers.NotificationHandler
-	reminderRepo *database.ReminderRepository
-	settingsRepo *database.SettingsRepository
-	dailyRepo    *database.DailyTaskRepository
-	reportRepo   *database.ReportRepository
-	slackRepo    *database.SlackRepository
-	configRepo   *database.WorkflowConfigRepository
-	slackService *slacksvc.Service
-	stop         chan struct{}
+	notifHandler       *handlers.NotificationHandler
+	reminderRepo       *database.ReminderRepository
+	settingsRepo       *database.SettingsRepository
+	dailyRepo          *database.DailyTaskRepository
+	reportRepo         *database.ReportRepository
+	slackRepo          *database.SlackRepository
+	configRepo         *database.WorkflowConfigRepository
+	slackService       *slacksvc.Service
+	updateReminderRepo *database.UpdateReminderRepository
+	updateReminderSvc  *updatesvc.Service
+	stop               chan struct{}
 	// Track which one-per-day checks have fired today (reset at midnight)
 	firedToday map[string]bool
 	// Track which issue IDs have had an overdue notification sent today
 	firedOverdueToday map[string]bool
 	lastDate          string
 	// Last time we synced the state log from YouTrack activity feed
-	lastStateLogSync  time.Time
+	lastStateLogSync time.Time
 	// Last time we auto-scanned Slack for all users
-	lastSlackScan     time.Time
+	lastSlackScan time.Time
+	integrationRepo *database.IntegrationRepository
 }
 
 // NewService creates a new scheduler service
 func NewService(notifHandler *handlers.NotificationHandler) *Service {
 	return &Service{
-		notifHandler:      notifHandler,
-		reminderRepo:      database.NewReminderRepository(),
-		settingsRepo:      database.NewSettingsRepository(),
-		dailyRepo:         database.NewDailyTaskRepository(),
-		reportRepo:        database.NewReportRepository(),
-		slackRepo:         database.NewSlackRepository(),
-		configRepo:        database.NewWorkflowConfigRepository(),
-		slackService:      slacksvc.NewService(),
-		stop:              make(chan struct{}),
-		firedToday:        make(map[string]bool),
-		firedOverdueToday: make(map[string]bool),
+		notifHandler:       notifHandler,
+		reminderRepo:       database.NewReminderRepository(),
+		settingsRepo:       database.NewSettingsRepository(),
+		dailyRepo:          database.NewDailyTaskRepository(),
+		reportRepo:         database.NewReportRepository(),
+		slackRepo:          database.NewSlackRepository(),
+		configRepo:         database.NewWorkflowConfigRepository(),
+		slackService:       slacksvc.NewService(),
+		updateReminderRepo: database.NewUpdateReminderRepository(),
+		updateReminderSvc:  updatesvc.NewService(),
+		integrationRepo:    database.NewIntegrationRepository(),
+		stop:               make(chan struct{}),
+		firedToday:         make(map[string]bool),
+		firedOverdueToday:  make(map[string]bool),
 	}
 }
 
@@ -139,6 +146,94 @@ func (s *Service) tick() {
 	if !s.firedToday["blockers"] && currentTime >= blockerTime {
 		s.firedToday["blockers"] = true
 		s.checkBlockedIssues(ctx)
+	}
+
+	// 5. Update reminder rules — each rule carries its own schedule + timezone
+	s.fireUpdateReminders(ctx, now)
+
+	// 6. Purge expired update reminder run logs (runs once per day)
+	if !s.firedToday["ur_purge"] {
+		s.firedToday["ur_purge"] = true
+		_ = database.PurgeUpdateReminderRuns(ctx)
+	}
+}
+
+// fireUpdateReminders iterates all enabled rules and fires any whose schedule matches now.
+// Uses a per-rule firedToday key so each rule fires at most once per day.
+func (s *Service) fireUpdateReminders(ctx context.Context, now time.Time) {
+	rules, err := s.updateReminderRepo.GetAllEnabledRules(ctx)
+	if err != nil {
+		log.Printf("[Scheduler] update reminders: load rules error: %v", err)
+		return
+	}
+
+	for _, rule := range rules {
+		key := "ur:" + rule.ID
+
+		loc, err := time.LoadLocation(rule.Timezone)
+		if err != nil {
+			loc = time.UTC
+		}
+		localNow := now.In(loc)
+		localTime := localNow.Format("15:04")
+		localWeekday := int(localNow.Weekday()) // 0=Sun … 6=Sat
+
+		// Check if today's weekday is in the rule's schedule_days
+		dayMatch := false
+		for _, d := range rule.ScheduleDays {
+			if d == localWeekday {
+				dayMatch = true
+				break
+			}
+		}
+		if !dayMatch {
+			continue
+		}
+
+		// Fire if current local HH:MM matches the rule's scheduled time and hasn't fired today
+		if localTime == rule.ScheduleTime && !s.firedToday[key] {
+			s.firedToday[key] = true
+			go func(r *models.UpdateReminderRule) {
+				result, err := s.updateReminderSvc.ExecuteScheduled(ctx, r)
+				if err != nil {
+					log.Printf("[Scheduler] update reminder %s (%s) error: %v", r.ID, r.Name, err)
+					notif := &models.Notification{
+						UserID:  r.UserID,
+						Type:    "update_reminder_failed",
+						Title:   "Update Reminder failed: " + r.Name,
+						Message: err.Error(),
+					}
+					if err := s.notifHandler.CreateAndBroadcast(ctx, notif); err != nil {
+						log.Printf("[Scheduler] Error creating update reminder notification: %v", err)
+					}
+					return
+				}
+
+				log.Printf("[Scheduler] update reminder fired: %s (%s)", r.Name, r.ID)
+
+				if len(result.DeliveryErrors) > 0 {
+					notif := &models.Notification{
+						UserID:  r.UserID,
+						Type:    "update_reminder_failed",
+						Title:   "Update Reminder partially failed: " + r.Name,
+						Message: strings.Join(result.DeliveryErrors, "; "),
+					}
+					if err := s.notifHandler.CreateAndBroadcast(ctx, notif); err != nil {
+						log.Printf("[Scheduler] Error creating update reminder notification: %v", err)
+					}
+				} else if result.SkippedSend == "" && len(result.DeliveredTo) > 0 {
+					notif := &models.Notification{
+						UserID:  r.UserID,
+						Type:    "update_reminder_sent",
+						Title:   "Update Reminder sent: " + r.Name,
+						Message: fmt.Sprintf("Delivered to %d destination(s)", len(result.DeliveredTo)),
+					}
+					if err := s.notifHandler.CreateAndBroadcast(ctx, notif); err != nil {
+						log.Printf("[Scheduler] Error creating update reminder notification: %v", err)
+					}
+				}
+			}(rule)
+		}
 	}
 }
 
@@ -318,7 +413,10 @@ func (s *Service) checkBlockedIssues(ctx context.Context) {
 				Summary  string
 				Assignee string
 			}{
-				ID:       issue.ID,
+				// IDReadable is the ticket ID people use (ARD-7279); issue.ID is
+				// YouTrack's internal database ID (3-7279) and meant nothing in
+				// the notification.
+				ID:       readableIssueID(issue),
 				Summary:  issue.Summary,
 				Assignee: assigneeName,
 			})
@@ -436,16 +534,29 @@ func (s *Service) checkOverdueInProgress(ctx context.Context) {
 			issue.IssueID, issue.IssueSummary, elapsed, threshold, issue.Priority, assigneeStr,
 		)
 
-		notif := &models.Notification{
-			Type:    "warning",
-			Title:   fmt.Sprintf("⏰ Overdue In Progress: %s", issue.IssueID),
-			Message: msg,
+		adminRows, err := database.GetPool().Query(ctx, `SELECT id FROM users WHERE role IN ('admin', 'project_manager')`)
+		if err != nil {
+			log.Printf("[Scheduler] Error finding admin users for overdue alert %s: %v", issue.IssueID, err)
+			continue
 		}
-		if err := s.notifHandler.CreateAndBroadcast(ctx, notif); err != nil {
-			log.Printf("[Scheduler] Error creating overdue notification for %s: %v", issue.IssueID, err)
-		} else {
-			log.Printf("[Scheduler] Overdue alert sent: %s (%.1fh in progress, threshold %.0fh)", issue.IssueID, elapsed, threshold)
+		for adminRows.Next() {
+			var adminID string
+			if err := adminRows.Scan(&adminID); err != nil {
+				continue
+			}
+			notif := &models.Notification{
+				UserID:  adminID,
+				Type:    "warning",
+				Title:   fmt.Sprintf("⏰ Overdue In Progress: %s", issue.IssueID),
+				Message: msg,
+			}
+			if err := s.notifHandler.CreateAndBroadcast(ctx, notif); err != nil {
+				log.Printf("[Scheduler] Error creating overdue notification for %s: %v", issue.IssueID, err)
+			} else {
+				log.Printf("[Scheduler] Overdue alert sent: %s (%.1fh in progress, threshold %.0fh)", issue.IssueID, elapsed, threshold)
+			}
 		}
+		adminRows.Close()
 	}
 }
 
@@ -629,4 +740,13 @@ func (s *Service) getSetting(key, defaultValue string) string {
 		return defaultValue
 	}
 	return val
+}
+
+// readableIssueID returns the human ticket ID (e.g. ARD-7279), falling back
+// to YouTrack's internal ID only if the readable one is missing.
+func readableIssueID(issue youtrack.Issue) string {
+	if issue.IDReadable != "" {
+		return issue.IDReadable
+	}
+	return issue.ID
 }

@@ -9,21 +9,22 @@ import (
 // ── Models ────────────────────────────────────────────────────────────────────
 
 type DayTrackEntry struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"user_id"`
-	EntryDate     string     `json:"entry_date"` // YYYY-MM-DD
-	Name          string     `json:"name"`
-	Category      string     `json:"category"`
-	StartTime     string     `json:"start_time"`
-	EndTime       string     `json:"end_time"`
-	DurationMins  *int       `json:"duration_mins"`
-	Notes         string     `json:"notes"`
-	Status        string     `json:"status"`
-	ParentEntryID *string    `json:"parent_entry_id"`
-	EntrySource   string     `json:"entry_source"` // manual | slack | youtrack_qa | youtrack_created
-	ExternalRef   string     `json:"external_ref"` // Slack TS or YouTrack issue ID
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID              string    `json:"id"`
+	UserID          string    `json:"user_id"`
+	EntryDate       string    `json:"entry_date"` // YYYY-MM-DD
+	Name            string    `json:"name"`
+	Category        string    `json:"category"`
+	StartTime       string    `json:"start_time"`
+	EndTime         string    `json:"end_time"`
+	DurationMins    *int      `json:"duration_mins"`
+	Notes           string    `json:"notes"`
+	Status          string    `json:"status"`
+	ParentEntryID   *string   `json:"parent_entry_id"`
+	EntrySource     string    `json:"entry_source"`                // manual | slack | youtrack_qa | youtrack_created
+	ExternalRef     string    `json:"external_ref"`                // Slack TS or YouTrack issue ID
+	YoutrackIssueID *string   `json:"youtrack_issue_id,omitempty"` // set for entry_source='youtrack' rows; used to prune entries whose ticket was deleted
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // DayTrackSlackConfig holds per-user Slack auto-logging settings.
@@ -38,7 +39,8 @@ type DayTrackSlackConfig struct {
 	LastScannedTS   string           `json:"last_scanned_ts"`
 	DestChannelID   string           `json:"dest_channel_id"`
 	DestChannelName string           `json:"dest_channel_name"`
-	Timezone        string           `json:"timezone"` // IANA tz name, e.g. "Asia/Kolkata"
+	Timezone        string           `json:"timezone"`          // IANA tz name, e.g. "Asia/Kolkata"
+	AutoSendEnabled bool             `json:"auto_send_enabled"` // auto-post today's update at the fixed daily time; time itself is not user-configurable
 }
 
 // DayTrackKWRule is a single keyword → rule_type mapping.
@@ -49,19 +51,22 @@ type DayTrackKWRule struct {
 }
 
 type DayTrackPlanned struct {
-	ID            string    `json:"id"`
-	UserID        string    `json:"user_id"`
-	EntryDate     string    `json:"entry_date"`
-	Name          string    `json:"name"`
-	Category      string    `json:"category"`
-	ScheduledTime string    `json:"scheduled_time"`
-	StartTime     string    `json:"start_time"`
-	EndTime       string    `json:"end_time"`
-	WhenType      string    `json:"when_type"` // today | tomorrow
-	Notes         string    `json:"notes"`
-	Status        string    `json:"status"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID              string    `json:"id"`
+	UserID          string    `json:"user_id"`
+	EntryDate       string    `json:"entry_date"`
+	Name            string    `json:"name"`
+	Category        string    `json:"category"`
+	ScheduledTime   string    `json:"scheduled_time"`
+	StartTime       string    `json:"start_time"`
+	EndTime         string    `json:"end_time"`
+	WhenType        string    `json:"when_type"` // today | tomorrow
+	Notes           string    `json:"notes"`
+	Status          string    `json:"status"`
+	EntrySource     string    `json:"entry_source"`                // manual | youtrack — preserved across carry-forward
+	ExternalRef     string    `json:"external_ref"`                // preserved so a re-started item still dedupes against its origin
+	YoutrackIssueID *string   `json:"youtrack_issue_id,omitempty"` // set when carried from a youtrack-sourced entry
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type DayTrackRepository struct{}
@@ -75,7 +80,7 @@ func (r *DayTrackRepository) GetEntries(ctx context.Context, userID, date string
 	rows, err := pool.Query(ctx,
 		`SELECT id, user_id, entry_date::text, name, category, COALESCE(start_time,''), COALESCE(end_time,''),
 		        duration_mins, COALESCE(notes,''), status, parent_entry_id,
-		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''),
+		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id,
 		        created_at, updated_at
 		 FROM daytrack_entries WHERE user_id=$1 AND entry_date=$2::date ORDER BY end_time DESC NULLS FIRST, start_time DESC NULLS LAST, created_at DESC`,
 		userID, date)
@@ -88,7 +93,7 @@ func (r *DayTrackRepository) GetEntries(ctx context.Context, userID, date string
 		var e DayTrackEntry
 		if err := rows.Scan(&e.ID, &e.UserID, &e.EntryDate, &e.Name, &e.Category,
 			&e.StartTime, &e.EndTime, &e.DurationMins, &e.Notes, &e.Status, &e.ParentEntryID,
-			&e.EntrySource, &e.ExternalRef,
+			&e.EntrySource, &e.ExternalRef, &e.YoutrackIssueID,
 			&e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -129,6 +134,57 @@ func (r *DayTrackRepository) CreateEntrySourced(ctx context.Context, userID, dat
 		return nil, nil
 	}
 	return &e, err
+}
+
+// SetYoutrackIssueID stamps the source YouTrack issue ID onto a just-created entry so
+// it can later be pruned (see PruneEntriesForDeletedIssue) if that ticket gets deleted.
+func (r *DayTrackRepository) SetYoutrackIssueID(ctx context.Context, entryID, issueID string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx, `UPDATE daytrack_entries SET youtrack_issue_id = $1 WHERE id = $2`, issueID, entryID)
+	return err
+}
+
+// YouTrackLinkedEntry is one (user, issue) pair pulled from today's YouTrack-sourced entries,
+// used to opportunistically re-check ticket existence when any YouTrack webhook fires.
+type YouTrackLinkedEntry struct {
+	UserID  string
+	IssueID string
+}
+
+// TodayYouTrackLinkedIssues returns the distinct (user_id, youtrack_issue_id) pairs for every
+// YouTrack-sourced DayTrack entry dated `date`.
+func (r *DayTrackRepository) TodayYouTrackLinkedIssues(ctx context.Context, date string) ([]YouTrackLinkedEntry, error) {
+	pool := GetPool()
+	rows, err := pool.Query(ctx,
+		`SELECT DISTINCT user_id, youtrack_issue_id FROM daytrack_entries
+		 WHERE entry_date = $1 AND entry_source = 'youtrack'
+		   AND youtrack_issue_id IS NOT NULL AND youtrack_issue_id != ''`, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []YouTrackLinkedEntry
+	for rows.Next() {
+		var e YouTrackLinkedEntry
+		if err := rows.Scan(&e.UserID, &e.IssueID); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// PruneEntriesForDeletedIssue deletes every DayTrack entry (any user, any date) that was
+// auto-logged from a YouTrack ticket confirmed deleted, plus the ticket's own state-log
+// history. Only call this once existence has been positively confirmed (404), never on an
+// ambiguous/failed lookup — the caller is responsible for that distinction.
+func (r *DayTrackRepository) PruneEntriesForDeletedIssue(ctx context.Context, issueID string) error {
+	pool := GetPool()
+	if _, err := pool.Exec(ctx, `DELETE FROM daytrack_entries WHERE youtrack_issue_id = $1`, issueID); err != nil {
+		return err
+	}
+	_, err := pool.Exec(ctx, `DELETE FROM issue_state_log WHERE issue_id = $1`, issueID)
+	return err
 }
 
 func (r *DayTrackRepository) UpdateEntry(ctx context.Context, id, userID, name, category, startTime, endTime string, durationMins *int, notes, status string) (*DayTrackEntry, error) {
@@ -177,13 +233,23 @@ func (r *DayTrackRepository) GetEntryByID(ctx context.Context, id, userID string
 
 // ── Planned ───────────────────────────────────────────────────────────────────
 
+// GetPlanned returns planned/carried items for exactly `date`, plus any "in_progress"
+// item whose entry_date is on or before `date` — in-progress work is a current state,
+// not a date-scoped event, so it keeps showing up on every day from when it was opened
+// until it's actually resolved, without needing anything to rewrite its entry_date.
+// (Bounded by entry_date<=date so it doesn't leak backward into days before it existed.)
 func (r *DayTrackRepository) GetPlanned(ctx context.Context, userID, date string) ([]DayTrackPlanned, error) {
 	pool := GetPool()
 	rows, err := pool.Query(ctx,
 		`SELECT id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
 		        COALESCE(start_time,''), COALESCE(end_time,''),
-		        when_type, COALESCE(notes,''), status, created_at, updated_at
-		 FROM daytrack_planned WHERE user_id=$1 AND entry_date=$2::date ORDER BY created_at DESC`,
+		        when_type, COALESCE(notes,''), status,
+		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id,
+		        created_at, updated_at
+		 FROM daytrack_planned
+		 WHERE user_id=$1
+		   AND (entry_date=$2::date OR (status='in_progress' AND entry_date<=$2::date))
+		 ORDER BY created_at DESC`,
 		userID, date)
 	if err != nil {
 		return nil, err
@@ -193,7 +259,9 @@ func (r *DayTrackRepository) GetPlanned(ctx context.Context, userID, date string
 	for rows.Next() {
 		var p DayTrackPlanned
 		if err := rows.Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
-			&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
+			&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID,
+			&p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, p)
@@ -204,18 +272,70 @@ func (r *DayTrackRepository) GetPlanned(ctx context.Context, userID, date string
 	return items, nil
 }
 
-func (r *DayTrackRepository) CreatePlanned(ctx context.Context, userID, date, name, category, scheduledTime, startTime, endTime, whenType, notes, status string) (*DayTrackPlanned, error) {
+func (r *DayTrackRepository) CreatePlanned(ctx context.Context, userID, date, name, category, scheduledTime, startTime, endTime, whenType, notes, status, entrySource, externalRef string, youtrackIssueID *string) (*DayTrackPlanned, error) {
+	pool := GetPool()
+	if entrySource == "" {
+		entrySource = "manual"
+	}
+	var p DayTrackPlanned
+	err := pool.QueryRow(ctx,
+		`INSERT INTO daytrack_planned (user_id, entry_date, name, category, scheduled_time, start_time, end_time, when_type, notes, status, entry_source, external_ref, youtrack_issue_id)
+		 VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		 ON CONFLICT (user_id, external_ref) WHERE external_ref IS NOT NULL AND external_ref != ''
+		 DO NOTHING
+		 RETURNING id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
+		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status,
+		           COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id, created_at, updated_at`,
+		userID, date, name, category, nullStr(scheduledTime), nullStr(startTime), nullStr(endTime), whenType, notes, status,
+		entrySource, nullStr(externalRef), youtrackIssueID,
+	).Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
+		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
+		&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID, &p.CreatedAt, &p.UpdatedAt)
+	// pgx returns "no rows in result set" when DO NOTHING skips the insert (a dedup
+	// hit, e.g. the same YouTrack ticket already pulled in today) — treat as success.
+	if err != nil && err.Error() == "no rows in result set" {
+		return nil, nil
+	}
+	return &p, err
+}
+
+// UpsertInProgressPlanned refreshes the single Planned & Carry Over row that tracks a
+// YouTrack ticket currently in progress — one row per ticket, not one per day. Unlike
+// CreatePlanned's DO NOTHING dedup, this bumps entry_date to today on every scan so a
+// ticket that's been open for a week still shows as "today's" open work, without piling
+// up a duplicate row per day. Pair with PruneStaleInProgressPlanned so a ticket that's
+// moved on gets removed instead of lingering forever.
+func (r *DayTrackRepository) UpsertInProgressPlanned(ctx context.Context, userID, date, name, category, scheduledTime, startTime, externalRef, youtrackIssueID string) (*DayTrackPlanned, error) {
 	pool := GetPool()
 	var p DayTrackPlanned
 	err := pool.QueryRow(ctx,
-		`INSERT INTO daytrack_planned (user_id, entry_date, name, category, scheduled_time, start_time, end_time, when_type, notes, status)
-		 VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO daytrack_planned (user_id, entry_date, name, category, scheduled_time, start_time, when_type, status, entry_source, external_ref, youtrack_issue_id)
+		 VALUES ($1, $2::date, $3, $4, $5, $6, 'today', 'in_progress', 'youtrack', $7, $8)
+		 ON CONFLICT (user_id, external_ref) WHERE external_ref IS NOT NULL AND external_ref != ''
+		 DO UPDATE SET entry_date=$2::date, name=$3, category=$4, scheduled_time=$5, start_time=$6, updated_at=NOW()
 		 RETURNING id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
-		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status, created_at, updated_at`,
-		userID, date, name, category, nullStr(scheduledTime), nullStr(startTime), nullStr(endTime), whenType, notes, status,
+		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status,
+		           COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id, created_at, updated_at`,
+		userID, date, name, category, nullStr(scheduledTime), nullStr(startTime), externalRef, youtrackIssueID,
 	).Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
-		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
+		&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID, &p.CreatedAt, &p.UpdatedAt)
 	return &p, err
+}
+
+// PruneStaleInProgressPlanned deletes Planned & Carry Over rows for YouTrack tickets that
+// are no longer in an in-progress state — e.g. the user moved the ticket to Dev directly
+// in YouTrack, bypassing the drag-to-Today's-Log flow that would normally clean this up.
+// stillOpenIssueIDs is the current, live "still in progress" list from this scan; anything
+// tracked as in_progress whose issue ID isn't in that list gets removed.
+func (r *DayTrackRepository) PruneStaleInProgressPlanned(ctx context.Context, userID string, stillOpenIssueIDs []string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx,
+		`DELETE FROM daytrack_planned
+		 WHERE user_id=$1 AND entry_source='youtrack' AND status='in_progress'
+		   AND (youtrack_issue_id IS NULL OR NOT (youtrack_issue_id = ANY($2)))`,
+		userID, stillOpenIssueIDs)
+	return err
 }
 
 func (r *DayTrackRepository) UpdatePlanned(ctx context.Context, id, userID, name, category, scheduledTime, startTime, endTime, whenType, notes, status string) (*DayTrackPlanned, error) {
@@ -225,10 +345,12 @@ func (r *DayTrackRepository) UpdatePlanned(ctx context.Context, id, userID, name
 		`UPDATE daytrack_planned SET name=$3, category=$4, scheduled_time=$5, start_time=$6, end_time=$7, when_type=$8, notes=$9, status=$10, updated_at=NOW()
 		 WHERE id=$1 AND user_id=$2
 		 RETURNING id, user_id, entry_date::text, name, category, COALESCE(scheduled_time,''),
-		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status, created_at, updated_at`,
+		           COALESCE(start_time,''), COALESCE(end_time,''), when_type, COALESCE(notes,''), status,
+		           COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id, created_at, updated_at`,
 		id, userID, name, category, nullStr(scheduledTime), nullStr(startTime), nullStr(endTime), whenType, notes, status,
 	).Scan(&p.ID, &p.UserID, &p.EntryDate, &p.Name, &p.Category,
-		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+		&p.ScheduledTime, &p.StartTime, &p.EndTime, &p.WhenType, &p.Notes, &p.Status,
+		&p.EntrySource, &p.ExternalRef, &p.YoutrackIssueID, &p.CreatedAt, &p.UpdatedAt)
 	return &p, err
 }
 
@@ -245,7 +367,7 @@ func (r *DayTrackRepository) GetEntriesRange(ctx context.Context, userID, startD
 	rows, err := pool.Query(ctx,
 		`SELECT id, user_id, entry_date::text, name, category, COALESCE(start_time,''), COALESCE(end_time,''),
 		        duration_mins, COALESCE(notes,''), status, parent_entry_id,
-		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''),
+		        COALESCE(entry_source,'manual'), COALESCE(external_ref,''), youtrack_issue_id,
 		        created_at, updated_at
 		 FROM daytrack_entries
 		 WHERE user_id=$1 AND entry_date BETWEEN $2::date AND $3::date
@@ -260,7 +382,7 @@ func (r *DayTrackRepository) GetEntriesRange(ctx context.Context, userID, startD
 		var e DayTrackEntry
 		if err := rows.Scan(&e.ID, &e.UserID, &e.EntryDate, &e.Name, &e.Category,
 			&e.StartTime, &e.EndTime, &e.DurationMins, &e.Notes, &e.Status, &e.ParentEntryID,
-			&e.EntrySource, &e.ExternalRef,
+			&e.EntrySource, &e.ExternalRef, &e.YoutrackIssueID,
 			&e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -298,26 +420,32 @@ func (r *DayTrackRepository) GetSuggestions(ctx context.Context, userID string) 
 
 // ── Categories ────────────────────────────────────────────────────────────────
 
-func (r *DayTrackRepository) GetCategories(ctx context.Context, userID string) ([]string, error) {
+// DayTrackCategory is a custom category a user has added, with its required emoji icon.
+type DayTrackCategory struct {
+	Name string `json:"name"`
+	Icon string `json:"icon"`
+}
+
+func (r *DayTrackRepository) GetCategories(ctx context.Context, userID string) ([]DayTrackCategory, error) {
 	pool := GetPool()
 	rows, err := pool.Query(ctx,
-		`SELECT name FROM daytrack_categories WHERE user_id=$1 ORDER BY position, name`, userID)
+		`SELECT name, icon FROM daytrack_categories WHERE user_id=$1 ORDER BY position, name`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var cats []string
+	var cats []DayTrackCategory
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var c DayTrackCategory
+		if err := rows.Scan(&c.Name, &c.Icon); err != nil {
 			return nil, err
 		}
-		cats = append(cats, name)
+		cats = append(cats, c)
 	}
 	return cats, nil
 }
 
-func (r *DayTrackRepository) AddCategory(ctx context.Context, userID, name string) error {
+func (r *DayTrackRepository) AddCategory(ctx context.Context, userID, name, icon string) error {
 	pool := GetPool()
 	// Get next position first to avoid $1 type ambiguity in a single query
 	var pos int
@@ -327,8 +455,8 @@ func (r *DayTrackRepository) AddCategory(ctx context.Context, userID, name strin
 		return err
 	}
 	_, err = pool.Exec(ctx,
-		`INSERT INTO daytrack_categories (user_id, name, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-		userID, name, pos)
+		`INSERT INTO daytrack_categories (user_id, name, position, icon) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+		userID, name, pos, icon)
 	return err
 }
 
@@ -354,10 +482,12 @@ func (r *DayTrackRepository) GetSlackConfig(ctx context.Context, userID string) 
 	var rulesJSON []byte
 	err := pool.QueryRow(ctx,
 		`SELECT id, user_id, channel_id, channel_name, slack_user_id, keyword_rules, enabled, last_scanned_ts,
-		        COALESCE(dest_channel_id,''), COALESCE(dest_channel_name,''), COALESCE(timezone,'Asia/Kolkata')
+		        COALESCE(dest_channel_id,''), COALESCE(dest_channel_name,''), COALESCE(timezone,'Asia/Kolkata'),
+		        auto_send_enabled
 		 FROM daytrack_slack_config WHERE user_id=$1`, userID,
 	).Scan(&cfg.ID, &cfg.UserID, &cfg.ChannelID, &cfg.ChannelName, &cfg.SlackUserID,
-		&rulesJSON, &cfg.Enabled, &cfg.LastScannedTS, &cfg.DestChannelID, &cfg.DestChannelName, &cfg.Timezone)
+		&rulesJSON, &cfg.Enabled, &cfg.LastScannedTS, &cfg.DestChannelID, &cfg.DestChannelName, &cfg.Timezone,
+		&cfg.AutoSendEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -378,13 +508,13 @@ func (r *DayTrackRepository) UpsertSlackConfig(ctx context.Context, cfg *DayTrac
 		tz = "Asia/Kolkata"
 	}
 	_, err = pool.Exec(ctx,
-		`INSERT INTO daytrack_slack_config (user_id, channel_id, channel_name, slack_user_id, keyword_rules, enabled, dest_channel_id, dest_channel_name, timezone, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+		`INSERT INTO daytrack_slack_config (user_id, channel_id, channel_name, slack_user_id, keyword_rules, enabled, dest_channel_id, dest_channel_name, timezone, auto_send_enabled, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
 		 ON CONFLICT(user_id) DO UPDATE SET
 		   channel_id=$2, channel_name=$3, slack_user_id=$4,
-		   keyword_rules=$5, enabled=$6, dest_channel_id=$7, dest_channel_name=$8, timezone=$9, updated_at=NOW()`,
+		   keyword_rules=$5, enabled=$6, dest_channel_id=$7, dest_channel_name=$8, timezone=$9, auto_send_enabled=$10, updated_at=NOW()`,
 		cfg.UserID, cfg.ChannelID, cfg.ChannelName, cfg.SlackUserID, rulesJSON, cfg.Enabled,
-		cfg.DestChannelID, cfg.DestChannelName, tz)
+		cfg.DestChannelID, cfg.DestChannelName, tz, cfg.AutoSendEnabled)
 	return err
 }
 
@@ -424,6 +554,38 @@ func (r *DayTrackRepository) GetAllEnabledSlackConfigs(ctx context.Context) ([]S
 		}
 		if len(rulesJSON) > 0 {
 			_ = json.Unmarshal(rulesJSON, &c.KeywordRules)
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// AutoSendConfig is a user opted into the daily auto-send-to-Slack job.
+type AutoSendConfig struct {
+	UserID        string
+	DestChannelID string
+}
+
+// GetAllAutoSendConfigs returns every user with auto-send turned on, a destination channel
+// set, and a connected Slack integration to post through. Used by the daily scheduler.
+func (r *DayTrackRepository) GetAllAutoSendConfigs(ctx context.Context) ([]AutoSendConfig, error) {
+	pool := GetPool()
+	rows, err := pool.Query(ctx,
+		`SELECT dsc.user_id, dsc.dest_channel_id
+		 FROM daytrack_slack_config dsc
+		 JOIN slack_integrations si ON si.user_id = dsc.user_id
+		 WHERE dsc.auto_send_enabled = true
+		   AND dsc.dest_channel_id != ''
+		   AND si.connected = true`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AutoSendConfig
+	for rows.Next() {
+		var c AutoSendConfig
+		if err := rows.Scan(&c.UserID, &c.DestChannelID); err != nil {
+			continue
 		}
 		out = append(out, c)
 	}
@@ -480,3 +642,57 @@ func (r *DayTrackRepository) EntryExistsByExternalRef(ctx context.Context, userI
 	return exists, err
 }
 
+// ── Daily Slack post idempotency ────────────────────────────────────────────────
+// "Post to Slack" posts once per (user, date) and edits that same message in place on
+// every later click for the same date, instead of spamming a new message each time.
+
+type DayTrackDailyPost struct {
+	UserID    string    `json:"user_id"`
+	EntryDate string    `json:"entry_date"`
+	ChannelID string    `json:"channel_id"`
+	SlackTS   string    `json:"slack_ts"`
+	PostedAt  time.Time `json:"posted_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetDailyPost returns the existing post record for this user+date, or nil if never posted.
+func (r *DayTrackRepository) GetDailyPost(ctx context.Context, userID, date string) (*DayTrackDailyPost, error) {
+	pool := GetPool()
+	var p DayTrackDailyPost
+	err := pool.QueryRow(ctx, `
+		SELECT user_id, entry_date::text, channel_id, slack_ts, posted_at, updated_at
+		FROM daytrack_daily_posts WHERE user_id=$1 AND entry_date=$2::date`,
+		userID, date,
+	).Scan(&p.UserID, &p.EntryDate, &p.ChannelID, &p.SlackTS, &p.PostedAt, &p.UpdatedAt)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
+// UpsertDailyPost records a fresh post (first click of the day) or bumps updated_at for
+// an edit-in-place (later clicks the same day). channelID/slackTS are only meaningful on
+// first insert — ON CONFLICT intentionally leaves them untouched so the stored ts always
+// still points at the original message we're editing.
+func (r *DayTrackRepository) UpsertDailyPost(ctx context.Context, userID, date, channelID, slackTS string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO daytrack_daily_posts (user_id, entry_date, channel_id, slack_ts)
+		VALUES ($1, $2::date, $3, $4)
+		ON CONFLICT (user_id, entry_date) DO UPDATE SET updated_at = NOW()`,
+		userID, date, channelID, slackTS)
+	return err
+}
+
+// DeleteDailyPost removes the post record for this user+date, so a later "Post to Slack"
+// starts a fresh message instead of trying to edit the one that was just deleted.
+func (r *DayTrackRepository) DeleteDailyPost(ctx context.Context, userID, date string) error {
+	pool := GetPool()
+	_, err := pool.Exec(ctx,
+		`DELETE FROM daytrack_daily_posts WHERE user_id=$1 AND entry_date=$2::date`,
+		userID, date)
+	return err
+}

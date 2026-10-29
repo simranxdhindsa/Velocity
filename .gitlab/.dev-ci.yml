@@ -9,8 +9,46 @@ variables:
 
 
 stages:
+  - changelog
   - build
   - deploy
+
+#================
+# Update Changelog
+#================
+update-changelog:
+  stage: changelog
+  image: node:20-alpine
+  before_script:
+    - apk add --no-cache git
+    - git config --global user.email "ci@velocity"
+    - git config --global user.name "Velocity CI"
+    - git remote set-url origin "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+  script:
+    - |
+      LAST_CL=$(git log --follow -1 --format="%H" CHANGELOG.md 2>/dev/null || true)
+      if [ -z "$LAST_CL" ]; then
+        echo "No CHANGELOG.md history found, skipping"
+        exit 0
+      fi
+      # Process each commit since the last changelog update, oldest first
+      git log --format="%s" --reverse ${LAST_CL}..HEAD | while IFS= read -r msg; do
+        printf '%s' "$msg" > /tmp/commit-msg
+        node scripts/update-changelog.js /tmp/commit-msg CHANGELOG.md || true
+      done
+      # Push back only if CHANGELOG.md changed
+      if git diff --quiet CHANGELOG.md; then
+        echo "No changelog changes to commit"
+      else
+        git add CHANGELOG.md
+        git commit -m "chore: update CHANGELOG.md [skip ci]"
+        git push origin HEAD:${CI_COMMIT_BRANCH}
+        echo "CHANGELOG.md updated and pushed"
+      fi
+  tags:
+    - hetzner-docker
+  only:
+    - dev
 
 #=========
 # Build

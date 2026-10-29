@@ -3,6 +3,8 @@ import { Brain, Sparkles, TrendingUp, AlertCircle, CheckCircle, Clock, XCircle, 
 import api from '../services/api'
 import { matchAnalysis } from '../services/pmDataService'
 import { MatchConfirmationModal } from '../components/MatchConfirmationModal'
+import { QuantumOrbitLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 
 interface AnalysisResult {
   task_title: string
@@ -483,7 +485,7 @@ export function AIAnalysisPage({ onNavigateToDailyAnalysis }: AIAnalysisPageProp
           >
             {analyzing ? (
               <>
-                <div className="loading-spinner" style={{ width: '16px', height: '16px' }} />
+                <QuantumOrbitLoader size={18} />
                 Analyzing with AI...
               </>
             ) : (
@@ -515,7 +517,7 @@ export function AIAnalysisPage({ onNavigateToDailyAnalysis }: AIAnalysisPageProp
             >
               {matching ? (
                 <>
-                  <div className="loading-spinner" style={{ width: '16px', height: '16px' }} />
+                  <QuantumOrbitLoader size={16} />
                   Matching...
                 </>
               ) : (
@@ -532,7 +534,7 @@ export function AIAnalysisPage({ onNavigateToDailyAnalysis }: AIAnalysisPageProp
             >
               {syncing ? (
                 <>
-                  <div className="loading-spinner" style={{ width: '16px', height: '16px' }} />
+                  <QuantumOrbitLoader size={16} />
                   Checking...
                 </>
               ) : (
@@ -549,7 +551,7 @@ export function AIAnalysisPage({ onNavigateToDailyAnalysis }: AIAnalysisPageProp
             >
               {saving ? (
                 <>
-                  <div className="loading-spinner" style={{ width: '16px', height: '16px' }} />
+                  <QuantumOrbitLoader size={16} />
                   Saving...
                 </>
               ) : (
@@ -789,6 +791,9 @@ export function AIAnalysisPage({ onNavigateToDailyAnalysis }: AIAnalysisPageProp
 
             {syncRecommendations.length === 0 ? (
               <div className="sync-modal-empty">
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                  <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                </div>
                 <CheckCircle size={32} className="sync-empty-icon" />
                 <p>Everything is in sync! No state changes needed.</p>
               </div>

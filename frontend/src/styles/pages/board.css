@@ -24,7 +24,7 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.2rem 0.6rem;
-  background: rgba(255,255,255,0.07);
+  background: rgba(var(--overlay-rgb), 0.07);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-full);
   font-size: 0.7rem;
@@ -47,6 +47,30 @@
   flex-wrap: wrap;
 }
 
+/* Priority dot inside dropdown item — color comes from YouTrack API via inline style */
+.board-priority-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted); /* fallback when YT returns no color */
+}
+
+/* Active filter count badge on dropdown trigger */
+.board-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: var(--color-primary);
+  color: #fff;
+  line-height: 1;
+}
+
 .board-kanban-wrap {
   flex: 1;
   min-height: 0;
@@ -55,9 +79,142 @@
   flex-direction: column;
 }
 
+/* ── Swimlane layout ─────────────────────────────────────── */
+.swimlane-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-x: auto;
+  min-height: 0;
+}
+
+.swimlane-row {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.swimlane-row:last-child {
+  border-bottom: none;
+}
+
+.swimlane-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 20px;
+  background: rgba(var(--color-primary-rgb), 0.12);
+  border: none;
+  border-left: 4px solid var(--color-primary);
+  border-bottom: 1px solid rgba(var(--color-primary-rgb), 0.2);
+  cursor: pointer;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  transition: background 180ms ease;
+  text-align: left;
+  width: 100%;
+  min-width: max-content;
+}
+
+.swimlane-header:hover {
+  background: rgba(var(--color-primary-rgb), 0.18);
+}
+
+.swimlane-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 200ms ease;
+}
+
+.swimlane-chevron--open {
+  transform: rotate(90deg);
+}
+
+.swimlane-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.swimlane-avatar--initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.swimlane-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.swimlane-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.swimlane-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.15);
+  border: 1px solid rgba(var(--color-primary-rgb), 0.25);
+  flex-shrink: 0;
+}
+
+.swimlane-body {
+  overflow: hidden;
+  max-height: 2000px;
+  transition: max-height 250ms ease;
+}
+
+.swimlane-body--collapsed {
+  max-height: 0;
+}
+
+/* Light mode adjustments */
+[data-theme="light"] .swimlane-header {
+  background: rgba(var(--color-primary-rgb), 0.08);
+}
+
+[data-theme="light"] .swimlane-header:hover {
+  background: rgba(var(--color-primary-rgb), 0.13);
+}
+
+/* ── Active Group By trigger highlight ───────────────────── */
+.pm-custom-dropdown-trigger.active {
+  color: var(--color-primary);
+  border-color: rgba(var(--color-primary-rgb), 0.35);
+  background: rgba(var(--color-primary-rgb), 0.08);
+}
+
 /* Board-specific kanban overrides */
 .board-task-card {
-  background: rgba(255,255,255,0.04);
+  background: rgba(var(--overlay-rgb), 0.04);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: 0.75rem;
@@ -66,8 +223,8 @@
 }
 
 .board-task-card:hover {
-  background: rgba(255,255,255,0.07);
-  border-color: rgba(255,255,255,0.12);
+  background: rgba(var(--overlay-rgb), 0.07);
+  border-color: rgba(var(--overlay-rgb), 0.12);
 }
 
 /* ── Badges & chips ─────────────────────────────────────── */
@@ -79,7 +236,7 @@
   border-radius: var(--radius-full);
   font-size: 0.65rem;
   font-weight: 700;
-  background: rgba(255,255,255,0.08);
+  background: rgba(var(--overlay-rgb), 0.08);
   color: var(--text-muted);
   border: 1px solid var(--border-subtle);
   font-family: var(--font-mono);
@@ -135,9 +292,9 @@
   border-radius: var(--radius-full);
   font-size: 0.65rem;
   font-weight: 700;
-  background: rgba(99,102,241,0.15);
-  color: #a5b4fc;
-  border: 1px solid rgba(99,102,241,0.3);
+  background: rgba(var(--color-primary-rgb),0.15);
+  color: color-mix(in srgb, var(--color-primary) 55%, #fff);
+  border: 1px solid rgba(var(--color-primary-rgb),0.3);
 }
 
 .board-modal-title {
@@ -194,4 +351,38 @@
   font-size: 0.8375rem;
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+/* ── Mobile responsive ─────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Kanban board: horizontal scroll instead of cramped columns */
+  .kanban-board {
+    flex-direction: row !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 1rem;
+    scroll-snap-type: x mandatory;
+    gap: 0.75rem;
+  }
+  .kanban-column {
+    min-width: 280px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+  /* Board header: stack or scroll */
+  .board-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .board-filter-bar {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+  /* Sprint controls bar */
+  .db-controls {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+  }
 }

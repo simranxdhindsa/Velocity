@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-"mime/multipart"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"sort"
@@ -16,16 +16,31 @@ import (
 
 // Client is the YouTrack API client
 type Client struct {
-	baseURL         string
-	token           string
-	projectID       string
-	boardID         string
-	resolvedBoardID string // auto-detected board, cached after first resolution
-	httpClient      *http.Client
+	baseURL           string
+	token             string
+	projectID         string
+	boardID           string
+	resolvedBoardID   string // auto-detected board, cached after first resolution
+	resolvedProjectID string // internal DB id (e.g. "0-2"), resolved from shortName on first use
+	// issueFieldAnchor caches a single issue ID + field-name→field-ID map used
+	// by the possibleValues fallback (no admin rights needed).
+	issueFieldAnchor *issueFieldAnchor
+	httpClient       *http.Client
+}
+
+type issueFieldAnchor struct {
+	issueID  string
+	fieldIDs map[string]string // lowercase field name → YouTrack field config ID
 }
 
 // NewClient creates a new YouTrack API client
 func NewClient(baseURL, token, projectID string) *Client {
+	baseURL = strings.TrimSpace(baseURL)
+	// Users commonly paste the host without a scheme (e.g. "team.youtrack.cloud") —
+	// default to https so the outbound request doesn't fail with an unsupported-scheme error.
+	if baseURL != "" && !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
 	// Ensure baseURL doesn't have trailing slash
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
@@ -116,8 +131,192 @@ func (c *Client) GetBaseURL() string {
 	return c.baseURL
 }
 
+// ── Gantt chart types ─────────────────────────────────────────────────────────
+
+// YTGanttRef is a minimal member reference used in dependsOn lists.
+type YTGanttRef struct {
+	ID string `json:"id"`
+}
+
+// YTGanttMember is one row in a YouTrack Gantt chart.
+type YTGanttMember struct {
+	ID         string       `json:"id"`
+	StartDate  *int64       `json:"startDate"`  // Unix ms; null when unscheduled
+	Estimation int          `json:"estimation"` // minutes
+	SpentTime  int          `json:"spentTime"`  // minutes
+	IsParent   bool         `json:"isParent"`
+	DependsOn  []YTGanttRef `json:"dependsOn"`
+	Issue      *Issue       `json:"issue"`
+}
+
+// YTGanttChart is a YouTrack Gantt chart with all its members.
+type YTGanttChart struct {
+	ID      string          `json:"id"`
+	Name    string          `json:"name"`
+	Members []YTGanttMember `json:"members"`
+}
+
+// ganttFields is the fields string used when fetching a full gantt chart.
+const ganttFields = "id,name,members(id,startDate,estimation,spentTime,isParent,dependsOn(id)," +
+	"issue(id,idReadable,summary,customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id))))"
+
+// ListGanttCharts returns all Gantt charts the token has access to.
+func (c *Client) ListGanttCharts(ctx context.Context) ([]YTGanttChart, error) {
+	body, err := c.doRequest(ctx, http.MethodGet, "/api/gantts?fields=id,name&$top=100", nil)
+	if err != nil {
+		return nil, fmt.Errorf("list gantt charts: %w", err)
+	}
+	var charts []YTGanttChart
+	if err := json.Unmarshal(body, &charts); err != nil {
+		return nil, fmt.Errorf("unmarshal gantt charts: %w", err)
+	}
+	return charts, nil
+}
+
+// GetGanttChart fetches one Gantt chart with all members and dependency links.
+func (c *Client) GetGanttChart(ctx context.Context, id string) (*YTGanttChart, error) {
+	path := "/api/gantts/" + url.PathEscape(id) + "?fields=" + url.QueryEscape(ganttFields)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("get gantt chart: %w", err)
+	}
+	var chart YTGanttChart
+	if err := json.Unmarshal(body, &chart); err != nil {
+		return nil, fmt.Errorf("unmarshal gantt chart: %w", err)
+	}
+	return &chart, nil
+}
+
+// UpdateGanttMember updates startDate and/or estimation on a gantt member.
+// Pass nil to leave a field unchanged.
+func (c *Client) UpdateGanttMember(ctx context.Context, ganttID, memberID string, startDate *int64, estimationMins *int) error {
+	payload := map[string]interface{}{"id": memberID}
+	if startDate != nil {
+		payload["startDate"] = *startDate
+	}
+	if estimationMins != nil {
+		payload["estimation"] = *estimationMins
+	}
+	path := "/api/gantts/" + url.PathEscape(ganttID) +
+		"/members/" + url.PathEscape(memberID) + "?fields=id,startDate,estimation"
+	_, err := c.doRequest(ctx, http.MethodPost, path, payload)
+	if err != nil {
+		return fmt.Errorf("update gantt member %s: %w", memberID, err)
+	}
+	return nil
+}
+
 // GetProjectID returns the project ID/short-name used in YQL queries
 func (c *Client) GetProjectID() string {
+	return c.projectID
+}
+
+// WarmProjectID pre-resolves the internal project ID so parallel callers share the cache.
+func (c *Client) WarmProjectID(ctx context.Context) {
+	c.internalProjectID(ctx)
+}
+
+// WarmIssueFieldAnchor fetches one project issue and records its ID + field IDs.
+// This is called once before parallel goroutines so getCustomFieldValuesFallback
+// can skip the anchor fetch and go straight to possibleValues.
+func (c *Client) WarmIssueFieldAnchor(ctx context.Context) {
+	if c.issueFieldAnchor != nil {
+		return
+	}
+	path := fmt.Sprintf("/api/issues?query=%s&fields=id,customFields(id,name)&$top=1",
+		url.QueryEscape("project: "+c.projectID))
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return
+	}
+	var issues []struct {
+		ID           string `json:"id"`
+		CustomFields []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"customFields"`
+	}
+	if json.Unmarshal(body, &issues) != nil || len(issues) == 0 {
+		return
+	}
+	anchor := &issueFieldAnchor{
+		issueID:  issues[0].ID,
+		fieldIDs: make(map[string]string, len(issues[0].CustomFields)),
+	}
+	for _, f := range issues[0].CustomFields {
+		anchor.fieldIDs[strings.ToLower(f.Name)] = f.ID
+	}
+	c.issueFieldAnchor = anchor
+}
+
+// getCustomFieldValuesFallback uses the possibleValues endpoint which is accessible
+// to all project members (no admin YouTrack rights required).
+func (c *Client) getCustomFieldValuesFallback(ctx context.Context, fieldName string) ([]PriorityValue, error) {
+	if c.issueFieldAnchor == nil {
+		c.WarmIssueFieldAnchor(ctx)
+	}
+	if c.issueFieldAnchor == nil {
+		return nil, fmt.Errorf("could not resolve issue anchor for possibleValues")
+	}
+	fieldID, ok := c.issueFieldAnchor.fieldIDs[strings.ToLower(fieldName)]
+	if !ok {
+		return nil, fmt.Errorf("field %q not found in issue custom fields", fieldName)
+	}
+	path := fmt.Sprintf("/api/issues/%s/customFields/%s/possibleValues?$skip=0&$top=500&fields=id,name,localizedName,color(background,foreground)",
+		c.issueFieldAnchor.issueID, fieldID)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		Name          string `json:"name"`
+		LocalizedName string `json:"localizedName"`
+		Color         *struct {
+			Background string `json:"background"`
+			Foreground string `json:"foreground"`
+		} `json:"color"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("possibleValues unmarshal: %w", err)
+	}
+	result := make([]PriorityValue, 0, len(raw))
+	for _, v := range raw {
+		name := v.Name
+		if v.LocalizedName != "" {
+			name = v.LocalizedName
+		}
+		pv := PriorityValue{Name: name}
+		if v.Color != nil {
+			pv.Background = v.Color.Background
+			pv.Foreground = v.Color.Foreground
+		}
+		result = append(result, pv)
+	}
+	return result, nil
+}
+
+// internalProjectID returns the YouTrack internal project id (e.g. "0-2").
+// YouTrack REST URL paths require the internal id; the shortName (e.g. "ARD")
+// only works in YQL. Result is cached on the client after the first resolution.
+func (c *Client) internalProjectID(ctx context.Context) string {
+	if c.resolvedProjectID != "" {
+		return c.resolvedProjectID
+	}
+	// Already looks like an internal id — contains a dash.
+	if strings.Contains(c.projectID, "-") {
+		c.resolvedProjectID = c.projectID
+		return c.resolvedProjectID
+	}
+	// Resolve shortName → internal id via projects list.
+	if projects, err := c.GetProjects(ctx); err == nil {
+		for _, p := range projects {
+			if strings.EqualFold(p.ShortName, c.projectID) || strings.EqualFold(p.Name, c.projectID) {
+				c.resolvedProjectID = p.ID
+				return c.resolvedProjectID
+			}
+		}
+	}
+	// Fallback: use as-is (some YouTrack versions accept shortName in path).
 	return c.projectID
 }
 
@@ -146,14 +345,15 @@ func (c *Client) GetToken() string {
 
 // Issue represents a YouTrack issue
 type Issue struct {
-	ID           string        `json:"id"`           // internal id e.g. "3-671"
-	IDReadable   string        `json:"idReadable"`   // human-readable e.g. "ARD-628" (Cloud format)
-	Summary      string        `json:"summary"`      // Issue title
-	Description  string        `json:"description"`  // Issue description
-	Created      int64         `json:"created"`      // Unix timestamp ms
-	Updated      int64         `json:"updated"`      // Unix timestamp ms
+	ID           string        `json:"id"`                 // internal id e.g. "3-671"
+	IDReadable   string        `json:"idReadable"`         // human-readable e.g. "ARD-628" (Cloud format)
+	Summary      string        `json:"summary"`            // Issue title
+	Description  string        `json:"description"`        // Issue description
+	Created      int64         `json:"created"`            // Unix timestamp ms
+	Updated      int64         `json:"updated"`            // Unix timestamp ms
 	Reporter     *User         `json:"reporter,omitempty"` // who created the issue
-	CustomFields []CustomField `json:"customFields"` // State, Subsystem, Priority, etc.
+	Updater      *User         `json:"updater,omitempty"`  // who last updated the issue
+	CustomFields []CustomField `json:"customFields"`       // State, Subsystem, Priority, etc.
 	Attachments  []Attachment  `json:"attachments,omitempty"`
 	Project      *Project      `json:"project,omitempty"`
 }
@@ -197,6 +397,7 @@ type Sprint struct {
 	Start       int64  `json:"start"`
 	Finish      int64  `json:"finish"`
 	IsCompleted bool   `json:"isCompleted"`
+	Agile       *Board `json:"agile,omitempty"` // Board (agile) this sprint belongs to
 }
 
 // State represents a workflow state
@@ -381,10 +582,51 @@ func (c *Client) GetBoardColumns(ctx context.Context, boardID string) ([]Column,
 	return columns, nil
 }
 
-// GetStates returns workflow states for the project
+// GetStates returns workflow states for the project.
+// Tries the admin bundle endpoint first; if the token lacks admin rights falls back
+// to possibleValues which is accessible to all project members.
 func (c *Client) GetStates(ctx context.Context) ([]State, error) {
+	states, err := c.getStatesAdmin(ctx)
+	if err == nil && len(states) > 0 {
+		return states, nil
+	}
+	// Fallback: possibleValues endpoint — works for all project members.
+	pvs, pvErr := c.getCustomFieldValuesFallback(ctx, "State")
+	if pvErr == nil && len(pvs) > 0 {
+		result := make([]State, len(pvs))
+		for i, pv := range pvs {
+			result[i] = State{Name: pv.Name}
+		}
+		return result, nil
+	}
+	// Last resort: board columns.
+	if bid, berr := c.resolveBoard(ctx); berr == nil {
+		columns, cerr := c.GetBoardColumns(ctx, bid)
+		if cerr == nil {
+			seen := make(map[string]bool)
+			var result []State
+			for _, col := range columns {
+				for _, fv := range col.FieldValues {
+					if !seen[fv] {
+						seen[fv] = true
+						result = append(result, State{Name: fv})
+					}
+				}
+			}
+			if len(result) > 0 {
+				return result, nil
+			}
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return states, nil
+}
+
+func (c *Client) getStatesAdmin(ctx context.Context) ([]State, error) {
 	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name))",
-		c.projectID)
+		c.internalProjectID(ctx))
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -415,24 +657,6 @@ func (c *Client) GetStates(ctx context.Context) ([]State, error) {
 		}
 	}
 
-	// If no states found from custom fields, try board columns
-	if len(states) == 0 {
-		if bid, berr := c.resolveBoard(ctx); berr == nil {
-			columns, err := c.GetBoardColumns(ctx, bid)
-			if err == nil {
-				seen := make(map[string]bool)
-				for _, col := range columns {
-					for _, fv := range col.FieldValues {
-						if !seen[fv] {
-							seen[fv] = true
-							states = append(states, State{Name: fv})
-						}
-					}
-				}
-			}
-		}
-	}
-
 	return states, nil
 }
 
@@ -443,10 +667,19 @@ type PriorityValue struct {
 	Foreground string `json:"foreground,omitempty"`
 }
 
-// GetPriorities returns the Priority field values with colors from YouTrack
+// GetPriorities returns the Priority field values with colors from YouTrack.
+// Falls back to possibleValues endpoint if the admin bundle endpoint is unavailable.
 func (c *Client) GetPriorities(ctx context.Context) ([]PriorityValue, error) {
+	result, err := c.getPrioritiesAdmin(ctx)
+	if err == nil {
+		return result, nil
+	}
+	return c.getCustomFieldValuesFallback(ctx, "Priority")
+}
+
+func (c *Client) getPrioritiesAdmin(ctx context.Context) ([]PriorityValue, error) {
 	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
-		c.projectID)
+		c.internalProjectID(ctx))
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -485,11 +718,69 @@ func (c *Client) GetPriorities(ctx context.Context) ([]PriorityValue, error) {
 	return []PriorityValue{}, nil
 }
 
+// GetSwimlaneField returns the custom field name configured as the board's swimlane grouping field,
+// along with the ordered values (with colors) for that field.
+func (c *Client) GetSwimlaneField(ctx context.Context) (fieldName string, values []PriorityValue, err error) {
+	boardID, err := c.resolveBoard(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	path := fmt.Sprintf("/api/agiles/%s?fields=swimlaneSettings(field(name),enabled,values(name,color(background,foreground)))", boardID)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	var board map[string]interface{}
+	if err := json.Unmarshal(body, &board); err != nil {
+		return "", nil, fmt.Errorf("failed to unmarshal board: %w", err)
+	}
+	settings, ok := board["swimlaneSettings"].(map[string]interface{})
+	if !ok {
+		return "", nil, nil
+	}
+	if enabled, _ := settings["enabled"].(bool); !enabled {
+		return "", nil, nil
+	}
+	field, ok := settings["field"].(map[string]interface{})
+	if !ok {
+		return "", nil, nil
+	}
+	fieldName, _ = field["name"].(string)
+	if fieldName == "" {
+		return "", nil, nil
+	}
+	if rawVals, ok := settings["values"].([]interface{}); ok {
+		for _, v := range rawVals {
+			vm, ok := v.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			pv := PriorityValue{Name: fmt.Sprintf("%v", vm["name"])}
+			if colorMap, ok := vm["color"].(map[string]interface{}); ok {
+				pv.Background, _ = colorMap["background"].(string)
+				pv.Foreground, _ = colorMap["foreground"].(string)
+			}
+			values = append(values, pv)
+		}
+	}
+	return fieldName, values, nil
+}
+
 // GetCustomFieldValues returns enum values (with colors) for any named custom field.
 // Works identically to GetPriorities but parameterised by field name.
+// Tries the admin bundle endpoint first; falls back to the per-issue possibleValues
+// endpoint which works for all project members regardless of admin rights.
 func (c *Client) GetCustomFieldValues(ctx context.Context, fieldName string) ([]PriorityValue, error) {
+	result, err := c.getCustomFieldValuesAdmin(ctx, fieldName)
+	if err == nil {
+		return result, nil
+	}
+	return c.getCustomFieldValuesFallback(ctx, fieldName)
+}
+
+func (c *Client) getCustomFieldValuesAdmin(ctx context.Context, fieldName string) ([]PriorityValue, error) {
 	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name,fieldType(id)),bundle(values(name,color(background,foreground)))",
-		c.projectID)
+		c.internalProjectID(ctx))
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -660,7 +951,7 @@ func (c *Client) GetAllSprintIssues(ctx context.Context, sprintID string) ([]Iss
 
 // GetIssue returns a single issue by ID
 func (c *Client) GetIssue(ctx context.Context, issueID string) (*Issue, error) {
-	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),attachments(id,name,size,mimeType,url,extension),project(shortName)"
+	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),updater(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),attachments(id,name,size,mimeType,url,extension),project(shortName)"
 	path := fmt.Sprintf("/api/issues/%s?fields=%s", url.PathEscape(issueID), fields)
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
@@ -697,20 +988,9 @@ func (c *Client) CreateIssue(ctx context.Context, req CreateIssueRequest) (*Issu
 	}
 
 	// YouTrack requires the internal DB id (e.g. "0-2"), not the short name ("ARD").
-	// If the stored projectID looks like a short name (no "-"), resolve it via the projects list.
-	if !strings.Contains(req.Project.ID, "-") {
-		shortName := req.Project.ID
-		if projects, err := c.GetProjects(ctx); err == nil {
-			for _, p := range projects {
-				if strings.EqualFold(p.ShortName, shortName) || strings.EqualFold(p.Name, shortName) {
-					req.Project.ID = p.ID
-					break
-				}
-			}
-		}
-	}
+	req.Project.ID = c.internalProjectID(ctx)
 
-	path := "/api/issues?fields=id,summary,description,created,updated,customFields(name,value(name,presentation)),project(shortName)"
+	path := "/api/issues?fields=id,idReadable,summary,description,created,updated,customFields(name,value(name,presentation)),project(shortName)"
 	body, err := c.doRequest(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return nil, err
@@ -754,6 +1034,34 @@ func (c *Client) DeleteIssue(ctx context.Context, issueID string) error {
 	return err
 }
 
+// GetLatestSprintName returns the name of the current active sprint, or the most
+// recently started sprint if none is explicitly active. Used for developer load queries.
+func (c *Client) GetLatestSprintName(ctx context.Context) (string, error) {
+	sprints, err := c.GetSprints(ctx)
+	if err != nil || len(sprints) == 0 {
+		return "", err
+	}
+	return LatestSprint(sprints, time.Now()).Name, nil
+}
+
+// CountActiveIssuesByAssigneeInSprint returns the number of To Do + In Progress tickets
+// assigned to a given login in the latest sprint — the true developer load.
+func (c *Client) CountActiveIssuesByAssigneeInSprint(ctx context.Context, login, sprintName string) (int, error) {
+	yql := fmt.Sprintf("#{%s} Assignee: %s #{To Do} #{In Progress}", sprintName, login)
+	path := fmt.Sprintf("/api/issues?fields=id&query=%s&$top=500", url.QueryEscape(yql))
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return 0, err
+	}
+	var issues []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &issues); err != nil {
+		return 0, err
+	}
+	return len(issues), nil
+}
+
 // GetUsers returns all YouTrack users with avatar URLs
 func (c *Client) GetUsers(ctx context.Context) ([]User, error) {
 	path := "/api/users?fields=id,login,fullName,email,avatarUrl&$top=200"
@@ -793,8 +1101,8 @@ func (c *Client) UpdateIssueState(ctx context.Context, issueID, newState string)
 	req := UpdateIssueRequest{
 		CustomFields: []CustomField{
 			{
-				Name:  "State",
-				Type:  "StateIssueCustomField",
+				Name: "State",
+				Type: "StateIssueCustomField",
 				Value: map[string]string{
 					"name":  newState,
 					"$type": "StateBundleElement",
@@ -804,6 +1112,107 @@ func (c *Client) UpdateIssueState(ctx context.Context, issueID, newState string)
 	}
 
 	_, err := c.UpdateIssue(ctx, issueID, req)
+	return err
+}
+
+// UpdateIssueDates sets the start date, due date, and/or estimation on a YouTrack issue.
+// Pass -1 to leave a field unchanged. startMS and dueMS are Unix milliseconds.
+func (c *Client) UpdateIssueDates(ctx context.Context, issueID string, startMS, dueMS, estimationMins int64) error {
+	var fields []CustomField
+
+	if startMS >= 0 {
+		var val interface{}
+		if startMS == 0 {
+			val = nil
+		} else {
+			val = startMS
+		}
+		fields = append(fields, CustomField{
+			Name:  "Start date",
+			Type:  "DateIssueCustomField",
+			Value: val,
+		})
+	}
+	if dueMS >= 0 {
+		var val interface{}
+		if dueMS == 0 {
+			val = nil
+		} else {
+			val = dueMS
+		}
+		fields = append(fields, CustomField{
+			Name:  "Due date",
+			Type:  "DateIssueCustomField",
+			Value: val,
+		})
+	}
+	if estimationMins >= 0 {
+		// YouTrack stores estimation in minutes as a plain integer
+		fields = append(fields, CustomField{
+			Name:  "Estimation",
+			Type:  "PeriodIssueCustomField",
+			Value: map[string]interface{}{"$type": "PeriodValue", "minutes": estimationMins},
+		})
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	_, err := c.UpdateIssue(ctx, issueID, UpdateIssueRequest{CustomFields: fields})
+	return err
+}
+
+// LinkIssues creates a link between two issues using the YouTrack Commands API.
+// commandQuery is a YouTrack command string, e.g. "relates to ARD-2344".
+// sourceID is the readable ID of the issue to apply the command on, e.g. "ARD-2213".
+func (c *Client) LinkIssues(ctx context.Context, sourceID, commandQuery string) error {
+	// Internal IDs start with a digit (e.g. "3-671"); readable IDs start with a letter (e.g. "ARD-628").
+	// The Commands API requires the correct field name — using the wrong one silently does nothing.
+	var issueEntry map[string]string
+	if len(sourceID) > 0 && sourceID[0] >= '0' && sourceID[0] <= '9' {
+		issueEntry = map[string]string{"id": sourceID}
+	} else {
+		issueEntry = map[string]string{"idReadable": sourceID}
+	}
+	body := map[string]interface{}{
+		"query":  commandQuery,
+		"issues": []map[string]string{issueEntry},
+	}
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/commands", body)
+	return err
+}
+
+// AddIssueDependency creates a "depends on" link from sourceID → targetID in YouTrack.
+// Returns the new link ID.
+func (c *Client) AddIssueDependency(ctx context.Context, sourceID, targetID string) (string, error) {
+	// First we need the internal issue IDs (not idReadable)
+	// YouTrack link API uses readable IDs just fine in the POST body
+	body := map[string]interface{}{
+		"issues": []map[string]string{
+			{"idReadable": targetID},
+		},
+		"linkType": map[string]string{
+			"name": "Depend",
+		},
+		"direction": "OUTWARD",
+	}
+	resp, err := c.doRequest(ctx, http.MethodPost,
+		fmt.Sprintf("/api/issues/%s/links", url.PathEscape(sourceID)), body)
+	if err != nil {
+		return "", err
+	}
+	var link struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(resp, &link) //nolint — best-effort; ID is nice-to-have
+	return link.ID, nil
+}
+
+// RemoveIssueDependency deletes a link group from sourceID.
+// linkID is the link-group ID returned by GetAllIssueLinks or AddIssueDependency.
+func (c *Client) RemoveIssueDependency(ctx context.Context, sourceID, linkID string) error {
+	path := fmt.Sprintf("/api/issues/%s/links/%s",
+		url.PathEscape(sourceID), url.PathEscape(linkID))
+	_, err := c.doRequest(ctx, http.MethodDelete, path, nil)
 	return err
 }
 
@@ -929,13 +1338,37 @@ func GetPriority(issue Issue) string {
 			}
 		}
 	}
-	return "Normal"
+	return ""
 }
 
 // TestConnection tests the connection to YouTrack
 func (c *Client) TestConnection(ctx context.Context) error {
 	_, err := c.GetProjects(ctx)
 	return err
+}
+
+// ValidateProject checks that c.projectID exists on this YouTrack instance.
+// Returns an error with available project names when not found.
+func (c *Client) ValidateProject(ctx context.Context) error {
+	projects, err := c.GetProjects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, p := range projects {
+		if p.ID == c.projectID || p.ShortName == c.projectID {
+			return nil
+		}
+	}
+	var names []string
+	for _, p := range projects {
+		if p.ShortName != "" {
+			names = append(names, p.ShortName)
+		}
+	}
+	if len(names) > 0 {
+		return fmt.Errorf("project %q not found — available project IDs: %s", c.projectID, strings.Join(names, ", "))
+	}
+	return fmt.Errorf("project %q not found on this YouTrack instance", c.projectID)
 }
 
 // IssueComment is a full comment object with author info
@@ -1025,6 +1458,33 @@ func (c *Client) GetIssuesByState(ctx context.Context, states []string) ([]Issue
 	return issues, nil
 }
 
+// GetIssuesByAssigneeAndState returns issues currently assigned to a login whose current
+// state matches one of the given state names. Unlike GetIssuesCreatedToday/
+// GetIssuesUpdatedByUserToday, this is not date-scoped — it's a live snapshot of "what's
+// sitting in this column right now" (used for pulling a user's current In Progress tickets).
+func (c *Client) GetIssuesByAssigneeAndState(ctx context.Context, login string, states []string) ([]Issue, error) {
+	if login == "" || len(states) == 0 {
+		return nil, nil
+	}
+	stateFilters := make([]string, len(states))
+	for i, s := range states {
+		stateFilters[i] = "{" + s + "}"
+	}
+	query := fmt.Sprintf("project: %s Assignee: %s State: %s", c.projectID, login, strings.Join(stateFilters, ", "))
+	fields := "id,idReadable,summary,updated,customFields(name,value(name))"
+	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=200", fields, url.QueryEscape(query))
+
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetIssuesByAssigneeAndState: %w", err)
+	}
+	var issues []Issue
+	if err := json.Unmarshal(body, &issues); err != nil {
+		return nil, fmt.Errorf("GetIssuesByAssigneeAndState unmarshal: %w", err)
+	}
+	return issues, nil
+}
+
 // GetIssuesByStateForSprint returns issues in a sprint filtered by state using YouTrack's query API.
 // Uses sprint name in the query (e.g. "project: ARD sprint: {Sprint 1} State: {To Do}, {In Progress}").
 // This is more reliable than the agile endpoint when the board ID is uncertain.
@@ -1092,8 +1552,9 @@ func (c *Client) GetIssuesCreatedToday(ctx context.Context, date, reporterLogin 
 
 // WebhookEvent represents a YouTrack webhook event payload.
 // Supports two formats:
-//   Format A (YouTrack Cloud): {"author":{...}, "issue":{...}, "changes":[{"field":{"name":"State"},"from":"X","to":"Y"}]}
-//   Format B (self-hosted/older): {"type":"IssueEvent", "issue":{...}, "updater":{...}, "fieldChanges":[{"name":"State","oldValue":...,"newValue":...}]}
+//
+//	Format A (YouTrack Cloud): {"author":{...}, "issue":{...}, "changes":[{"field":{"name":"State"},"from":"X","to":"Y"}]}
+//	Format B (self-hosted/older): {"type":"IssueEvent", "issue":{...}, "updater":{...}, "fieldChanges":[{"name":"State","oldValue":...,"newValue":...}]}
 type WebhookEvent struct {
 	// Format A (YouTrack Cloud)
 	Author  *User           `json:"author"`
@@ -1112,11 +1573,11 @@ type WebhookEvent struct {
 
 // WebhookChange is the YouTrack Cloud webhook change format
 type WebhookChange struct {
-	Field    WebhookChangeField `json:"field"`
-	From     interface{}        `json:"from"` // string or object with "name"
-	To       interface{}        `json:"to"`   // string or object with "name"
-	Added    interface{}        `json:"added"`
-	Removed  interface{}        `json:"removed"`
+	Field   WebhookChangeField `json:"field"`
+	From    interface{}        `json:"from"` // string or object with "name"
+	To      interface{}        `json:"to"`   // string or object with "name"
+	Added   interface{}        `json:"added"`
+	Removed interface{}        `json:"removed"`
 }
 
 // WebhookChangeField identifies the changed field
@@ -1366,7 +1827,19 @@ func (c *Client) IsDuplicateIssue(ctx context.Context, summary string) (bool, er
 	return false, nil
 }
 
-// UploadAttachment uploads a file to a YouTrack issue.
+// UploadAttachment uploads a file to a YouTrack issue. On success, it also
+// appends a markdown reference to the file at the end of the issue's
+// description — an inline image embed for image/video files, a plain link
+// otherwise — mirroring what YouTrack's own editor does when you paste media
+// directly into the description. This runs for every caller (MCP tools and
+// the Velocity UI both go through this one method), so the embed happens
+// automatically no matter where the upload was triggered from.
+//
+// A failure to embed the reference (fetching/updating the description) does
+// NOT fail the overall upload — the attachment is already on the issue at
+// that point, which is the primary contract of this method. It's logged and
+// swallowed so a transient description-update hiccup never loses a real
+// attachment.
 func (c *Client) UploadAttachment(ctx context.Context, issueID, filename, mimeType string, content []byte) error {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -1394,19 +1867,110 @@ func (c *Client) UploadAttachment(ctx context.Context, issueID, filename, mimeTy
 		return fmt.Errorf("upload request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read upload response: %w", err)
+	}
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("YouTrack attachment upload error: status %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	attachedName := parseUploadedAttachmentName(respBody, filename)
+	if err := c.embedAttachmentInDescription(ctx, issueID, attachedName, mimeType); err != nil {
+		fmt.Printf("[youtrack] warning: failed to embed attachment reference in description for %s: %v\n", issueID, err)
 	}
 	return nil
 }
 
-// IssueLink represents a linked issue returned by GetIssueLinks.
+// parseUploadedAttachmentName extracts the attachment's stored name from the
+// upload response. YouTrack's attachments endpoint has returned both a bare
+// object and a single-element array across versions, so both are handled.
+// Falls back to the originally-sent filename if parsing fails for any reason.
+func parseUploadedAttachmentName(respBody []byte, fallback string) string {
+	var list []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(respBody, &list); err == nil && len(list) > 0 && list[0].Name != "" {
+		return list[0].Name
+	}
+	var single struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(respBody, &single); err == nil && single.Name != "" {
+		return single.Name
+	}
+	return fallback
+}
+
+// embedAttachmentInDescription appends a markdown reference to a
+// just-uploaded attachment at the end of the issue's description — an image
+// embed for visual media, a plain link otherwise.
+func (c *Client) embedAttachmentInDescription(ctx context.Context, issueID, attachedName, mimeType string) error {
+	issue, err := c.GetIssue(ctx, issueID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch current description: %w", err)
+	}
+
+	baseType := strings.TrimSpace(strings.Split(mimeType, ";")[0])
+	var reference string
+	if strings.HasPrefix(baseType, "image/") || strings.HasPrefix(baseType, "video/") {
+		reference = fmt.Sprintf("![](%s)", attachedName)
+	} else {
+		reference = fmt.Sprintf("[%s](%s)", attachedName, attachedName)
+	}
+
+	hasFooter := HasVelocityFooter(issue.Description)
+	body := StripVelocityFooter(issue.Description)
+	newDescription := reference
+	if strings.TrimSpace(body) != "" {
+		newDescription = body + "\n\n" + reference
+	}
+	if hasFooter {
+		// Keep the footer as the last line, below the new attachment.
+		newDescription = WithVelocityFooter(newDescription)
+	}
+
+	if _, err := c.UpdateIssue(ctx, issueID, UpdateIssueRequest{Description: newDescription}); err != nil {
+		return fmt.Errorf("failed to update description: %w", err)
+	}
+	return nil
+}
+
+// flexBool unmarshals JSON booleans, 0/1, and timestamp integers.
+// YouTrack's "resolved" field is a Unix-ms timestamp when resolved, 0 when not.
+// Any non-zero number is treated as true.
+type flexBool bool
+
+func (f *flexBool) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	switch s {
+	case "true":
+		*f = true
+	case "false", "null":
+		*f = false
+	default:
+		// Any numeric value: 0 → false, non-zero (including timestamps) → true
+		var n int64
+		if _, err := fmt.Sscanf(s, "%d", &n); err == nil {
+			*f = flexBool(n != 0)
+			return nil
+		}
+		return fmt.Errorf("cannot unmarshal %s into flexBool", s)
+	}
+	return nil
+}
+
+// IssueLink represents a linked issue returned by GetIssueLinks / GetAllIssueLinks.
 type IssueLink struct {
-	IDReadable string `json:"id_readable"`
-	Summary    string `json:"summary"`
-	State      string `json:"state"`
-	Resolved   bool   `json:"resolved"`
+	IDReadable   string `json:"id_readable"`
+	Summary      string `json:"summary"`
+	State        string `json:"state"`
+	Resolved     bool   `json:"resolved"`
+	LinkType     string `json:"link_type,omitempty"`     // raw YT name e.g. "Relate"
+	Direction    string `json:"direction,omitempty"`     // "outward" | "inward"
+	DisplayLabel string `json:"display_label,omitempty"` // e.g. "Relates to", "Depends on"
+	CommandKey   string `json:"command_key,omitempty"`   // command string for add/remove e.g. "relates to"
+	LinkID       string `json:"link_id,omitempty"`       // YT link-group ID
 }
 
 // GetIssueLinks fetches YouTrack native "Relates To" links for an issue.
@@ -1424,13 +1988,13 @@ func (c *Client) GetIssueLinks(ctx context.Context, issueID string) ([]IssueLink
 			Name string `json:"name"`
 		} `json:"linkType"`
 		TrimmedIssues []struct {
-			ID         string `json:"id"`
-			IDReadable string `json:"idReadable"`
-			Summary    string `json:"summary"`
-			Resolved   bool   `json:"resolved"`
+			ID         string   `json:"id"`
+			IDReadable string   `json:"idReadable"`
+			Summary    string   `json:"summary"`
+			Resolved   flexBool `json:"resolved"`
 			Fields     []struct {
-				Type  string          `json:"$type"`
-				Value json.RawMessage `json:"value"`
+				Type               string          `json:"$type"`
+				Value              json.RawMessage `json:"value"`
 				ProjectCustomField struct {
 					Field struct {
 						Name string `json:"name"`
@@ -1464,11 +2028,187 @@ func (c *Client) GetIssueLinks(ctx context.Context, issueID string) ([]IssueLink
 				IDReadable: issue.IDReadable,
 				Summary:    issue.Summary,
 				State:      state,
-				Resolved:   issue.Resolved,
+				Resolved:   bool(issue.Resolved),
 			})
 		}
 	}
 	return result, nil
+}
+
+// GetAllIssueLinks fetches all link types for an issue (not just "Relates To").
+func (c *Client) GetAllIssueLinks(ctx context.Context, issueID string) ([]IssueLink, error) {
+	fields := "id,direction,linkType(name,sourceToTarget,targetToSource),trimmedIssues(id,idReadable,summary,resolved,fields(value(name),$type,projectCustomField(field(name))))"
+	path := fmt.Sprintf("/api/issues/%s/links?$topLinks=100&fields=%s", url.PathEscape(issueID), fields)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw []struct {
+		ID        string `json:"id"`
+		Direction string `json:"direction"`
+		LinkType  struct {
+			Name           string `json:"name"`
+			SourceToTarget string `json:"sourceToTarget"`
+			TargetToSource string `json:"targetToSource"`
+		} `json:"linkType"`
+		TrimmedIssues []struct {
+			ID         string   `json:"id"`
+			IDReadable string   `json:"idReadable"`
+			Summary    string   `json:"summary"`
+			Resolved   flexBool `json:"resolved"`
+			Fields     []struct {
+				Type               string          `json:"$type"`
+				Value              json.RawMessage `json:"value"`
+				ProjectCustomField struct {
+					Field struct {
+						Name string `json:"name"`
+					} `json:"field"`
+				} `json:"projectCustomField"`
+			} `json:"fields"`
+		} `json:"trimmedIssues"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal issue links: %w", err)
+	}
+
+	// commandKeyMap maps (linkTypeName, direction) → command string used by Commands API
+	commandKeyMap := map[string]string{
+		"Relate|outward":    "relates to",
+		"Relate|inward":     "relates to",
+		"Depend|outward":    "depends on",
+		"Depend|inward":     "is required for",
+		"Duplicate|outward": "duplicates",
+		"Duplicate|inward":  "is duplicated by",
+		"Subtask|outward":   "subtask of",
+		"Subtask|inward":    "parent for",
+	}
+
+	var result []IssueLink
+	for _, group := range raw {
+		dir := strings.ToLower(group.Direction)
+		linkTypeName := group.LinkType.Name
+
+		// Display label: use YouTrack's own sourceToTarget / targetToSource strings
+		displayLabel := group.LinkType.SourceToTarget
+		if dir == "inward" {
+			displayLabel = group.LinkType.TargetToSource
+		}
+		if displayLabel == "" {
+			displayLabel = linkTypeName
+		}
+
+		// Command key for add/remove via Commands API
+		cmdKey := commandKeyMap[linkTypeName+"|"+dir]
+		if cmdKey == "" {
+			cmdKey = strings.ToLower(displayLabel)
+		}
+
+		for _, issue := range group.TrimmedIssues {
+			state := ""
+			for _, f := range issue.Fields {
+				if f.Type == "StateIssueCustomField" {
+					var v struct {
+						Name string `json:"name"`
+					}
+					if json.Unmarshal(f.Value, &v) == nil {
+						state = v.Name
+					}
+				}
+			}
+			result = append(result, IssueLink{
+				IDReadable:   issue.IDReadable,
+				Summary:      issue.Summary,
+				State:        state,
+				Resolved:     bool(issue.Resolved),
+				LinkType:     linkTypeName,
+				Direction:    dir,
+				DisplayLabel: displayLabel,
+				CommandKey:   cmdKey,
+				LinkID:       group.ID,
+			})
+		}
+	}
+	return result, nil
+}
+
+// GetFixVersions returns all fix version / milestone names for the configured project.
+func (c *Client) GetFixVersions(ctx context.Context) ([]string, error) {
+	projectID := c.projectID
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID not configured")
+	}
+	path := fmt.Sprintf("/api/admin/projects/%s/customFields?fields=field(name),bundle(values(name,isResolved,releaseDate))&$top=100", c.internalProjectID(ctx))
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw []struct {
+		Field struct {
+			Name string `json:"name"`
+		} `json:"field"`
+		Bundle struct {
+			Values []struct {
+				Name        string `json:"name"`
+				IsResolved  bool   `json:"isResolved"`
+				ReleaseDate *int64 `json:"releaseDate"`
+			} `json:"values"`
+		} `json:"bundle"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal custom fields: %w", err)
+	}
+
+	var versions []string
+	for _, cf := range raw {
+		if strings.Contains(strings.ToLower(cf.Field.Name), "fix version") ||
+			strings.Contains(strings.ToLower(cf.Field.Name), "fixversion") ||
+			strings.Contains(strings.ToLower(cf.Field.Name), "milestone") ||
+			strings.Contains(strings.ToLower(cf.Field.Name), "release") {
+			for _, v := range cf.Bundle.Values {
+				if v.Name != "" {
+					versions = append(versions, v.Name)
+				}
+			}
+		}
+	}
+	return versions, nil
+}
+
+// GetIssuesByFixVersion returns all issues with a specific fix version / milestone value.
+func (c *Client) GetIssuesByFixVersion(ctx context.Context, version string) ([]Issue, error) {
+	projectID := c.projectID
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID not configured")
+	}
+	query := fmt.Sprintf("project: %s Fix versions: {%s}", projectID, version)
+	fields := "id,idReadable,summary,resolved,fields(value(name),$type,projectCustomField(field(name)))"
+	path := fmt.Sprintf("/api/issues?query=%s&fields=%s&$top=500", url.QueryEscape(query), fields)
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var issues []Issue
+	if err := json.Unmarshal(body, &issues); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal issues: %w", err)
+	}
+	return issues, nil
+}
+
+// GetIssueSprints returns all sprints that an issue belongs to
+func (c *Client) GetIssueSprints(ctx context.Context, issueID string) ([]Sprint, error) {
+	fields := "id,name,agile(id,name,sprintsSettings(disableSprints)),archived,finish,start"
+	path := fmt.Sprintf("/api/issues/%s/sprints?$top=-1&fields=%s", url.PathEscape(issueID), url.QueryEscape(fields))
+	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var sprints []Sprint
+	if err := json.Unmarshal(body, &sprints); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal issue sprints: %w", err)
+	}
+	return sprints, nil
 }
 
 // AddIssueToSprint adds an existing issue to a sprint.

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ChevronDown, Plus, X, RefreshCw, Send, Hash, ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react'
 import { standupApi, type StandupConfig, type PersonUpdate, type UpdateSection } from '@/services/api'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { CalendarPicker } from '@/components/CalendarPicker'
 import '../styles/pages/standup-compiler.css'
 
@@ -523,7 +524,7 @@ export function StandupCompilerPage() {
 
           {compiling && updates.length === 0 && (
             <div className="sc-loading">
-              <div className="sc-spinner" />
+              <SprintScanLoader size={48} />
               Fetching messages from {cfg.source_channels.length} channel{cfg.source_channels.length !== 1 ? 's' : ''}…
             </div>
           )}
@@ -597,7 +598,7 @@ export function StandupCompilerPage() {
 
           {weeklyCompiling && (
             <div className="sc-loading">
-              <div className="sc-spinner" />
+              <SprintScanLoader size={48} />
               Fetching Mon–Fri from {cfg.source_channels.length} channel{cfg.source_channels.length !== 1 ? 's' : ''} and running AI…
             </div>
           )}

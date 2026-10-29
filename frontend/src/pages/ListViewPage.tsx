@@ -4,6 +4,8 @@ import {
   Search, Copy, CheckCheck, X, ChevronDown, ChevronUp,
   ArrowUpDown, RefreshCw, ChevronRight, Paperclip,
 } from 'lucide-react'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { useAuth } from '@/contexts/AuthContext'
 import type { YouTrackIssue } from '@/services/api'
 import { getPMIssues, getPMStates, getActiveSource } from '@/services/pmDataService'
@@ -576,7 +578,12 @@ export function ListViewPage() {
 
         <div className="lv-groups-scroll">
           {groups.length === 0 ? (
-            <div className="lv-empty">No issues match your filters</div>
+            <div className="lv-empty">
+              <div style={{ display:'flex', justifyContent:'center', marginBottom:'16px' }}>
+                <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+              </div>
+              No issues match your filters
+            </div>
           ) : (
             groups.map(group => {
               const offset = globalIdx

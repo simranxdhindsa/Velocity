@@ -8,6 +8,8 @@ import {
 import api from '../services/api'
 import type { AllowedEmail, AllowedDomain, AccessSettings, YouTrackUser, DeniedEmail } from '../services/api'
 import { ConfirmModal } from '../components/ConfirmModal'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 
 type UserRole = 'admin' | 'project_manager' | 'member' | 'viewer'
 
@@ -43,7 +45,7 @@ function getInitialBg(role: UserRole) {
     case 'project_manager': return 'rgba(99,102,241,0.22)'
     case 'member':          return 'rgba(16,185,129,0.22)'
     case 'viewer':          return 'rgba(100,116,139,0.22)'
-    default:                return 'rgba(255,255,255,0.1)'
+    default:                return 'rgba(var(--overlay-rgb),0.1)'
   }
 }
 
@@ -353,8 +355,9 @@ export function SettingsPage() {
     return (
       <div className="ac-page">
         <div className="ac-loading">
-          <div className="ac-spinner" />
-          <span>Loading access settings…</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 0' }}>
+            <SprintScanLoader size={48} />
+          </div>
         </div>
       </div>
     )
@@ -510,6 +513,9 @@ export function SettingsPage() {
             </div>
           ) : (
             <div className="ac-empty">
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+              </div>
               <Users size={28} />
               <span>No emails configured yet</span>
               <p>Only the default admin has access. Add an email above to grant others access.</p>
@@ -581,6 +587,9 @@ export function SettingsPage() {
             ))
           ) : (
             <div className="ac-empty">
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+              </div>
               <Globe size={28} />
               <span>No domains configured yet</span>
               <p>Add a domain to let everyone from that organisation sign in automatically.</p>
@@ -655,6 +664,9 @@ export function SettingsPage() {
             ))
           ) : (
             <div className="ac-empty">
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+              </div>
               <Ban size={28} />
               <span>No blocked emails</span>
               <p>Add emails here to explicitly deny access regardless of any other rules.</p>

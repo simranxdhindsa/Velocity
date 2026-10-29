@@ -1,0 +1,239 @@
+/* ───────────────────────────────────────────────────────────
+   VIEW 2 — Developer Cards
+   ─────────────────────────────────────────────────────────── */
+.da-cards-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+
+.da-dev-card {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid;
+  backdrop-filter: blur(20px);
+  transition: box-shadow 200ms, border-color 200ms;
+}
+
+.da-dev-card:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.da-card-header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 15px 11px;
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.07);
+  cursor: pointer;
+  background: rgba(var(--overlay-rgb), 0.04);
+  transition: background 140ms;
+}
+
+.da-card-header:hover {
+  background: rgba(var(--overlay-rgb), 0.07);
+}
+
+[data-theme="light"] .da-card-header {
+  background: rgba(var(--color-primary-rgb),0.04);
+  border-bottom-color: rgba(var(--color-primary-rgb),0.1);
+}
+
+[data-theme="light"] .da-card-header:hover {
+  background: rgba(var(--color-primary-rgb),0.07);
+}
+
+.da-card-dev-info {
+  flex: 1;
+}
+
+.da-card-dev-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.92);
+  margin-bottom: 2px;
+}
+
+[data-theme="light"] .da-card-dev-name { color: #1e293b; }
+
+.da-card-dev-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+}
+
+[data-theme="light"] .da-card-dev-sub { color: #94a3b8; }
+
+.da-card-vs-avg {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.da-card-kpis {
+  display: flex;
+  gap: 6px;
+  padding: 9px 15px 7px;
+  flex-wrap: wrap;
+}
+
+.da-card-kpi {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: rgba(var(--overlay-rgb), 0.04);
+  border: 1px solid rgba(var(--overlay-rgb), 0.07);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+[data-theme="light"] .da-card-kpi {
+  background: rgba(var(--color-primary-rgb),0.04);
+  border-color: rgba(var(--color-primary-rgb),0.1);
+}
+
+.da-card-kpi-icon {
+  font-size: 12px;
+}
+
+.da-card-kpi-val {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.da-card-kpi-lbl {
+  font-weight: 400;
+  color: rgba(255,255,255,0.4);
+}
+
+[data-theme="light"] .da-card-kpi-lbl { color: #94a3b8; }
+
+.da-card-progress-wrap {
+  padding: 0 15px 8px;
+}
+
+.da-card-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+}
+
+[data-theme="light"] .da-card-progress-meta { color: #94a3b8; }
+
+.da-card-progress-bar {
+  height: 5px;
+  border-radius: 99px;
+  background: rgba(var(--overlay-rgb), 0.07);
+  overflow: hidden;
+}
+
+[data-theme="light"] .da-card-progress-bar {
+  background: rgba(var(--color-primary-rgb),0.1);
+}
+
+.da-card-progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 700ms ease-out;
+}
+
+.da-card-hours {
+  display: flex;
+  gap: 12px;
+  padding: 5px 15px 9px;
+  border-top: 1px solid rgba(var(--overlay-rgb), 0.04);
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+}
+
+[data-theme="light"] .da-card-hours {
+  border-top-color: rgba(var(--color-primary-rgb),0.08);
+  color: #94a3b8;
+}
+
+.da-card-hours span { color: rgba(255,255,255,0.7); font-family: 'JetBrains Mono', monospace; }
+[data-theme="light"] .da-card-hours span { color: #475569; }
+
+.da-card-ticket-list {
+  border-top: 1px solid rgba(var(--overlay-rgb), 0.07);
+}
+
+[data-theme="light"] .da-card-ticket-list {
+  border-top-color: rgba(var(--color-primary-rgb),0.1);
+}
+
+.da-card-ticket-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 15px;
+  border-bottom: 1px solid rgba(var(--overlay-rgb), 0.03);
+  cursor: pointer;
+  transition: background 130ms;
+}
+
+.da-card-ticket-row:last-child {
+  border-bottom: none;
+}
+
+.da-card-ticket-row:hover {
+  background: rgba(var(--overlay-rgb), 0.04);
+}
+
+[data-theme="light"] .da-card-ticket-row {
+  border-bottom-color: rgba(var(--color-primary-rgb),0.06);
+}
+
+[data-theme="light"] .da-card-ticket-row:hover {
+  background: rgba(var(--color-primary-rgb),0.04);
+}
+
+.da-card-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.da-card-ticket-title {
+  flex: 1;
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-theme="light"] .da-card-ticket-title { color: #475569; }
+
+.da-card-more {
+  padding: 7px 15px;
+  font-size: 12px;
+  color: var(--color-primary-light);
+  cursor: pointer;
+  text-align: center;
+  transition: background 130ms;
+}
+
+.da-card-more:hover {
+  background: rgba(var(--color-primary-rgb),0.07);
+}
+
+/* ── Mobile responsive ─────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Dev cards grid: smaller min-width so cards fit on phone */
+  .da-cards-scroll {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    padding: 10px 12px;
+    gap: 10px;
+  }
+  /* Ticket rows: allow horizontal scroll if content overflows */
+  .da-ticket-row { flex-wrap: wrap; gap: 4px; }
+}
+
+/* ────────────────────────────────────────────────────────────

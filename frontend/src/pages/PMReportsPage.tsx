@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { VelocityBarsLoader, QuantumOrbitLoader, SprintScanLoader, SvgSprintScanLoader, SvgVelocityBarsLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import HoverCard, { HCRow, HCBar, HCDivider, HCBadge } from '../components/HoverCard'
 import DeploymentProjectBrowser from '../components/deployment/DeploymentProjectBrowser'
@@ -13,46 +15,37 @@ import { extractPriority, detectPlatform, stripPrefix } from '../components/depl
 import type { DeploymentBotConfig, DeploymentSectionConfig } from '../services/api'
 import { createPortal } from 'react-dom'
 import {
-  MessageSquare, Send, Bot, Loader2,
+  Send, Loader2,
   FileText, Users, Clock, Copy, Check,
   RefreshCw, ChevronDown, AlertTriangle, TrendingUp,
   Calendar, Pin, PinOff, ChevronLeft, ChevronRight,
   Search, RotateCcw, Save, ArrowDownUp, ArrowUpNarrowWide,
   ArrowDownNarrowWide, Star, Activity, X, TriangleAlert,
   CheckCircle2, Timer, Zap, Filter, Trash2,
-  Brain, ScanSearch, BarChart2, GitBranch, Layers,
-  Cpu, Database, Radar, Gauge, ListChecks,
-  Workflow, Telescope, FlaskConical, Network, Compass,
-  Rocket, ShieldCheck, Shield,
+  ScanSearch, BarChart2, GitBranch, Layers,
+  Gauge, Network, Rocket, ShieldCheck, Shield,
 } from 'lucide-react'
-import { DAILY_LIMIT_MSGS, GENERIC_LIMIT_MSGS } from '../data/assistantMessages'
 import api from '../services/api'
 import type { IssueTimeline, IssueStint, YouTrackSprint, SprintBoardColumn, SprintBoardIssue, IssueStateLogEntry } from '../services/api'
 import {
-  pmAssistantQuery, getCarryover, saveCarryoverPlan,
+  getCarryover, saveCarryoverPlan,
   getAssigneeStats, getAvatarMap,
   getTimeTracking, getIssueTimelines,
   generatePMReport, generateWeeklyPMReport, listPMReports, listWeeklyPMReports, deletePMReport,
   getStageReportColumns, generateStageReport,
   getActiveSource,
 } from '../services/pmDataService'
-import DailyOpsTab from './DailyOpsTab'
 import { StandupCompilerPage } from './StandupCompilerPage'
 import { IssueDetailPanel } from '../components/IssueDetailPanel'
+import { IssueDetailSkeleton } from '../components/IssueDetailSkeleton'
 import DevTimeView from '../components/DevTimeView'
 import type { DevTimeVariant } from '../components/DevTimeView'
 import FeatureGroupsView from '../components/FeatureGroupsView'
 import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
-import { useAuth } from '../contexts/AuthContext'
+import { CountUp } from '../components/CountUp'
+import { KpiRowSkeleton } from '../components/KpiRowSkeleton'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
-}
 
 interface PMReport {
   id: string
@@ -135,28 +128,14 @@ function toISODate(d: Date): string {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'tracking',    label: 'Tracking',          icon: Activity  },
-  { id: 'daily',       label: 'Reports',            icon: FileText  },
-  { id: 'assignees',   label: 'Assignee Stats',     icon: Users     },
-  { id: 'dailyops',    label: 'Daily Ops',          icon: Zap       },
-  { id: 'deployment',  label: 'Deployment Report',  icon: Rocket    },
-  { id: 'standup',     label: 'Compiler',           icon: Send      },
+  { id: 'tracking',    label: 'Tracking',          icon: Activity   },
+  { id: 'daily',       label: 'Reports',            icon: FileText   },
+  { id: 'assignees',   label: 'Assignee Stats',     icon: Users      },
+  { id: 'deployment',  label: 'Deployment Report',  icon: Rocket     },
+  { id: 'standup',     label: 'Compiler',           icon: Send       },
 ] as const
 
 type TabId = typeof TABS[number]['id']
-
-const SUGGESTED_QUERIES = [
-  'Which tickets have been bounced back this sprint?',
-  'Show me all blocked tickets and why they\'re stuck',
-  'Who has the most overdue tickets right now?',
-  'Which tickets are past their SLA deadline?',
-  'Show cycle time per developer this sprint',
-  'Which hotfixes are still in progress?',
-  'Show QA verification status — what\'s pending DEV, STAGE, PROD?',
-  'Which tickets have the highest bounce count?',
-  'Developer workload — active vs blocked vs done per person',
-  'Show me all at-risk tickets sorted by delay severity',
-]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -177,453 +156,6 @@ function priorityBadgeClass(priority: string): string {
   if (p === 'P2') return 'priority-badge p2'
   if (p === 'P3') return 'priority-badge p3'
   return 'priority-badge other'
-}
-
-// ─── Markdown renderer (preserved from original) ─────────────────────────────
-
-function escapeHtml(str: string) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
-function renderInline(text: string) {
-  return escapeHtml(text)
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/`(.*?)`/g, '<code>$1</code>')
-}
-
-function renderMarkdown(text: string): string {
-  const lines = text.split('\n')
-  const htmlParts: string[] = []
-  let i = 0
-
-  while (i < lines.length) {
-    const line = lines[i]
-
-    if (line.trim().startsWith('```')) {
-      const codeLines: string[] = []
-      i++
-      while (i < lines.length && !lines[i].trim().startsWith('```')) {
-        codeLines.push(escapeHtml(lines[i]))
-        i++
-      }
-      i++
-      htmlParts.push(`<pre class="pm-code-block"><code>${codeLines.join('\n')}</code></pre>`)
-      continue
-    }
-
-    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
-      const tableRows: string[][] = []
-      while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
-        const row = lines[i].trim()
-        if (/^\|[\s\-:|]+\|$/.test(row)) { i++; continue }
-        const cells = row.slice(1, -1).split('|').map(c => c.trim())
-        tableRows.push(cells)
-        i++
-      }
-      if (tableRows.length > 0) {
-        let tableHtml = '<table class="pm-report-table"><thead><tr>'
-        for (const cell of tableRows[0]) tableHtml += `<th>${escapeHtml(cell)}</th>`
-        tableHtml += '</tr></thead><tbody>'
-        for (let r = 1; r < tableRows.length; r++) {
-          tableHtml += '<tr>'
-          for (const cell of tableRows[r]) tableHtml += `<td>${renderInline(cell)}</td>`
-          tableHtml += '</tr>'
-        }
-        tableHtml += '</tbody></table>'
-        htmlParts.push(tableHtml)
-      }
-      continue
-    }
-
-    const headingMatch = line.match(/^(#{1,4})\s+(.*)$/)
-    if (headingMatch) {
-      const level = headingMatch[1].length + 1
-      htmlParts.push(`<h${level}>${renderInline(headingMatch[2])}</h${level}>`)
-      i++; continue
-    }
-
-    if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
-      const listItems: string[] = []
-      while (i < lines.length && (lines[i].trim().startsWith('- ') || lines[i].trim().startsWith('* '))) {
-        listItems.push(`<li>${renderInline(lines[i].trim().slice(2))}</li>`)
-        i++
-      }
-      htmlParts.push(`<ul>${listItems.join('')}</ul>`)
-      continue
-    }
-
-    if (/^\d+\.\s/.test(line.trim())) {
-      const listItems: string[] = []
-      while (i < lines.length && /^\d+\.\s/.test(lines[i].trim())) {
-        listItems.push(`<li>${renderInline(lines[i].trim().replace(/^\d+\.\s/, ''))}</li>`)
-        i++
-      }
-      htmlParts.push(`<ol>${listItems.join('')}</ol>`)
-      continue
-    }
-
-    if (line.trim() === '') { htmlParts.push('<br/>'); i++; continue }
-
-    htmlParts.push(`<p>${renderInline(line)}</p>`)
-    i++
-  }
-
-  return htmlParts.join('')
-}
-
-// ─── Tab: PM Assistant ────────────────────────────────────────────────────────
-
-const THINKING_PHRASES: { text: string; Icon: React.ElementType; key: string }[] = [
-  { text: 'Thinking…',                    Icon: Brain,         key: 'brain' },
-  { text: 'Analyzing your tickets…',      Icon: ScanSearch,    key: 'scan-search' },
-  { text: 'Checking workload data…',      Icon: BarChart2,     key: 'bar-chart' },
-  { text: 'Scanning issue history…',      Icon: Radar,         key: 'radar' },
-  { text: 'Crunching the numbers…',       Icon: Cpu,           key: 'cpu' },
-  { text: 'Looking through state logs…',  Icon: Database,      key: 'database' },
-  { text: 'Reviewing assignee activity…', Icon: Users,         key: 'users' },
-  { text: 'Checking for blockers…',       Icon: AlertTriangle, key: 'alert' },
-  { text: 'Fetching live data…',          Icon: Network,       key: 'network' },
-  { text: 'Correlating timelines…',       Icon: GitBranch,     key: 'git-branch' },
-  { text: 'Inspecting ticket flow…',      Icon: Workflow,      key: 'workflow' },
-  { text: 'Reading sprint context…',      Icon: Layers,        key: 'layers' },
-  { text: 'Identifying patterns…',        Icon: TrendingUp,    key: 'trending-up' },
-  { text: 'Pulling YouTrack data…',       Icon: Telescope,     key: 'telescope' },
-  { text: 'Cross-referencing issues…',    Icon: ListChecks,    key: 'list-checks' },
-  { text: 'Running diagnostics…',         Icon: FlaskConical,  key: 'flask' },
-  { text: 'Processing context…',          Icon: Compass,       key: 'compass' },
-  { text: 'Reviewing open items…',        Icon: FileText,      key: 'file-text' },
-  { text: 'Checking delayed tickets…',    Icon: Timer,         key: 'timer' },
-  { text: 'Almost there…',               Icon: Gauge,         key: 'gauge' },
-]
-
-export function PMAssistantTab() {
-  const { user } = useAuth()
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [thinkingIdx, setThinkingIdx] = useState(0)
-  const [thinkingVisible, setThinkingVisible] = useState(true)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const thinkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Sprint selector state
-  const [sprints, setSprints] = useState<YouTrackSprint[]>([])
-  const [assistantSprint, setAssistantSprint] = useState<YouTrackSprint | null>(null)
-  const [sprintDropOpen, setSprintDropOpen] = useState(false)
-  const [actionNotif, setActionNotif] = useState<string | null>(null)
-  const sprintDropRef = useRef<HTMLDivElement>(null)
-
-  // Load sprints + restore last selected sprint
-  useEffect(() => {
-    api.getYouTrackSprints().then(res => {
-      const list = ((res as any).data as YouTrackSprint[]) ?? []
-      setSprints(list)
-      const savedId = localStorage.getItem('pm_active_sprint_id')
-      if (savedId) {
-        const found = list.find(s => s.id === savedId)
-        if (found) setAssistantSprint(found)
-      }
-    }).catch(() => {})
-  }, [])
-
-  // Outside-click to close sprint dropdown
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (sprintDropRef.current && !sprintDropRef.current.contains(e.target as Node)) {
-        setSprintDropOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  // Auto-dismiss action notification
-  useEffect(() => {
-    if (!actionNotif) return
-    const t = setTimeout(() => setActionNotif(null), 3500)
-    return () => clearTimeout(t)
-  }, [actionNotif])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  useEffect(() => {
-    if (!loading) { setThinkingIdx(0); setThinkingVisible(true); return }
-    const cycle = () => {
-      setThinkingVisible(false)
-      thinkingTimerRef.current = setTimeout(() => {
-        setThinkingIdx(i => (i + 1) % THINKING_PHRASES.length)
-        setThinkingVisible(true)
-        thinkingTimerRef.current = setTimeout(cycle, 2200)
-      }, 350)
-    }
-    thinkingTimerRef.current = setTimeout(cycle, 2200)
-    return () => { if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current) }
-  }, [loading])
-
-  const handleSprintSelect = (sprint: YouTrackSprint | null) => {
-    setAssistantSprint(sprint)
-    setSprintDropOpen(false)
-    if (sprint) {
-      localStorage.setItem('pm_active_sprint_id', sprint.id)
-      localStorage.setItem('pm_active_sprint_name', sprint.name)
-    } else {
-      localStorage.removeItem('pm_active_sprint_id')
-      localStorage.removeItem('pm_active_sprint_name')
-    }
-  }
-
-  const handleSend = async (query?: string) => {
-    const text = query || input.trim()
-    if (!text || loading) return
-
-    const userMsg: ChatMessage = { id: `msg-${Date.now()}-user`, role: 'user', content: text, timestamp: new Date() }
-    const updatedMessages = [...messages, userMsg]
-    setMessages(updatedMessages)
-    setInput('')
-    setLoading(true)
-
-    const history = updatedMessages.map(m => ({ role: m.role, content: m.content }))
-    const historyWithoutLast = history.slice(0, -1)
-
-    const sprintId = assistantSprint?.id
-    const sprintName = assistantSprint?.name
-    const sprintFinishMs = assistantSprint?.finish ?? undefined
-    const doQuery = () => pmAssistantQuery(text, historyWithoutLast, sprintId, sprintName, sprintFinishMs)
-
-    const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)]
-
-    const friendlyError = (msg: string): string => {
-      const tpdMatch = msg.match(/try again in (\d+)m(\d+(?:\.\d+)?)?s?/i)
-      if (tpdMatch) {
-        const mins = parseInt(tpdMatch[1])
-        const secs = tpdMatch[2] ? Math.round(parseFloat(tpdMatch[2])) : 0
-        const timeStr = secs > 0 ? `${mins}m ${secs}s` : `${mins} minute${mins !== 1 ? 's' : ''}`
-        return pick(DAILY_LIMIT_MSGS).replace(/{time}/g, timeStr)
-      }
-      const perMinMatch = msg.match(/try again in (\d+(?:\.\d+)?)(ms|s)\b/i)
-      if (perMinMatch) return pick(GENERIC_LIMIT_MSGS)
-      if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('token')) {
-        return pick(GENERIC_LIMIT_MSGS)
-      }
-      return "Something went wrong on my end. Please try again."
-    }
-
-    try {
-      let response
-      try {
-        response = await doQuery()
-      } catch (firstErr) {
-        const errMsg = firstErr instanceof Error ? firstErr.message : ''
-        const retryMatch = errMsg.match(/try again in (\d+(?:\.\d+)?)(ms|s)\b/i)
-        if (retryMatch) {
-          const value = parseFloat(retryMatch[1])
-          const unit = retryMatch[2].toLowerCase()
-          const delayMs = unit === 'ms' ? value : value * 1000
-          if (delayMs <= 5000) {
-            await new Promise(resolve => setTimeout(resolve, Math.ceil(delayMs) + 100))
-            response = await doQuery()
-          } else {
-            throw firstErr
-          }
-        } else {
-          throw firstErr
-        }
-      }
-
-      // Handle structured action responses from AI
-      const data = response.data as any
-      if (data?.action === 'select_sprint' && data.payload?.sprint_id) {
-        const targetSprint = sprints.find((s: YouTrackSprint) => s.id === data.payload.sprint_id)
-          ?? { id: data.payload.sprint_id, name: data.payload.sprint_name ?? data.payload.sprint_id, start: 0, finish: 0, isCompleted: false }
-        handleSprintSelect(targetSprint)
-        setActionNotif(`Switched to ${targetSprint.name}`)
-      }
-
-      const assistantMsg: ChatMessage = {
-        id: `msg-${Date.now()}-assistant`,
-        role: 'assistant',
-        content: data?.response || 'No response received.',
-        timestamp: new Date(),
-      }
-      setMessages(prev => [...prev, assistantMsg])
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : ''
-      const errorMsg: ChatMessage = {
-        id: `msg-${Date.now()}-error`,
-        role: 'assistant',
-        content: friendlyError(errMsg),
-        timestamp: new Date(),
-      }
-      setMessages(prev => [...prev, errorMsg])
-    } finally {
-      setLoading(false)
-      inputRef.current?.focus()
-    }
-  }
-
-  const clearChat = () => setMessages([])
-
-  const fmtSprintDate = (ms: number) => ms ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''
-
-  return (
-    <div className="pm-tab-content pm-assistant-tab">
-      {/* Header: sprint selector + context badge + clear */}
-      <div className="pm-assistant-header">
-        <div className="pm-assistant-header-left">
-          {/* Sprint selector dropdown */}
-          <div className="pm-custom-dropdown pm-assistant-sprint-drop" ref={sprintDropRef}>
-            <button
-              className="pm-custom-dropdown-trigger pm-assistant-sprint-trigger"
-              onClick={() => setSprintDropOpen(o => !o)}
-            >
-              <GitBranch size={11} />
-              <span>{assistantSprint ? assistantSprint.name : 'All sprints'}</span>
-              <ChevronDown size={10} />
-            </button>
-            {sprintDropOpen && createPortal(
-              <div
-                className="pm-custom-dropdown-menu"
-                style={{
-                  position: 'fixed',
-                  top: (sprintDropRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
-                  left: sprintDropRef.current?.getBoundingClientRect().left ?? 0,
-                  minWidth: 220,
-                  zIndex: 9999,
-                }}
-              >
-                <div
-                  className={`pm-dropdown-item${!assistantSprint ? ' active' : ''}`}
-                  onClick={() => handleSprintSelect(null)}
-                >
-                  All sprints
-                </div>
-                {sprints.map(s => (
-                  <div
-                    key={s.id}
-                    className={`pm-dropdown-item${assistantSprint?.id === s.id ? ' active' : ''}`}
-                    onClick={() => handleSprintSelect(s)}
-                    style={{ opacity: s.isCompleted ? 0.6 : 1 }}
-                  >
-                    <span style={{ flex: 1 }}>{s.name}</span>
-                    {s.start && s.finish && (
-                      <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 8 }}>
-                        {fmtSprintDate(s.start)}–{fmtSprintDate(s.finish)}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>,
-              document.body
-            )}
-          </div>
-          <div className="pm-assistant-context-badge">
-            <Bot size={12} />
-            <span>Live context{assistantSprint ? ` · ${assistantSprint.name}` : ''}</span>
-          </div>
-        </div>
-        {messages.length > 0 && (
-          <button className="btn-sm btn-secondary" onClick={clearChat} title="Start a new conversation">
-            Clear chat
-          </button>
-        )}
-      </div>
-
-      {/* Action notification banner */}
-      {actionNotif && (
-        <div className="pm-assistant-action-notif">
-          <Check size={12} />
-          <span>{actionNotif}</span>
-        </div>
-      )}
-
-      <div className="pm-chat-messages">
-        {messages.length === 0 && (
-          <div className="pm-chat-empty">
-            <MessageSquare size={48} />
-            <h3>PM Assistant</h3>
-            <p>Ask about overdue tickets, regressions, workload, or anything about your project.</p>
-            <div className="pm-suggested-queries">
-              {SUGGESTED_QUERIES.map(q => (
-                <button key={q} className="pm-suggested-chip" onClick={() => handleSend(q)}>{q}</button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {messages.map(msg => (
-          <div key={msg.id} className={`pm-chat-message pm-chat-${msg.role}`}>
-            <div className="pm-chat-avatar">
-              {msg.role === 'user'
-                ? user?.picture
-                  ? <img src={user.picture} alt={user.name ?? 'You'} className="pm-chat-avatar-img" />
-                  : <span style={{ fontSize: '0.7rem', fontWeight: 700, lineHeight: 1 }}>{user?.name?.charAt(0).toUpperCase() ?? 'U'}</span>
-                : <Bot size={16} />}
-            </div>
-            <div className="pm-chat-bubble">
-              {msg.role === 'assistant' ? (
-                <div className="pm-chat-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
-              ) : (
-                <div className="pm-chat-content">{msg.content}</div>
-              )}
-              <span className="pm-chat-time">
-                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
-              </span>
-            </div>
-          </div>
-        ))}
-
-        {loading && (() => {
-          const phrase = THINKING_PHRASES[thinkingIdx]
-          const PhIcon = phrase.Icon
-          return (
-            <div className="pm-chat-message pm-chat-assistant">
-              <div className="pm-chat-avatar"><Bot size={16} /></div>
-              <div className="pm-chat-bubble pm-chat-loading">
-                <span className={`pm-thinking-icon pm-ti-${phrase.key}${thinkingVisible ? ' pm-thinking-visible' : ''}`}>
-                  <PhIcon size={15} />
-                </span>
-                <span className={`pm-thinking-text${thinkingVisible ? ' pm-thinking-visible' : ''}`}>
-                  {phrase.text}
-                </span>
-              </div>
-            </div>
-          )
-        })()}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="pm-chat-input-bar">
-        {messages.length > 0 && (
-          <div className="pm-suggested-queries pm-suggested-inline">
-            {SUGGESTED_QUERIES.slice(0, 4).map(q => (
-              <button key={q} className="pm-suggested-chip pm-suggested-sm" onClick={() => handleSend(q)} disabled={loading}>{q}</button>
-            ))}
-          </div>
-        )}
-        <div className="pm-chat-input-row">
-          <input
-            ref={inputRef}
-            type="text"
-            className="pm-chat-input"
-            placeholder={assistantSprint ? `Ask about ${assistantSprint.name}…` : 'Ask about overdue tickets, workload, regressions…'}
-            value={input}
-            onChange={e => setInput(e.target.value.slice(0, 500))}
-            maxLength={500}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-            disabled={loading}
-          />
-          <button className="pm-chat-send-btn" onClick={() => handleSend()} disabled={loading || !input.trim()}>
-            <Send size={18} />
-          </button>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 // ─── Tab: Daily Report ────────────────────────────────────────────────────────
@@ -1249,6 +781,9 @@ function DailyReportTab({ sprintId, sprintName }: {
               if (hasAnyForDate) {
                 return (
                   <div className="pm-report-empty pm-report-scope-missing">
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                      <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                    </div>
                     <FileText size={40} />
                     <p>No <strong>{reportScope === 'full' ? 'full' : 'summary'} report</strong> generated for this {mode === 'weekly' ? 'week' : 'date'}.</p>
                     {hasSiblingScope && (
@@ -1262,6 +797,9 @@ function DailyReportTab({ sprintId, sprintName }: {
               }
               return (
                 <div className="pm-report-empty">
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                    <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                  </div>
                   <FileText size={40} />
                   {mode === 'daily'
                     ? <p>Select a date and click <strong>Generate Report</strong> to create today's Slack-style PM report.</p>
@@ -1412,7 +950,7 @@ function AssigneeStatsTab({ sprintId }: { sprintId?: string }) {
                     <span className="pm-col-as-stat">{sk(22, 18, 10)}</span>
                     <span className="pm-col-as-avg">{sk(50, 12, 4)}</span>
                     <span className="pm-col-as-workload">
-                      <div style={{ height: 6, borderRadius: 4, background: 'rgba(255,255,255,0.06)', width: '100%', overflow: 'hidden' }}>
+                      <div style={{ height: 6, borderRadius: 4, background: 'rgba(var(--overlay-rgb),0.06)', width: '100%', overflow: 'hidden' }}>
                         <div className="skeleton" style={{ height: '100%', width: `${barW[i % barW.length]}%`, borderRadius: 4 }} />
                       </div>
                     </span>
@@ -1425,7 +963,12 @@ function AssigneeStatsTab({ sprintId }: { sprintId?: string }) {
         )
       })()
       : stats.length === 0 ? (
-        <div className="pm-empty-state"><Users size={40} /><p>No assignee data yet. Stats populate from webhook events or after a Backfill.</p></div>
+        <div className="pm-empty-state">
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+          </div>
+          <Users size={40} /><p>No assignee data yet. Stats populate from webhook events or after a Backfill.</p>
+        </div>
       ) : (
         <div className="pm-card-list glass-card">
           <div className="pm-list-summary">
@@ -1482,7 +1025,7 @@ function AssigneeStatsTab({ sprintId }: { sprintId?: string }) {
                   {/* Workload bar */}
                   <div className="pm-col-as-workload workload-cell">
                     <div className="tt-time-bar">
-                      <div className="tt-time-bar-fill" style={{ width: `${pct}%`, background: '#6366f1' }} />
+                      <div className="tt-time-bar-fill" style={{ width: `${pct}%`, background: 'var(--color-primary)' }} />
                     </div>
                     <span className="tt-threshold">{total}</span>
                   </div>
@@ -1722,7 +1265,7 @@ function delayBarHoverContent(issue: SprintBoardIssue, workDays: number, bounceD
       {workDays > 0 && (
         <div>
           <HCRow label="Working"     value={`${workDays.toFixed(1)}d`} />
-          <HCBar pct={(workDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="#6366f1" />
+          <HCBar pct={(workDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="var(--color-primary)" />
         </div>
       )}
       {bounceDays > 0 && (
@@ -1734,7 +1277,7 @@ function delayBarHoverContent(issue: SprintBoardIssue, workDays: number, bounceD
       {reviewDays > 0 && (
         <div style={{ marginTop: 4 }}>
           <HCRow label="Review/Idle" value={`${reviewDays.toFixed(1)}d`} />
-          <HCBar pct={(reviewDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="#818cf8" />
+          <HCBar pct={(reviewDays / Math.max(totalDays, slaDays || totalDays)) * 100} color="var(--color-primary-light)" />
         </div>
       )}
       {slaDays > 0 && (
@@ -1823,15 +1366,16 @@ function IssueTransitionInline({
   return (
     <div className="pm-tracking-expand-area">
       {loading ? (
-        <div className="pm-tracking-timeline-list">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="pm-tracking-timeline-entry">
-              {sk(80, 11)}{sk(60, 11)}{sk(60, 11)}{sk('30%', 11)}{sk(50, 11)}
-            </div>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 0' }}>
+          <QuantumOrbitLoader size={40} />
         </div>
       ) : logs.length === 0 ? (
-        <p className="pm-tracking-expand-empty">No transition history found in state log.</p>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+          </div>
+          <p className="pm-tracking-expand-empty">No transition history found in state log.</p>
+        </div>
       ) : (
         <div className="pm-tracking-timeline-list">
           {logs.map((entry, i) => {
@@ -1994,7 +1538,7 @@ function getColumnType(col: SprintBoardColumn): 'inprogress' | 'blocked' | 'comp
   return 'compact'
 }
 
-function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs }: { blockerIssueIds?: Set<string>; sprintId?: string; sprintStartMs?: number; sprintFinishMs?: number }) {
+function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: string; sprintStartMs?: number; sprintFinishMs?: number }) {
   const [boardColumns, setBoardColumns] = useState<SprintBoardColumn[]>([])
   const [summary, setSummary] = useState<import('../services/api').SprintSummary | null>(null)
   const [loading, setLoading] = useState(false)
@@ -2408,7 +1952,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
       <HoverCard key={issue.id} content={ticketHoverContent(issue)}>
       <React.Fragment>
         <div
-          className={`pm-tracking-issue-row pm-tracking-issue-row--clickable${overdueClass}${bounceClass}${hotfixClass}${blockerIssueIds?.has(issue.idReadable) ? ' pm-tracking-issue-row--blocked' : ''}${isExpanded ? ' pm-tracking-issue-row--expanded' : ''}`}
+          className={`pm-tracking-issue-row pm-tracking-issue-row--clickable${overdueClass}${bounceClass}${hotfixClass}${isExpanded ? ' pm-tracking-issue-row--expanded' : ''}`}
           onClick={() => setExpandedIssue(isExpanded ? null : issue.idReadable)}
         >
           {/* Ticket ID — click opens in YouTrack */}
@@ -2746,14 +2290,14 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
       </div>
 
       {/* ── KPI cards ── */}
-      {summary && (
+      {sprintId && loading ? <KpiRowSkeleton /> : summary && (
         <div className="pm-tracking-kpi-row">
           {/* Completion */}
           <button className={`pm-tracking-kpi pm-tracking-kpi--green pm-tracking-kpi--clickable${kpiDrawer === 'completion' ? ' pm-tracking-kpi--active' : ''}`}
             onClick={() => setKpiDrawer(kpiDrawer === 'completion' ? null : 'completion')}>
             <div className="pm-tracking-kpi-lbl">Completion</div>
             <div className="pm-tracking-kpi-val">
-              {Math.round(summary.completion_pct)}<span className="pm-tracking-kpi-unit">%</span>
+              <CountUp value={Math.round(summary.completion_pct)} /><span className="pm-tracking-kpi-unit">%</span>
             </div>
             <div className="pm-tracking-kpi-prog">
               <div className="pm-tracking-kpi-prog-f" style={{ width: `${Math.round(summary.completion_pct)}%` }} />
@@ -2764,21 +2308,21 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
           <button className={`pm-tracking-kpi pm-tracking-kpi--blue pm-tracking-kpi--clickable${kpiDrawer === 'in-progress' ? ' pm-tracking-kpi--active' : ''}`}
             onClick={() => setKpiDrawer(kpiDrawer === 'in-progress' ? null : 'in-progress')}>
             <div className="pm-tracking-kpi-lbl">In Progress</div>
-            <div className="pm-tracking-kpi-val">{summary.in_progress_count}</div>
+            <div className="pm-tracking-kpi-val"><CountUp value={summary.in_progress_count} /></div>
             <div className="pm-tracking-kpi-note">{summary.overdue_count} overdue · {summary.blocked_count} blocked</div>
           </button>
           {/* Blocked */}
           <button className={`pm-tracking-kpi pm-tracking-kpi--red pm-tracking-kpi--clickable${kpiDrawer === 'blocked' ? ' pm-tracking-kpi--active' : ''}`}
             onClick={() => setKpiDrawer(kpiDrawer === 'blocked' ? null : 'blocked')}>
             <div className="pm-tracking-kpi-lbl">Blocked</div>
-            <div className="pm-tracking-kpi-val">{summary.blocked_count}</div>
+            <div className="pm-tracking-kpi-val"><CountUp value={summary.blocked_count} /></div>
             <div className="pm-tracking-kpi-note">{summary.in_progress_count} in progress · {summary.overdue_count} overdue</div>
           </button>
           {/* Bounced */}
           <button className={`pm-tracking-kpi pm-tracking-kpi--amber pm-tracking-kpi--clickable${kpiDrawer === 'bounced' ? ' pm-tracking-kpi--active' : ''}`}
             onClick={() => setKpiDrawer(kpiDrawer === 'bounced' ? null : 'bounced')}>
             <div className="pm-tracking-kpi-lbl">Bounced</div>
-            <div className="pm-tracking-kpi-val">{summary.bounced_count}</div>
+            <div className="pm-tracking-kpi-val"><CountUp value={summary.bounced_count} /></div>
             <div className="pm-tracking-kpi-note">{summary.hotfix_count} hotfix{summary.hotfix_count !== 1 ? 'es' : ''} · backward moves</div>
           </button>
           {/* Sprint Ends */}
@@ -2786,7 +2330,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
             onClick={() => setKpiDrawer(kpiDrawer === 'sprint' ? null : 'sprint')}>
             <div className="pm-tracking-kpi-lbl">Sprint Ends</div>
             <div className={`pm-tracking-kpi-val${sprintDeadlineLabel === 'OVERDUE' ? ' pm-tracking-kpi-val--danger' : ''}`}>
-              {sprintDeadlineLabel ?? '—'}
+              <CountUp value={sprintDeadlineLabel ?? '—'} />
             </div>
             <div className="pm-tracking-kpi-note">{summary.overdue_count} ticket{summary.overdue_count !== 1 ? 's' : ''} overdue</div>
           </button>
@@ -2811,7 +2355,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
             {/* ── In Progress ── */}
             {kpiDrawer === 'in-progress' && (
               allInProgressIssues.length === 0
-                ? <div className="pm-kpi-drawer-empty">No tickets in progress.</div>
+                ? <div className="pm-kpi-drawer-empty"><div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}><VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} /></div>No tickets in progress.</div>
                 : allInProgressIssues.map(issue => (
                   <div key={issue.id} className="pm-kpi-drawer-row">
                     <span className="pm-kpi-drawer-id pm-tracking-issue-id--link"
@@ -2838,7 +2382,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
             {/* ── Blocked ── */}
             {kpiDrawer === 'blocked' && (
               allBlockedIssues.length === 0
-                ? <div className="pm-kpi-drawer-empty">No blocked tickets right now.</div>
+                ? <div className="pm-kpi-drawer-empty"><div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}><VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} /></div>No blocked tickets right now.</div>
                 : allBlockedIssues.map(issue => (
                   <div key={issue.id} className="pm-kpi-drawer-row">
                     <span className="pm-kpi-drawer-id pm-tracking-issue-id--link"
@@ -2862,7 +2406,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
             {/* ── Bounced ── */}
             {kpiDrawer === 'bounced' && (
               allBouncedIssues.length === 0
-                ? <div className="pm-kpi-drawer-empty">No bounced tickets.</div>
+                ? <div className="pm-kpi-drawer-empty"><div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}><VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} /></div>No bounced tickets.</div>
                 : allBouncedIssues.map(issue => (
                   <div key={issue.id} className="pm-kpi-drawer-row">
                     <span className="pm-kpi-drawer-id pm-tracking-issue-id--link"
@@ -2972,7 +2516,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
                       ))}
                     </>
                   )}
-                  {atRisk.length === 0 && <div className="pm-kpi-drawer-empty">No at-risk tickets.</div>}
+                  {atRisk.length === 0 && <div className="pm-kpi-drawer-empty"><div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}><VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} /></div>No at-risk tickets.</div>}
                 </div>
               )
             })()}
@@ -2985,13 +2529,23 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
       {statusMsg && <div className="pm-report-status">{statusMsg}</div>}
 
       {!sprintId && (
-        <div className="pm-empty-state"><Activity size={36} /><p>Select a sprint to view board status</p></div>
+        <div className="pm-empty-state">
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+          </div>
+          <Activity size={36} /><p>Select a sprint to view board status</p>
+        </div>
       )}
 
       {sprintId && loading && trackingSkeleton}
 
       {sprintId && !loading && filteredColumns.length === 0 && !error && (
-        <div className="pm-empty-state"><Activity size={36} /><p>No issues found for this sprint.</p></div>
+        <div className="pm-empty-state">
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+          </div>
+          <Activity size={36} /><p>No issues found for this sprint.</p>
+        </div>
       )}
 
       {/* ── Column view ── */}
@@ -3606,10 +3160,10 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
               </div>
               <div className="pm-tracking-split-donut-wrap">
                 <svg width="100" height="100" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={stroke} />
+                  <circle cx="50" cy="50" r={r} fill="none" style={{ stroke: 'rgba(var(--overlay-rgb),0.07)' }} strokeWidth={stroke} />
                   <circle
                     cx="50" cy="50" r={r} fill="none"
-                    stroke="#6366f1" strokeWidth={stroke}
+                    style={{ stroke: 'var(--color-primary)' }} strokeWidth={stroke}
                     strokeDasharray={circ}
                     strokeDashoffset={arc}
                     strokeLinecap="round"
@@ -3947,6 +3501,9 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
               {/* Rows */}
               {displayIssues.length === 0 && (
                 <div className="pm-qa-empty">
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                    <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                  </div>
                   <ShieldCheck size={28} style={{ opacity: 0.2 }} />
                   <span>No tickets match the current filter</span>
                 </div>
@@ -4273,6 +3830,7 @@ function TrackingTab({ blockerIssueIds, sprintId, sprintStartMs, sprintFinishMs 
       )}
 
       {/* ── YouTrack issue detail panel ── */}
+      {ytDetailLoading && !ytDetailIssue && <IssueDetailSkeleton onClose={() => setYtDetailLoading(false)} />}
       {ytDetailIssue && (
         <IssueDetailPanel
           issue={ytDetailIssue}
@@ -5102,7 +4660,6 @@ function fmtSprintDate(ms: number) {
 
 export function PMReportsPage({ initialTab = 'tracking', onTabChange }: PMReportsPageProps) {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab)
-  const [blockerIssueIds, setBlockerIssueIds] = useState<Set<string>>(new Set())
 
   // ── Sprint state ────────────────────────────────────────────────────────────
   const [sprints, setSprints] = useState<YouTrackSprint[]>([])
@@ -5223,8 +4780,7 @@ export function PMReportsPage({ initialTab = 'tracking', onTabChange }: PMReport
         <div className={`pm-tab-panel glass-card${activeTab === 'daily' ? ' pm-tab-panel--daily' : ''}`}>
           {activeTab === 'daily'      && <DailyReportTab sprintId={activeSprint?.id} sprintName={activeSprint?.name} />}
           {activeTab === 'assignees'  && <AssigneeStatsTab sprintId={activeSprint?.id} />}
-          {activeTab === 'tracking'   && <TrackingTab blockerIssueIds={blockerIssueIds} sprintId={activeSprint?.id} sprintStartMs={activeSprint?.start} sprintFinishMs={activeSprint?.finish} />}
-          {activeTab === 'dailyops'   && <DailyOpsTab onBlockersChange={setBlockerIssueIds} sprintId={activeSprint?.id} />}
+          {activeTab === 'tracking'   && <TrackingTab sprintId={activeSprint?.id} sprintStartMs={activeSprint?.start} sprintFinishMs={activeSprint?.finish} />}
           {activeTab === 'deployment' && <DeploymentReportTab activeSprint={activeSprint} />}
           {activeTab === 'standup'    && <StandupCompilerPage />}
         </div>

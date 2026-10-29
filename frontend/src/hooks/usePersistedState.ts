@@ -25,8 +25,39 @@ export const PERSIST = {
   SPRINT_NAME:      'pm_active_sprint_name',
   /** App theme */
   THEME:            'theme',
+  /** Theme page — Classic or Wheel picker per colour card */
+  THEME_PICKER_ACCENT: 'theme_picker_accent',
+  THEME_PICKER_BG:     'theme_picker_bg',
+  THEME_PICKER_TEXT:   'theme_picker_text',
   /** Per-user theme cache (JSON) */
   THEME_CACHE:      'user-theme-cache',
+  /** Dev Activity page — which of the 4 views was last active */
+  DEV_ACTIVITY_VIEW: 'dev_activity_view',
+  /** Dev Activity page — date range filter */
+  DEV_ACTIVITY_DATE: 'dev_activity_date',
+  /** Dev Activity Skyline — which activity is counted (dev_done / verified / deployed) */
+  DEV_ACTIVITY_SKYLINE_METRIC: 'dev_activity_skyline_metric',
+  /** Daily Ops tab — which design view is active */
+  DAILY_OPS_VIEW: 'daily_ops_view',
+  /** Quick Send — last 10 sent messages for history display */
+  QUICK_SEND_HISTORY: 'quick_send_history',
+  /** Pending queue — default scheduled time for Claude-queued messages (HH:MM) */
+  QUEUE_DEFAULT_TIME: 'queue_default_send_time',
+  /** MCP plain token — stored so connector URL is always visible without re-generating */
+  MCP_PLAIN_TOKEN: 'mcp_plain_token',
+  /** Slack Messages hub — last selected channel id */
+  SLACK_HUB_CHANNEL: 'slack_hub_channel',
+  /** Slack Messages hub — per-channel last-viewed timestamp (JSON), drives unread bolding */
+  SLACK_HUB_LAST_VIEWED: 'slack_hub_last_viewed',
+  /** Slack > MCP Activity — 'bot' (bot conversations) or 'claude' (Claude actions, admins) */
+  SLACK_ACTIVITY_VIEW: 'slack_activity_view',
+  /** Slack > MCP Activity — items per page in each view */
+  SLACK_BOT_CHAT_PAGE_SIZE: 'slack_bot_chat_page_size',
+  MCP_ACTIVITY_PAGE_SIZE: 'mcp_activity_page_size',
+  /** Gantt — timeline scale (day/week/month) */
+  GANTT_VIEW: 'gantt_view',
+  /** Sprint Pulse — which view (live/kanban/priority/...) was last active */
+  SPRINT_PULSE_VIEW: 'sprint_pulse_view',
 } as const
 
 export type PersistKey = typeof PERSIST[keyof typeof PERSIST]

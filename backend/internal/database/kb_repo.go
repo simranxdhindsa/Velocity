@@ -1,0 +1,392 @@
+package database
+
+import (
+	"context"
+	"errors"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// Admin knowledge base storage (tables in kb_migrations.go). Every
+// document is shared with everyone who asks the bot; only managing it is
+// admin-only (enforced at the routes).
+
+const (
+	KBStatusProcessing = "processing"
+	KBStatusReady      = "ready"
+	KBStatusFailed     = "failed"
+)
+
+type KBDocument struct {
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	Filename   string    `json:"filename"`
+	MimeType   string    `json:"mime_type"`
+	SizeBytes  int       `json:"size_bytes"`
+	Status     string    `json:"status"`
+	Error      string    `json:"error"`
+	ChunkCount int       `json:"chunk_count"`
+	CharCount  int       `json:"char_count"`
+	Embedded   bool      `json:"embedded"`
+	UploadedBy string    `json:"uploaded_by"`
+	Uploader   string    `json:"uploader_name"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Original   []byte    `json:"-"`
+	// ContextPending counts windowed chunks still waiting for their AI
+	// summary line (filled in by the list handler, not stored).
+	ContextPending int `json:"context_pending"`
+}
+
+// KBChunkInput is one chunk to store. Embedding is nil when vectors are
+// unavailable (no key or no pgvector).
+type KBChunkInput struct {
+	Heading   string
+	Content   string
+	Windowed  bool   // cut from a wall of text, needs an AI context line
+	Context   string // kept from the previous index when the text is unchanged
+	Embedding []float32
+}
+
+// KBHit is one search result.
+type KBHit struct {
+	ChunkID    int64   `json:"chunk_id"`
+	ChunkIndex int     `json:"chunk_index"`
+	DocumentID string  `json:"document_id"`
+	DocTitle   string  `json:"document_title"`
+	Heading    string  `json:"heading"`
+	Content    string  `json:"content"`
+	Context    string  `json:"context,omitempty"` // AI one-line summary (windowed chunks)
+	Windowed   bool    `json:"windowed,omitempty"`
+	Score      float64 `json:"score"`
+}
+
+// kbHitColumns must match scanHits; the score column is appended per query.
+const kbHitColumns = `c.id, c.chunk_index, d.id::text, d.title, c.heading, c.content, c.context, c.windowed`
+
+type KBRepository struct{}
+
+func NewKBRepository() *KBRepository { return &KBRepository{} }
+
+var errNoDB = errors.New("database not configured")
+
+const kbDocColumns = `d.id::text, d.title, d.filename, d.mime_type, d.size_bytes, d.status,
+	d.error, d.chunk_count, d.char_count, d.embedded, d.uploaded_by, COALESCE(u.name, ''), d.created_at, d.updated_at`
+
+func scanKBDoc(row pgx.Row, d *KBDocument, extra ...interface{}) error {
+	dest := []interface{}{&d.ID, &d.Title, &d.Filename, &d.MimeType, &d.SizeBytes, &d.Status,
+		&d.Error, &d.ChunkCount, &d.CharCount, &d.Embedded, &d.UploadedBy, &d.Uploader, &d.CreatedAt, &d.UpdatedAt}
+	return row.Scan(append(dest, extra...)...)
+}
+
+// CreateDocument inserts a document in "processing" state and returns it.
+func (r *KBRepository) CreateDocument(ctx context.Context, d *KBDocument, contentHash string) (*KBDocument, error) {
+	pool := GetPool()
+	if pool == nil {
+		return nil, errNoDB
+	}
+	var id string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO kb_documents (title, filename, mime_type, size_bytes, original, content_hash, status, uploaded_by)
+		VALUES ($1, $2, $3, $4, $5, $6, 'processing', $7)
+		RETURNING id::text
+	`, d.Title, d.Filename, d.MimeType, len(d.Original), d.Original, contentHash, d.UploadedBy).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetDocument(ctx, id, false)
+}
+
+// FindByHash returns a document with identical content, for duplicate
+// upload detection.
+func (r *KBRepository) FindByHash(ctx context.Context, hash string) (*KBDocument, error) {
+	pool := GetPool()
+	if pool == nil || hash == "" {
+		return nil, nil
+	}
+	d := &KBDocument{}
+	err := scanKBDoc(pool.QueryRow(ctx, `SELECT `+kbDocColumns+`
+		FROM kb_documents d LEFT JOIN users u ON u.id = d.uploaded_by
+		WHERE d.content_hash = $1 LIMIT 1`, hash), d)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// GetDocument loads one document; withOriginal also loads the file bytes.
+func (r *KBRepository) GetDocument(ctx context.Context, id string, withOriginal bool) (*KBDocument, error) {
+	pool := GetPool()
+	if pool == nil {
+		return nil, errNoDB
+	}
+	d := &KBDocument{}
+	cols := kbDocColumns
+	var extra []interface{}
+	if withOriginal {
+		cols += `, d.original`
+		extra = append(extra, &d.Original)
+	}
+	err := scanKBDoc(pool.QueryRow(ctx, `SELECT `+cols+`
+		FROM kb_documents d LEFT JOIN users u ON u.id = d.uploaded_by
+		WHERE d.id::text = $1`, id), d, extra...)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// ListDocuments returns every document, newest first, without file bytes.
+func (r *KBRepository) ListDocuments(ctx context.Context) ([]KBDocument, error) {
+	pool := GetPool()
+	if pool == nil {
+		return []KBDocument{}, nil
+	}
+	rows, err := pool.Query(ctx, `SELECT `+kbDocColumns+`
+		FROM kb_documents d LEFT JOIN users u ON u.id = d.uploaded_by
+		ORDER BY d.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	docs := []KBDocument{}
+	for rows.Next() {
+		var d KBDocument
+		if err := scanKBDoc(rows, &d); err != nil {
+			return nil, err
+		}
+		docs = append(docs, d)
+	}
+	return docs, rows.Err()
+}
+
+// ListProcessing returns ids of documents left mid-indexing (e.g. by a
+// restart), so they can be resumed.
+func (r *KBRepository) ListProcessing(ctx context.Context) ([]string, error) {
+	pool := GetPool()
+	if pool == nil {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, `SELECT id::text FROM kb_documents WHERE status = 'processing'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, rows.Err()
+}
+
+// Rename changes a document's title (empty = keep).
+func (r *KBRepository) Rename(ctx context.Context, id, title string) error {
+	pool := GetPool()
+	if pool == nil {
+		return errNoDB
+	}
+	_, err := pool.Exec(ctx, `
+		UPDATE kb_documents SET title = COALESCE(NULLIF($2, ''), title), updated_at = NOW()
+		WHERE id::text = $1`, id, title)
+	return err
+}
+
+// ReplaceOriginal swaps in a new file version (Replace in the UI) and
+// marks the document for re-indexing.
+func (r *KBRepository) ReplaceOriginal(ctx context.Context, id, filename, mime string, data []byte, hash string) error {
+	pool := GetPool()
+	if pool == nil {
+		return errNoDB
+	}
+	_, err := pool.Exec(ctx, `
+		UPDATE kb_documents SET filename = $2, mime_type = $3, original = $4, size_bytes = $5,
+			content_hash = $6, status = 'processing', error = '', updated_at = NOW()
+		WHERE id::text = $1`, id, filename, mime, data, len(data), hash)
+	return err
+}
+
+// SetStatus records a status change, with an error message on failure.
+func (r *KBRepository) SetStatus(ctx context.Context, id, status, errMsg string) error {
+	pool := GetPool()
+	if pool == nil {
+		return errNoDB
+	}
+	_, err := pool.Exec(ctx, `UPDATE kb_documents SET status = $2, error = $3, updated_at = NOW() WHERE id::text = $1`,
+		id, status, errMsg)
+	return err
+}
+
+// ReplaceChunks atomically swaps a document's chunks and marks it ready.
+func (r *KBRepository) ReplaceChunks(ctx context.Context, id string, chunks []KBChunkInput, charCount int, warning string) error {
+	pool := GetPool()
+	if pool == nil {
+		return errNoDB
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM kb_chunks WHERE document_id::text = $1`, id); err != nil {
+		return err
+	}
+	embedded := len(chunks) > 0
+	for i, c := range chunks {
+		if c.Embedding != nil && KBVectorEnabled() {
+			_, err = tx.Exec(ctx, `INSERT INTO kb_chunks (document_id, chunk_index, heading, content, windowed, context, embedding)
+				VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::vector)`, id, i, c.Heading, c.Content, c.Windowed, c.Context, vectorLiteral(c.Embedding))
+		} else {
+			embedded = false
+			_, err = tx.Exec(ctx, `INSERT INTO kb_chunks (document_id, chunk_index, heading, content, windowed, context)
+				VALUES ($1::uuid, $2, $3, $4, $5, $6)`, id, i, c.Heading, c.Content, c.Windowed, c.Context)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE kb_documents SET status = 'ready', error = $2, chunk_count = $3,
+		char_count = $4, embedded = $5, updated_at = NOW() WHERE id::text = $1`,
+		id, warning, len(chunks), charCount, embedded); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// DeleteDocument removes a document and (by cascade) its chunks.
+func (r *KBRepository) DeleteDocument(ctx context.Context, id string) (bool, error) {
+	pool := GetPool()
+	if pool == nil {
+		return false, errNoDB
+	}
+	tag, err := pool.Exec(ctx, `DELETE FROM kb_documents WHERE id::text = $1`, id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// ListChunks returns a document's chunks in order (admin preview).
+func (r *KBRepository) ListChunks(ctx context.Context, id string, limit int) ([]KBHit, error) {
+	pool := GetPool()
+	if pool == nil {
+		return []KBHit{}, nil
+	}
+	rows, err := pool.Query(ctx, `SELECT `+kbHitColumns+`, 0::float8
+		FROM kb_chunks c JOIN kb_documents d ON d.id = c.document_id
+		WHERE d.id::text = $1 ORDER BY c.chunk_index LIMIT $2`, id, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanHits(rows)
+}
+
+// KeywordSearch ranks chunks by full-text match. terms are already
+// normalized words (see kb.QueryTerms); any term may match, and chunks
+// matching more terms (or in the heading) rank higher.
+func (r *KBRepository) KeywordSearch(ctx context.Context, terms []string, limit int) ([]KBHit, error) {
+	pool := GetPool()
+	if pool == nil || len(terms) == 0 {
+		return []KBHit{}, nil
+	}
+	parts := make([]string, 0, len(terms))
+	for _, t := range terms {
+		parts = append(parts, quoteLexeme(t)+":*")
+	}
+	tsq := strings.Join(parts, " | ")
+	// Exact (simple) and stemmed (english) matching, summed: a chunk matching
+	// the literal word ranks above one matching only a word form.
+	rows, err := pool.Query(ctx, `
+		SELECT `+kbHitColumns+`,
+		       (ts_rank_cd(c.tsv, qs, 1) + ts_rank_cd(c.tsv_en, qe, 1) +
+		        ts_rank_cd(c.tsv_ctx, qs, 1) + ts_rank_cd(c.tsv_ctx, qe, 1))::float8 AS score
+		FROM kb_chunks c
+		JOIN kb_documents d ON d.id = c.document_id,
+		     to_tsquery('simple', $1) qs,
+		     to_tsquery('english', $1) qe
+		WHERE (c.tsv @@ qs OR c.tsv_en @@ qe OR c.tsv_ctx @@ qs OR c.tsv_ctx @@ qe) AND d.status = 'ready'
+		ORDER BY score DESC
+		LIMIT $2`, tsq, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanHits(rows)
+}
+
+// VectorSearch ranks chunks by cosine similarity (score 0..1, higher is
+// closer). Returns nothing when pgvector is unavailable.
+func (r *KBRepository) VectorSearch(ctx context.Context, vec []float32, limit int) ([]KBHit, error) {
+	pool := GetPool()
+	if pool == nil || !KBVectorEnabled() || len(vec) == 0 {
+		return []KBHit{}, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT `+kbHitColumns+`,
+		       (1 - (c.embedding <=> $1::vector))::float8 AS score
+		FROM kb_chunks c
+		JOIN kb_documents d ON d.id = c.document_id
+		WHERE c.embedding IS NOT NULL AND d.status = 'ready'
+		ORDER BY c.embedding <=> $1::vector
+		LIMIT $2`, vectorLiteral(vec), limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanHits(rows)
+}
+
+// CountReady reports how many documents are searchable, so callers can
+// skip searching an empty knowledge base.
+func (r *KBRepository) CountReady(ctx context.Context) int {
+	pool := GetPool()
+	if pool == nil {
+		return 0
+	}
+	var n int
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM kb_documents
+		WHERE status = 'ready' AND chunk_count > 0`).Scan(&n)
+	return n
+}
+
+func scanHits(rows pgx.Rows) ([]KBHit, error) {
+	defer rows.Close()
+	hits := []KBHit{}
+	for rows.Next() {
+		var h KBHit
+		if err := rows.Scan(&h.ChunkID, &h.ChunkIndex, &h.DocumentID, &h.DocTitle, &h.Heading, &h.Content, &h.Context, &h.Windowed, &h.Score); err != nil {
+			return nil, err
+		}
+		hits = append(hits, h)
+	}
+	return hits, rows.Err()
+}
+
+// vectorLiteral formats a vector as pgvector text input ("[0.1,0.2]").
+func vectorLiteral(v []float32) string {
+	var b strings.Builder
+	b.Grow(len(v) * 10)
+	b.WriteByte('[')
+	for i, f := range v {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.FormatFloat(float64(f), 'f', -1, 32))
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// quoteLexeme makes a term safe inside to_tsquery (single-quoted lexeme).
+func quoteLexeme(t string) string {
+	return "'" + strings.ReplaceAll(t, "'", "''") + "'"
+}

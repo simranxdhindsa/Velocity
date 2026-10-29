@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { ChevronDown, Shield, Briefcase, User as UserIcon, Eye } from 'lucide-react'
 import api from '../services/api'
 import type { User } from '../services/api'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 
 type UserRole = 'admin' | 'project_manager' | 'member' | 'viewer'
 
@@ -210,7 +211,7 @@ export function AdminPage() {
 
         {loading ? (
           <div className="loading-state">
-            <div className="loading-spinner" />
+            <SprintScanLoader size={48} />
             <p>Loading users...</p>
           </div>
         ) : filteredUsers.length > 0 ? (

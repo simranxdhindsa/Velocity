@@ -66,4 +66,17 @@ img { max-width: 100%; display: block; }
 /* ── Responsive sidebar var ──────────────────────────── */
 @media (max-width: 768px) {
   :root { --sidebar-width: 200px; }
+  /* Prevent body scroll when sidebar is open */
+  body.sidebar-open { overflow: hidden; }
+  /* Use dynamic viewport height for mobile browsers */
+  .app-container { min-height: 100dvh; }
+  /* Remove tap highlight on mobile */
+  * { -webkit-tap-highlight-color: transparent; }
+  /* Prevent text size adjustment on orientation change */
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  /* iOS Safari auto-zoom fix: zooms in on any input with font-size < 16px.
+     Force 16px on all inputs — iOS will NOT zoom if font-size >= 16px. */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
 }

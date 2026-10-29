@@ -1,0 +1,28 @@
+/* ── Mention Dropdown ──────────────────────────────────────────────────────── */
+
+.mention-drop-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mention-drop-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.mention-drop-handle {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}

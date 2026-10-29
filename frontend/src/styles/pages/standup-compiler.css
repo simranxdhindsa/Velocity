@@ -89,7 +89,7 @@
 /* ── Inputs ──────────────────────────────────────────────────────────────── */
 
 .sc-input {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--overlay-rgb), 0.04);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   color: var(--text-primary);
@@ -175,7 +175,7 @@
   padding: 0.25rem 0.6rem;
   border-radius: var(--radius-md);
   border: 1px dashed var(--border-color);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--overlay-rgb), 0.03);
   color: var(--text-muted);
   font-size: 0.72rem;
   font-family: inherit;
@@ -425,7 +425,7 @@
 }
 
 [data-theme="light"] .sc-parse-bar-wrap {
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(var(--color-primary-rgb), 0.12);
 }
 
 /* ── Preview ─────────────────────────────────────────────────────────────── */
@@ -570,7 +570,7 @@
 
 .sc-mode-toggle {
   display: flex;
-  background: rgba(255,255,255,0.05);
+  background: rgba(var(--overlay-rgb), 0.05);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-full);
   padding: 2px;
@@ -597,7 +597,7 @@
 
 .sc-mode-btn:hover:not(.active) {
   color: var(--text-primary);
-  background: rgba(255,255,255,0.05);
+  background: rgba(var(--overlay-rgb), 0.05);
 }
 
 /* ── Week navigator ──────────────────────────────────────────────────────── */
@@ -617,7 +617,7 @@
   height: 26px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  background: rgba(255,255,255,0.03);
+  background: rgba(var(--overlay-rgb), 0.03);
   color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;

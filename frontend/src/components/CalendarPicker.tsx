@@ -13,14 +13,20 @@ interface CalendarPickerProps {
   label?: string
   placeholder?: string
   className?: string
+  /** Days before this date ('YYYY-MM-DD') render disabled — e.g. today, for scheduling forms. */
+  minDate?: string
 }
 
-export function CalendarPicker({ value, onChange, label, placeholder = 'Select date', className }: CalendarPickerProps) {
+export function CalendarPicker({ value, onChange, label, placeholder = 'Select date', className, minDate }: CalendarPickerProps) {
   const [open, setOpen] = useState(false)
   const [calDate, setCalDate] = useState(() => value ? new Date(value + 'T00:00:00') : new Date())
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  // top is always set explicitly (never omitted) — the .dr-cal-dropdown class
+  // itself declares `top: calc(100% + 6px)`, so leaving the inline `top` as
+  // undefined doesn't clear it (React just omits the property) and the class
+  // rule silently wins even with `bottom` also set. 'auto' is the override.
+  const [pos, setPos] = useState<{ top: number | 'auto'; bottom?: number; left: number } | null>(null)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -41,8 +47,20 @@ export function CalendarPicker({ value, onChange, label, placeholder = 'Select d
 
   const openCalendar = () => {
     if (triggerRef.current) {
+      // Flip above the trigger when there isn't much room below (e.g. a
+      // compose box pinned near the bottom of the viewport) — same fix the
+      // mention autocomplete dropdown needed. Anchoring via `bottom` instead
+      // of a guessed `top` offset lets the browser size the flip correctly
+      // regardless of how many week rows the current month renders.
+      const ESTIMATED_HEIGHT = 320
       const r = triggerRef.current.getBoundingClientRect()
-      setPos({ top: r.bottom + 6, left: r.left })
+      const spaceBelow = window.innerHeight - r.bottom
+      const openUpward = spaceBelow < ESTIMATED_HEIGHT && r.top > spaceBelow
+      setPos(
+        openUpward
+          ? { top: 'auto', bottom: window.innerHeight - r.top + 6, left: r.left }
+          : { top: r.bottom + 6, left: r.left }
+      )
     }
     if (value) setCalDate(new Date(value + 'T00:00:00'))
     setOpen(o => !o)
@@ -63,7 +81,7 @@ export function CalendarPicker({ value, onChange, label, placeholder = 'Select d
 
       {open && pos && createPortal(
         <div ref={dropRef} className="dr-cal-dropdown glass-card"
-          style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999, minWidth: 240, padding: 12 }}>
+          style={{ position: 'fixed', top: pos.top, bottom: pos.bottom, left: pos.left, zIndex: 9999, minWidth: 240, padding: 12 }}>
           <div className="calendar-nav">
             <button onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
@@ -81,9 +99,12 @@ export function CalendarPicker({ value, onChange, label, placeholder = 'Select d
               {Array.from({ length: firstDayOfMonth }).map((_, i) => <span key={`e${i}`}/>)}
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const dayStr = `${calDate.getFullYear()}-${String(calDate.getMonth()+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`
+                const disabled = !!minDate && dayStr < minDate
                 return (
                   <button key={i}
                     className={`calendar-day${dayStr === value ? ' selected' : ''}${dayStr === todayStr ? ' today' : ''}`}
+                    style={disabled ? { opacity: 0.35, cursor: 'not-allowed', pointerEvents: 'none' } : undefined}
+                    disabled={disabled}
                     onClick={() => { onChange(dayStr); setOpen(false) }}>
                     {i + 1}
                   </button>

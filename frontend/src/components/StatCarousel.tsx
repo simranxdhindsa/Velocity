@@ -9,6 +9,7 @@ import {
   Pause,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useIgnoredBlocked } from '@/contexts/IgnoredBlockedContext'
 import api from '@/services/api'
 import type { YouTrackSprint, SprintBoardStatusResponse } from '@/services/api'
 import '@/styles/components/stat-carousel.css'
@@ -22,7 +23,7 @@ interface CarouselData {
   hoursLeft: number
   sprintName: string
   sprintFinishMs: number
-  blockedCount: number
+  rawBlockedCount: number
   completionPct: number
   doneIssues: number
   totalIssues: number
@@ -48,6 +49,7 @@ function formatCountdown(daysLeft: number, hoursLeft: number): { main: string; s
 
 export function StatCarousel({ onNavigate }: StatCarouselProps) {
   const { user } = useAuth()
+  const { ignoredIds } = useIgnoredBlocked()
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -65,7 +67,9 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
 
         const sprints: YouTrackSprint[] = sprintsRes.data ?? []
         const savedId = localStorage.getItem('pm_active_sprint_id')
-        const activeSprint = (savedId ? sprints.find(s => s.id === savedId) : null)
+        const now2 = Date.now()
+        const activeSprint = (savedId ? sprints.find(s => s.id === savedId && !s.isCompleted && s.finish > now2) : null)
+          ?? sprints.filter(s => !s.isCompleted && s.finish > now2).sort((a, b) => a.finish - b.finish)[0]
           ?? sprints.find(s => !s.isCompleted)
 
         if (!activeSprint) {
@@ -126,7 +130,7 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
             hoursLeft,
             sprintName,
             sprintFinishMs,
-            blockedCount: summary.blocked_count,
+            rawBlockedCount: summary.blocked_count,
             completionPct: summary.completion_pct,
             doneIssues: summary.done_issues,
             totalIssues: summary.total_issues,
@@ -159,10 +163,6 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
     }
   }, [paused])
 
-  const handleDotClick = useCallback((i: number) => {
-    setIndex(i)
-  }, [])
-
   const handlePillClick = useCallback(() => {
     if (!data) return
     const targets = ['dashboard', 'pm-reports', 'pm-reports', 'sprint-dashboard', 'daily-ops']
@@ -186,7 +186,8 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
 
   const countdownAccent = getCountdownAccent(data.daysLeft, data.hoursLeft)
   const countdown = formatCountdown(data.daysLeft, data.hoursLeft)
-  const blockerAccent = data.blockedCount === 0 ? 'var(--color-success)' : 'var(--color-danger)'
+  const blockedCount = Math.max(0, data.rawBlockedCount - ignoredIds.size)
+  const blockerAccent = blockedCount === 0 ? 'var(--color-success)' : 'var(--color-danger)'
 
   const slides = [
     {
@@ -201,8 +202,8 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
       key: 'blockers',
       accent: blockerAccent,
       icon: <ShieldAlert size={16} />,
-      main: `${data.blockedCount} blocked`,
-      sub: data.blockedCount === 0 ? 'all clear' : 'need attention',
+      main: `${blockedCount} blocked`,
+      sub: blockedCount === 0 ? 'all clear' : 'need attention',
       target: 'pm-reports',
     },
     {
@@ -212,8 +213,6 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
       main: `${Math.round(data.completionPct)}%`,
       sub: `${data.doneIssues} of ${data.totalIssues} done`,
       target: 'pm-reports',
-      showProgress: true,
-      progressPct: data.totalIssues > 0 ? (data.doneIssues / data.totalIssues) * 100 : 0,
     },
     {
       key: 'sprint',
@@ -262,28 +261,6 @@ export function StatCarousel({ onNavigate }: StatCarouselProps) {
           </span>
         </div>
 
-        {/* Segmented progress bar — always at bottom, replaces external dots */}
-        <div className="sc-seg-bar">
-          {slides.map((s, i) => (
-            <button
-              key={s.key}
-              className={`sc-seg${i === index ? ' sc-seg--active' : ''}`}
-              style={i === index ? { '--sc-accent': slide.accent } as React.CSSProperties : undefined}
-              onClick={e => { e.stopPropagation(); handleDotClick(i) }}
-              aria-label={`Slide ${i + 1}`}
-            />
-          ))}
-        </div>
-
-        {/* Completion progress fill — only on completion slide, above seg bar */}
-        {slide.showProgress && (
-          <div className="sc-progress-track">
-            <div
-              className="sc-progress-fill"
-              style={{ '--sc-progress-pct': `${slide.progressPct}%` } as React.CSSProperties}
-            />
-          </div>
-        )}
       </div>
     </div>
   )

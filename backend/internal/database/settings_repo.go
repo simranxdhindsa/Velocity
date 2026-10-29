@@ -25,8 +25,14 @@ func (r *SettingsRepository) Get(ctx context.Context, key string) (*models.Globa
 	}
 
 	var setting models.GlobalSetting
+	// COALESCE description: the column is nullable but models.GlobalSetting.Description
+	// is a plain (non-pointer) string, so scanning a NULL description directly used to
+	// fail the whole row silently (callers check `err == nil` and just skip the field) —
+	// confirmed this broke youtrack_base_url/token/project_id (all have NULL description
+	// since Set() never populates it), which in turn broke the global-settings fallback
+	// path used by contexts with no authenticated user, like the Slack bot.
 	err := pool.QueryRow(ctx, `
-		SELECT id, key, value, encrypted, description, updated_by, created_at, updated_at
+		SELECT id, key, value, encrypted, COALESCE(description, ''), updated_by, created_at, updated_at
 		FROM global_settings WHERE key = $1
 	`, key).Scan(&setting.ID, &setting.Key, &setting.Value, &setting.Encrypted,
 		&setting.Description, &setting.UpdatedBy, &setting.CreatedAt, &setting.UpdatedAt)
@@ -216,6 +222,31 @@ func (r *SettingsRepository) GetYouTrackIntegration(ctx context.Context, userID 
 		return nil, err
 	}
 	return &i, nil
+}
+
+// GetAdminYouTrackBoardID returns the board an admin selected in their own
+// YouTrack integration for the given project, or "" if none. Used as the
+// org-wide board when the global settings don't name one, so members without
+// a personal integration land on the same board as the admin.
+func (r *SettingsRepository) GetAdminYouTrackBoardID(ctx context.Context, projectID string) (string, error) {
+	pool := GetPool()
+	if pool == nil {
+		return "", nil
+	}
+	var boardID string
+	err := pool.QueryRow(ctx, `
+		SELECT yi.board_id
+		FROM youtrack_integrations yi
+		JOIN users u ON u.id = yi.user_id
+		WHERE u.role = 'admin' AND yi.connected AND yi.project_id = $1
+		  AND COALESCE(yi.board_id, '') <> ''
+		ORDER BY yi.updated_at DESC
+		LIMIT 1
+	`, projectID).Scan(&boardID)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return boardID, err
 }
 
 // SaveYouTrackIntegration upserts a user's YouTrack integration

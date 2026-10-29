@@ -8,12 +8,46 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
+	"os"
 	"time"
 )
 
+// BaseURL is the Slack Web API root. A variable so tests can point it at a fake
+// Slack server; SLACK_API_BASE_URL overrides it for local test runs.
+var BaseURL = func() string {
+	if u := os.Getenv("SLACK_API_BASE_URL"); u != "" {
+		return u
+	}
+	return "https://slack.com/api"
+}()
+
 const (
-	BaseURL = "https://slack.com/api"
+	// slackTextLimit is kept below Slack's hard 4000-char cap on the plain-text
+	// `text` field (chat.postMessage/chat.update) — sending anything longer fails
+	// the whole request with "slack API error: msg_too_long" instead of posting
+	// a truncated-but-visible message.
+	slackTextLimit = 3800
 )
+
+// truncateForSlack trims text to Slack's text-field limit, cutting on a
+// newline boundary when possible so a message is shortened cleanly rather
+// than mid-word, and appends a note that content was cut.
+func truncateForSlack(text string) string {
+	if len(text) <= slackTextLimit {
+		return text
+	}
+	notice := "\n\n_(message truncated — too long for Slack, view full details in the app)_"
+	budget := slackTextLimit - len(notice)
+	if budget < 0 {
+		budget = 0
+	}
+	cut := text[:budget]
+	if idx := strings.LastIndex(cut, "\n"); idx > budget/2 {
+		cut = cut[:idx]
+	}
+	return cut + notice
+}
 
 // Client is the Slack API client
 type Client struct {
@@ -33,14 +67,29 @@ func NewClient(botToken string) *Client {
 
 // Message represents a Slack message
 type Message struct {
-	TS         string `json:"ts"`
-	User       string `json:"user"`
-	Text       string `json:"text"`
-	Type       string `json:"type"`
-	Subtype    string `json:"subtype,omitempty"`
-	BotID      string `json:"bot_id,omitempty"`
-	ThreadTS   string `json:"thread_ts,omitempty"`
-	ReplyCount int    `json:"reply_count,omitempty"`
+	TS          string       `json:"ts"`
+	User        string       `json:"user"`
+	Text        string       `json:"text"`
+	Type        string       `json:"type"`
+	Subtype     string       `json:"subtype,omitempty"`
+	BotID       string       `json:"bot_id,omitempty"`
+	Username    string       `json:"username,omitempty"`
+	ThreadTS    string       `json:"thread_ts,omitempty"`
+	ReplyCount  int          `json:"reply_count,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	// Read-side fields (see client_read.go), returned by history/replies.
+	ReplyUsers  []string   `json:"reply_users,omitempty"`
+	LatestReply string     `json:"latest_reply,omitempty"`
+	Reactions   []Reaction `json:"reactions,omitempty"`
+	Files       []File     `json:"files,omitempty"`
+}
+
+// Attachment is a legacy Slack message attachment. Bot integrations (like
+// YouTrack's native Slack app) often post rich Block Kit content this way —
+// Fallback is Slack's own plain-text summary of the whole attachment, used
+// here as a reliable text source when the message's own Text field is empty.
+type Attachment struct {
+	Fallback string `json:"fallback"`
 }
 
 // Channel represents a Slack channel
@@ -58,6 +107,8 @@ type User struct {
 	Name     string  `json:"name"`
 	RealName string  `json:"real_name"`
 	Profile  Profile `json:"profile"`
+	IsBot    bool    `json:"is_bot"`
+	Deleted  bool    `json:"deleted"`
 }
 
 // Profile contains Slack user profile info
@@ -277,6 +328,41 @@ func (c *Client) GetUser(ctx context.Context, userID string) (*User, error) {
 	return &resp.User, nil
 }
 
+// BotInfo is a Slack bot integration's identity (e.g. a workspace app like
+// YouTrack's native Slack integration, distinct from Velocity's own bot).
+type BotInfo struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Icons struct {
+		Image48 string `json:"image_48"`
+	} `json:"icons"`
+}
+
+// GetBotInfo resolves a bot_id (from a message) to its display name/icon —
+// used to label messages from other Slack apps (e.g. "YouTrack") instead of
+// a generic fallback.
+func (c *Client) GetBotInfo(ctx context.Context, botID string) (*BotInfo, error) {
+	params := url.Values{}
+	params.Set("bot", botID)
+
+	body, err := c.doGetRequest(ctx, "/bots.info", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Response
+		Bot BotInfo `json:"bot"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("slack API error: %s", resp.Error)
+	}
+	return &resp.Bot, nil
+}
+
 // GetYesterdayMessages returns messages from yesterday for a channel
 func (c *Client) GetYesterdayMessages(ctx context.Context, channelID string) ([]Message, error) {
 	now := time.Now()
@@ -343,9 +429,45 @@ func (c *Client) GetThreadReplies(ctx context.Context, channelID, threadTS strin
 
 // PostMessage posts a message to a channel (chat.postMessage)
 func (c *Client) PostMessage(ctx context.Context, channelID, text string) (string, error) {
-	payload := map[string]string{
-		"channel": channelID,
-		"text":    text,
+	payload := map[string]interface{}{
+		"channel":  channelID,
+		"text":     truncateForSlack(text),
+		"username": "Velocity",
+	}
+
+	body, err := c.doRequest(ctx, "POST", "/chat.postMessage", payload)
+	if err != nil {
+		return "", err
+	}
+
+	var resp struct {
+		Response
+		TS string `json:"ts"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if !resp.OK {
+		return "", fmt.Errorf("slack API error: %s", resp.Error)
+	}
+
+	return resp.TS, nil
+}
+
+// PostMessageBlocks posts a Block Kit message (chat.postMessage with `blocks`).
+// fallbackText is the notification/accessibility text Slack shows in previews
+// and for clients that don't render blocks — it is NOT re-truncated for the
+// 4000-char text limit since callers are expected to pass a short summary,
+// not the full report (the report content itself lives in blocks).
+func (c *Client) PostMessageBlocks(ctx context.Context, channelID, fallbackText string, blocks []map[string]interface{}) (string, error) {
+	payload := map[string]interface{}{
+		"channel":  channelID,
+		"username": "Velocity",
+		"blocks":   blocks,
+	}
+	if fallbackText != "" {
+		payload["text"] = fallbackText
 	}
 
 	body, err := c.doRequest(ctx, "POST", "/chat.postMessage", payload)
@@ -442,6 +564,126 @@ func (c *Client) PostThreadReply(ctx context.Context, channelID, threadTS, text 
 		return fmt.Errorf("slack API error: %s", resp.Error)
 	}
 
+	return nil
+}
+
+// GetWorkspaceUsers returns all non-bot, non-deleted workspace members via users.list (paginated)
+func (c *Client) GetWorkspaceUsers(ctx context.Context) ([]User, error) {
+	var all []User
+	cursor := ""
+	for {
+		params := url.Values{}
+		params.Set("limit", "500")
+		if cursor != "" {
+			params.Set("cursor", cursor)
+		}
+
+		body, err := c.doGetRequest(ctx, "/users.list", params)
+		if err != nil {
+			return nil, err
+		}
+
+		var resp struct {
+			Response
+			Members []User `json:"members"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal users.list: %w", err)
+		}
+		if !resp.OK {
+			return nil, fmt.Errorf("slack API error: %s", resp.Error)
+		}
+
+		for _, u := range resp.Members {
+			if !u.Deleted && !u.IsBot {
+				all = append(all, u)
+			}
+		}
+
+		var meta struct {
+			NextCursor string `json:"next_cursor"`
+		}
+		if len(resp.Metadata) > 0 {
+			_ = json.Unmarshal(resp.Metadata, &meta)
+		}
+		if meta.NextCursor == "" {
+			break
+		}
+		cursor = meta.NextCursor
+	}
+	return all, nil
+}
+
+// OpenDirectMessageChannel opens (or retrieves) the DM channel with a user and returns its ID
+func (c *Client) OpenDirectMessageChannel(ctx context.Context, slackUserID string) (string, error) {
+	payload := map[string]string{"users": slackUserID}
+	body, err := c.doRequest(ctx, "POST", "/conversations.open", payload)
+	if err != nil {
+		return "", err
+	}
+
+	var resp struct {
+		Response
+		Channel struct {
+			ID string `json:"id"`
+		} `json:"channel"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal conversations.open: %w", err)
+	}
+	if !resp.OK {
+		return "", fmt.Errorf("slack API error: %s", resp.Error)
+	}
+	return resp.Channel.ID, nil
+}
+
+// PostDirectMessage sends a DM to a Slack user by their user ID.
+// Returns (dmChannelID, messageTS, error).
+func (c *Client) PostDirectMessage(ctx context.Context, slackUserID, text string) (string, string, error) {
+	dmChannelID, err := c.OpenDirectMessageChannel(ctx, slackUserID)
+	if err != nil {
+		return "", "", fmt.Errorf("open DM channel: %w", err)
+	}
+	ts, err := c.PostMessage(ctx, dmChannelID, text)
+	return dmChannelID, ts, err
+}
+
+// DeleteMessage deletes a Slack message (chat.delete). Requires chat:write scope.
+func (c *Client) DeleteMessage(ctx context.Context, channelID, ts string) error {
+	payload := map[string]string{"channel": channelID, "ts": ts}
+	body, err := c.doRequest(ctx, "POST", "/chat.delete", payload)
+	if err != nil {
+		return err
+	}
+	var resp Response
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	if !resp.OK {
+		return fmt.Errorf("slack API error: %s", resp.Error)
+	}
+	return nil
+}
+
+// UpdateMessage edits an existing Slack message (chat.update).
+func (c *Client) UpdateMessage(ctx context.Context, channelID, ts, text string) error {
+	payload := map[string]interface{}{
+		"channel":  channelID,
+		"ts":       ts,
+		"text":     truncateForSlack(text),
+		"username": "Velocity",
+	}
+	body, err := c.doRequest(ctx, "POST", "/chat.update", payload)
+	if err != nil {
+		return err
+	}
+	var resp Response
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	if !resp.OK {
+		return fmt.Errorf("slack API error: %s", resp.Error)
+	}
 	return nil
 }
 

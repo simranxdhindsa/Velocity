@@ -1,24 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { KanbanSquare, RefreshCw, Wifi } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useGatewayError } from '@/contexts/GatewayErrorContext'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 
-const DEPLOY_MESSAGES = [
-  'Deploying something new — hang tight.',
-  'The server is warming up... like a slow Monday morning.',
-  'Reticulating splines in the backend.',
-  'kubectl apply -f greatness.yaml is running.',
-  'Docker container woke up and chose chaos (briefly).',
-  'npm install vibes — almost there.',
-  'Database migrations chugging along.',
-  'Compiling the good stuff.',
-  'Patience — shipping code, not pizza.',
-  'CI passed. Deploy is catching up.',
-  'Server had a nap. We\'re waking it up.',
-  'Spinning up fresh containers.',
+const MESSAGES = [
+  'Something new is on its way.',
+  'Good things take a moment.',
+  'Making Velocity faster for you.',
+  'New release in progress.',
+  'Almost ready for you.',
+  'Preparing your workspace.',
+  'Hold tight — great things are loading.',
+  'Your data is safe and sound.',
+  'We\'re leveling up in the background.',
+  'Fresh features, incoming.',
 ]
-
-const RETRY_DELAYS = [5, 10, 20, 40]
-const MAX_AUTO_RETRIES = RETRY_DELAYS.length
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 
@@ -26,135 +22,148 @@ function shuffle<T>(arr: T[]): T[] {
   return [...arr].sort(() => Math.random() - 0.5)
 }
 
+// Floating particle — drifts upward and fades
+function Particle({ x, delay, duration }: { x: number; delay: number; duration: number }) {
+  return (
+    <motion.div
+      className="g5-particle"
+      style={{ left: `${x}%` }}
+      initial={{ y: 0, opacity: 0, scale: 0.6 }}
+      animate={{ y: -320, opacity: [0, 0.6, 0], scale: [0.6, 1, 0.4] }}
+      transition={{ duration, delay, repeat: Infinity, ease: 'easeOut' }}
+    />
+  )
+}
+
+const PARTICLES = [
+  { x: 12, delay: 0, duration: 5.5 },
+  { x: 28, delay: 1.2, duration: 6.8 },
+  { x: 47, delay: 0.4, duration: 4.9 },
+  { x: 63, delay: 2.1, duration: 7.2 },
+  { x: 78, delay: 0.8, duration: 5.1 },
+  { x: 88, delay: 1.8, duration: 6.3 },
+  { x: 35, delay: 3.2, duration: 5.8 },
+  { x: 55, delay: 2.7, duration: 4.6 },
+]
+
 export default function GatewayError502Page() {
   const { clear } = useGatewayError()
-  const [attempt, setAttempt] = useState(0)
-  const [countdown, setCountdown] = useState(RETRY_DELAYS[0])
-  const [msgQueue] = useState(() => shuffle(DEPLOY_MESSAGES))
+  const [msgQueue] = useState(() => shuffle(MESSAGES))
   const [msgIndex, setMsgIndex] = useState(0)
-  const [checking, setChecking] = useState(false)
-  const [gaveUp, setGaveUp] = useState(false)
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const msgRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const checkingRef = useRef(false)
 
-  const probe = useCallback(async () => {
-    setChecking(true)
+  const probe = async () => {
+    if (checkingRef.current) return
+    checkingRef.current = true
     try {
       const res = await fetch(`${API_URL}/health`, { method: 'GET', cache: 'no-store' })
-      if (res.ok || res.status < 500) {
-        clear()
-        return true
-      }
-    } catch {
-      // still down
-    }
-    setChecking(false)
-    return false
-  }, [clear])
-
-  const scheduleNext = useCallback((attemptNum: number) => {
-    if (attemptNum >= MAX_AUTO_RETRIES) {
-      setGaveUp(true)
-      return
-    }
-    const delay = RETRY_DELAYS[attemptNum]
-    setCountdown(delay)
-    if (countdownRef.current) clearInterval(countdownRef.current)
-    countdownRef.current = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(countdownRef.current!)
-          setAttempt(a => {
-            const next = a + 1
-            probe().then(ok => { if (!ok) scheduleNext(next) })
-            return next
-          })
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }, [probe])
-
-  useEffect(() => {
-    scheduleNext(0)
-    msgRef.current = setInterval(() => {
-      setMsgIndex(i => (i + 1) % msgQueue.length)
-    }, 3500)
-    return () => {
-      if (countdownRef.current) clearInterval(countdownRef.current)
-      if (msgRef.current) clearInterval(msgRef.current)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleManualRetry = async () => {
-    if (countdownRef.current) clearInterval(countdownRef.current)
-    const ok = await probe()
-    if (!ok) {
-      const nextAttempt = attempt + 1
-      setAttempt(nextAttempt)
-      if (nextAttempt < MAX_AUTO_RETRIES) {
-        scheduleNext(nextAttempt)
-      } else {
-        setGaveUp(true)
-      }
-    }
+      if (res.ok || res.status < 500) { clear(); return }
+    } catch { /* still down */ }
+    checkingRef.current = false
   }
 
-  const pct = gaveUp ? 100 : ((RETRY_DELAYS[attempt] - countdown) / RETRY_DELAYS[attempt]) * 100
+  useEffect(() => {
+    probe()
+    const interval = setInterval(probe, 2000)
+    return () => clearInterval(interval)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const interval = setInterval(() => setMsgIndex(i => (i + 1) % msgQueue.length), 4000)
+    return () => clearInterval(interval)
+  }, [msgQueue.length])
 
   return (
     <div className="g5-root">
+      {/* Animated background blobs */}
       <div className="g5-blob g5-blob-1" />
       <div className="g5-blob g5-blob-2" />
+      <div className="g5-blob g5-blob-3" />
 
-      <div className="g5-card">
-        <div className="g5-wordmark">
-          <KanbanSquare size={18} />
-          <span>Velocity</span>
-        </div>
+      {/* Floating particles */}
+      <div className="g5-particles">
+        {PARTICLES.map((p, i) => <Particle key={i} {...p} />)}
+      </div>
 
-        <div className="g5-icon-wrap">
-          <Wifi size={36} className={checking ? 'g5-icon-pulse' : ''} />
-        </div>
-
-        <h1 className="g5-heading">Server Unreachable</h1>
-
-        <p className="g5-message">{msgQueue[msgIndex]}</p>
-
-        {!gaveUp && (
-          <div className="g5-progress-wrap">
-            <div className="g5-progress-bar">
-              <div className="g5-progress-fill" style={{ width: `${pct}%` }} />
-            </div>
-            <span className="g5-countdown">
-              {checking
-                ? 'Checking…'
-                : `Retry ${attempt + 1} of ${MAX_AUTO_RETRIES} in ${countdown}s`}
-            </span>
-          </div>
-        )}
-
-        {gaveUp && (
-          <p className="g5-gave-up">
-            Still having trouble reaching the server. It may be a longer deployment.
-          </p>
-        )}
-
-        <div className="g5-actions">
-          <button
-            className="g5-btn-retry"
-            onClick={handleManualRetry}
-            disabled={checking}
+      <div className="g5-center">
+        {/* Orbit system */}
+        <div className="g5-orbit-system">
+          {/* Outer ring — clockwise */}
+          <motion.div
+            className="g5-orbit g5-orbit-outer"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 14, repeat: Infinity, ease: 'linear' }}
           >
-            <RefreshCw size={14} className={checking ? 'g5-spin' : ''} />
-            {checking ? 'Checking…' : 'Retry now'}
-          </button>
+            <div className="g5-orbit-dot g5-orbit-dot--primary" />
+          </motion.div>
+
+          {/* Middle ring — counter-clockwise */}
+          <motion.div
+            className="g5-orbit g5-orbit-mid"
+            animate={{ rotate: -360 }}
+            transition={{ duration: 9, repeat: Infinity, ease: 'linear' }}
+          >
+            <div className="g5-orbit-dot g5-orbit-dot--accent" />
+          </motion.div>
+
+          {/* Inner glow ring — slow CW */}
+          <motion.div
+            className="g5-orbit g5-orbit-inner"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 22, repeat: Infinity, ease: 'linear' }}
+          >
+            <div className="g5-orbit-dot g5-orbit-dot--muted" />
+          </motion.div>
+
+          {/* Logo — breathe */}
+          <motion.div
+            className="g5-logo-wrap"
+            animate={{ scale: [1, 1.06, 1] }}
+            transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <VelocityLogo variant="icon" size="xl" mark="chevron" showStatusDot={false} />
+          </motion.div>
         </div>
 
-        <p className="g5-footnote">
-          502 · Bad Gateway · Auto-retrying
-        </p>
+        {/* Brand name */}
+        <motion.p
+          className="g5-brand"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.5 }}
+        >
+          Velocity
+        </motion.p>
+
+        {/* Rotating status message */}
+        <div className="g5-message-wrap">
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={msgIndex}
+              className="g5-message"
+              initial={{ opacity: 0, y: 10, filter: 'blur(4px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -10, filter: 'blur(4px)' }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+            >
+              {msgQueue[msgIndex]}
+            </motion.p>
+          </AnimatePresence>
+        </div>
+
+        {/* Shimmer scanner */}
+        <motion.div
+          className="g5-scanner-track"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6 }}
+        >
+          <motion.div
+            className="g5-scanner-glow"
+            animate={{ x: ['-100%', '200%'] }}
+            transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut', repeatDelay: 0.6 }}
+          />
+        </motion.div>
       </div>
     </div>
   )

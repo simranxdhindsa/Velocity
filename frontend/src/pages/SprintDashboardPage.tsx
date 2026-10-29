@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  ChevronDown, Check, RefreshCw, GitBranch,
-  BarChart2, Zap, Target, Activity, X, GitMerge,
+  ChevronDown, RefreshCw,
+  BarChart2, Zap, Target, Activity, X, GitMerge, Radar,
 } from 'lucide-react'
 import api from '@/services/api'
 import type {
@@ -11,8 +11,13 @@ import type {
   FeatureGroup, PriorityTag,
 } from '@/services/api'
 import { IssueDetailPanel } from '@/components/IssueDetailPanel'
+import { IssueDetailSkeleton } from '@/components/IssueDetailSkeleton'
+import { SprintControlsBar } from '@/components/SprintControlsBar'
+import type { ModeOption } from '@/components/SprintControlsBar'
+import { SprintPulseView } from './SprintRadarPage'
 import HoverCard, { HCRow, HCDivider, HCBadge, HCBar } from '@/components/HoverCard'
 import { useWorkflowConfig } from '@/hooks/useWorkflowConfig'
+import { useIgnoredBlocked } from '@/contexts/IgnoredBlockedContext'
 import '../styles/pages/dashboard.css'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -20,12 +25,13 @@ import '../styles/pages/dashboard.css'
 const SPRINT_ID_KEY   = 'pm_active_sprint_id'
 const SPRINT_NAME_KEY = 'pm_active_sprint_name'
 
-type DesignMode = 'velocity' | 'bento' | 'ops'
+type DesignMode = 'velocity' | 'bento' | 'ops' | 'sprint-pulse'
 
-const DESIGN_MODES: { id: DesignMode; label: string; icon: typeof Activity }[] = [
-  { id: 'velocity', label: 'Velocity',    icon: Activity },
-  { id: 'bento',   label: 'Bento Grid',  icon: BarChart2 },
-  { id: 'ops',     label: 'Ops Command', icon: Zap },
+const DESIGN_MODES: ModeOption[] = [
+  { id: 'velocity',     label: 'Velocity',     icon: Activity },
+  { id: 'bento',        label: 'Bento Grid',   icon: BarChart2 },
+  { id: 'ops',          label: 'Ops Command',  icon: Zap },
+  { id: 'sprint-pulse', label: 'Sprint Pulse', icon: Radar },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -171,17 +177,18 @@ function getPriColorFromTags(priority: string, tags: PriorityTag[]): string | nu
 }
 
 function PriPill({ priority, tags }: { priority: string; tags?: PriorityTag[] }) {
+  if (!priority) return null
   const color = tags ? getPriColorFromTags(priority, tags) : null
   if (color) {
     return (
       <span className="db-pri-pill" style={{
         background: color + '26', color, border: `1px solid ${color}44`,
       }}>
-        {priority || '?'}
+        {priority}
       </span>
     )
   }
-  return <span className={`db-pri-pill ${getPriClass(priority)}`}>{priority || '?'}</span>
+  return <span className={`db-pri-pill ${getPriClass(priority)}`}>{priority}</span>
 }
 
 function VerifBadges({ dev, stg, prd }: { dev?: string; stg?: string; prd?: string }) {
@@ -951,6 +958,7 @@ function Design1({ summary, columns, onTitleClick, onIdClick, ytDetailLoading, o
   const [showAllAtRisk, setShowAllAtRisk] = useState(false)
   const [showAllDelay, setShowAllDelay] = useState(false)
 
+  const { ignoredIds } = useIgnoredBlocked()
   const { config: wfConfig } = useWorkflowConfig()
   const columnRoleMap = useMemo(() => {
     const m = new Map<string, string>()
@@ -974,7 +982,7 @@ function Design1({ summary, columns, onTitleClick, onIdClick, ytDetailLoading, o
       })
       const d = map.get(key)!
       d.totalActiveHours += iss.total_active_hours
-      if (isBlockedCol(col.name))       { d.blocked.push(iss); d.bounceCount += iss.bounce_count }
+      if (isBlockedCol(col.name))       { if (!ignoredIds.has(iss.idReadable)) { d.blocked.push(iss); d.bounceCount += iss.bounce_count } }
       else if (isDoneCol(col.name))     d.done.push(iss)
       else if (isProgressCol(col.name)) { d.inProgress.push(iss); d.active.push(iss); d.bounceCount += iss.bounce_count }
       else                              { d.queued.push(iss); d.active.push(iss) }
@@ -1219,7 +1227,7 @@ function Design1({ summary, columns, onTitleClick, onIdClick, ytDetailLoading, o
         <div className="db-mc-section-label">Sprint Health</div>
         <div className="db-mc-kpi-grid">
           <KpiChip label="Done"     value={`${summary.done_issues}/${summary.total_issues}`} cls="db-kpi-chip--success" />
-          <KpiChip label="Blocked"  value={summary.blocked_count}  cls="db-kpi-chip--danger" onClick={() => onKpiClick?.('blocked')} />
+          <KpiChip label="Blocked"  value={Math.max(0, summary.blocked_count - ignoredIds.size)}  cls="db-kpi-chip--danger" onClick={() => onKpiClick?.('blocked')} />
           <KpiChip label="Bounced"  value={summary.bounced_count}  cls="db-kpi-chip--warn"   onClick={() => onKpiClick?.('bounced')} />
           <KpiChip label="Overdue"  value={summary.overdue_count}  cls="db-kpi-chip--danger" onClick={() => onKpiClick?.('overdue')} />
         </div>
@@ -1304,6 +1312,7 @@ function SprintDonut({ pct, size = 110 }: { pct: number; size?: number }) {
 }
 
 function Design2({ summary, columns, onTitleClick, onIdClick, sprintId }: DesignProps) {
+  const { ignoredIds } = useIgnoredBlocked()
   const allIssues = useMemo(() => columns.flatMap(c => c.issues), [columns])
   const pct = toPct(summary.completion_pct)
   const [showAllNeeds, setShowAllNeeds]   = useState(false)
@@ -1325,6 +1334,7 @@ function Design2({ summary, columns, onTitleClick, onIdClick, sprintId }: Design
   const needsAttention = useMemo(() =>
     allIssues
       .filter(i => !isIssueDone(i, columnRoleMap))
+      .filter(i => !(isIssueBlocked(i, columnRoleMap) && ignoredIds.has(i.idReadable)))
       .filter(i =>
         isIssueBlocked(i, columnRoleMap) ||
         !!i.overdue_level ||
@@ -1384,7 +1394,7 @@ function Design2({ summary, columns, onTitleClick, onIdClick, sprintId }: Design
               {summary.sprint_finish_ms > 0 && <Countdown finishMs={summary.sprint_finish_ms} />}
               <SprintTrack pct={pct} />
               <div className="db-bg-kpi-row">
-                <KpiChip label="Blocked"  value={summary.blocked_count}  cls="db-kpi-chip--danger" />
+                <KpiChip label="Blocked"  value={Math.max(0, summary.blocked_count - ignoredIds.size)}  cls="db-kpi-chip--danger" />
                 <KpiChip label="Bounced"  value={summary.bounced_count}  cls="db-kpi-chip--warn" />
                 <KpiChip label="Overdue"  value={summary.overdue_count}  cls="db-kpi-chip--danger" />
                 <KpiChip label="Hotfixes" value={summary.hotfix_count}   cls="db-kpi-chip--info" />
@@ -1596,6 +1606,7 @@ function Design3({
   onIdClick: (id: string, e: React.MouseEvent) => void
   sprintId?: string
 }) {
+  const { ignoredIds } = useIgnoredBlocked()
   const [showAllBounced, setShowAllBounced]     = useState(false)
   const [showAllInProgress, setShowAllInProgress] = useState(false)
   const [showAllAtRisk, setShowAllAtRisk]       = useState(false)
@@ -1615,10 +1626,12 @@ function Design3({
     return m
   }, [wfConfig])
 
-  // Use role-aware blocked detection for accuracy
+  // Use role-aware blocked detection for accuracy; exclude parked tickets
   const blockedIssues = useMemo(() =>
-    columns.filter(c => resolveRole(c.name, columnRoleMap) === 'blocked').flatMap(c => c.issues)
-  , [columns, columnRoleMap])
+    columns.filter(c => resolveRole(c.name, columnRoleMap) === 'blocked')
+      .flatMap(c => c.issues)
+      .filter(i => !ignoredIds.has(i.idReadable))
+  , [columns, columnRoleMap, ignoredIds])
 
   const blockedIds = useMemo(() => {
     const ids = new Set<string>()
@@ -1742,7 +1755,7 @@ function Design3({
         )}
 
         <div className="db-oc-panel-section db-oc-blocked-banner">
-          <div className="db-oc-blocked-count">{summary.blocked_count}</div>
+          <div className="db-oc-blocked-count">{Math.max(0, summary.blocked_count - ignoredIds.size)}</div>
           <div className="db-oc-blocked-label">tickets blocked</div>
         </div>
 
@@ -1765,7 +1778,7 @@ function Design3({
                 <div className="db-oc-mini-bar">
                   {dev.total > 0 && <>
                     <div className="db-oc-mini-bar-active"  style={{ width: `${(dev.inProgress / dev.total) * 100}%` }} />
-                    <div className="db-oc-mini-bar-queued"  style={{ width: `${(dev.queued     / dev.total) * 100}%`, background: 'rgba(255,255,255,0.12)' }} />
+                    <div className="db-oc-mini-bar-queued"  style={{ width: `${(dev.queued     / dev.total) * 100}%`, background: 'rgba(var(--overlay-rgb),0.12)' }} />
                     {dev.blocked > 0 && <div className="db-oc-mini-bar-blocked" style={{ width: `${(dev.blocked / dev.total) * 100}%` }} />}
                   </>}
                 </div>
@@ -1882,21 +1895,15 @@ function Design3({
 
 export function SprintDashboardPage() {
   const [designMode, setDesignMode] = useState<DesignMode>('velocity')
-  const [designOpen, setDesignOpen] = useState(false)
   const [sprints, setSprints]       = useState<YouTrackSprint[]>([])
   const [activeSprint, setActiveSprint] = useState<YouTrackSprint | null>(null)
-  const [sprintOpen, setSprintOpen] = useState(false)
   const [boardData, setBoardData]   = useState<SprintBoardStatusResponse | null>(null)
   const [loading, setLoading]       = useState(false)
   const [kpiDrawer, setKpiDrawer]   = useState<DbKpiDrawer>(null)
   const [ytDetailIssue, setYtDetailIssue] = useState<YouTrackIssue | null>(null)
   const [ytDetailLoading, setYtDetailLoading] = useState(false)
   const [ytBaseUrl, setYtBaseUrl]   = useState('')
-
-  const designRef     = useRef<HTMLDivElement>(null)
-  const sprintRef     = useRef<HTMLDivElement>(null)
-  const designMenuRef = useRef<HTMLDivElement>(null)
-  const sprintMenuRef = useRef<HTMLDivElement>(null)
+  const { ignoredIds } = useIgnoredBlocked()
 
   useEffect(() => {
     api.getYouTrackIntegration().then(res => {
@@ -1946,126 +1953,33 @@ export function SprintDashboardPage() {
     }).catch(() => {}).finally(() => setLoading(false))
   }, [activeSprint?.id])
 
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      const t = e.target as Node
-      if (designOpen && !designRef.current?.contains(t) && !designMenuRef.current?.contains(t)) setDesignOpen(false)
-      if (sprintOpen && !sprintRef.current?.contains(t) && !sprintMenuRef.current?.contains(t)) setSprintOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [designOpen, sprintOpen])
-
   function handleSprintChange(s: YouTrackSprint) {
     setActiveSprint(s)
-    setSprintOpen(false)
     localStorage.setItem(SPRINT_ID_KEY,   s.id)
     localStorage.setItem(SPRINT_NAME_KEY, s.name)
   }
 
-  const sortedSprints = [...sprints].sort((a, b) => b.finish - a.finish)
-  const currentDesign = DESIGN_MODES.find(d => d.id === designMode)!
-
   return (
     <div className="db-page">
       {/* Controls bar */}
-      <div className="db-controls">
-        <div ref={designRef} className="db-design-selector">
-          <button
-            className="pm-custom-dropdown-trigger db-design-btn"
-            onClick={() => setDesignOpen(o => !o)}
-          >
-            <currentDesign.icon size={13} />
-            {currentDesign.label}
-            <ChevronDown size={11} style={{ opacity: 0.5 }} />
-          </button>
-          {designOpen && createPortal(
-            <div
-              ref={designMenuRef}
-              className="pm-custom-dropdown-menu"
-              style={{
-                position: 'fixed',
-                top:  (designRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
-                left: designRef.current?.getBoundingClientRect().left ?? 0,
-                minWidth: 180,
-                zIndex: 9999,
-              }}
-            >
-              {DESIGN_MODES.map(d => (
-                <button
-                  key={d.id}
-                  className={`pm-dropdown-item${designMode === d.id ? ' active' : ''}`}
-                  onClick={() => { setDesignMode(d.id); setDesignOpen(false) }}
-                >
-                  <span style={{ width: 13, display: 'inline-flex', alignItems: 'center' }}>
-                    {designMode === d.id && <Check size={12} />}
-                  </span>
-                  <d.icon size={12} style={{ marginRight: 6 }} />
-                  {d.label}
-                </button>
-              ))}
-            </div>,
-            document.body
-          )}
-        </div>
-
-        <div className="db-controls-spacer" />
-
-        {/* Sprint selector */}
-        <div ref={sprintRef} className="db-sprint-selector">
-          <button
-            className="pm-custom-dropdown-trigger"
-            onClick={() => setSprintOpen(o => !o)}
-          >
-            <GitBranch size={13} />
-            {activeSprint
-              ? <>{activeSprint.name}<span className="db-sprint-dates">{fmtSprintDate(activeSprint.start)}–{fmtSprintDate(activeSprint.finish)}</span></>
-              : <span>Select sprint</span>
-            }
-            <ChevronDown size={11} style={{ opacity: 0.5 }} />
-          </button>
-          {sprintOpen && createPortal(
-            <div
-              ref={sprintMenuRef}
-              className="pm-custom-dropdown-menu"
-              style={{
-                position: 'fixed',
-                top:   (sprintRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
-                right: window.innerWidth - (sprintRef.current?.getBoundingClientRect().right ?? 0),
-                minWidth: 240,
-                zIndex: 9999,
-              }}
-            >
-              {sortedSprints.length === 0 && (
-                <div style={{ padding: '9px 14px', fontSize: 13, opacity: 0.5 }}>No sprints found</div>
-              )}
-              {sortedSprints.map(s => (
-                <button
-                  key={s.id}
-                  className={`pm-dropdown-item${activeSprint?.id === s.id ? ' active' : ''}`}
-                  onClick={() => handleSprintChange(s)}
-                  style={{ opacity: s.isCompleted ? 0.6 : 1 }}
-                >
-                  <span style={{ width: 13, display: 'inline-flex', alignItems: 'center' }}>
-                    {activeSprint?.id === s.id && <Check size={12} />}
-                  </span>
-                  <span style={{ flex: 1 }}>{s.name}</span>
-                  <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>
-                    {fmtSprintDate(s.start)}–{fmtSprintDate(s.finish)}
-                  </span>
-                  {s.isCompleted && <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 4 }}>✓</span>}
-                </button>
-              ))}
-            </div>,
-            document.body
-          )}
-        </div>
-      </div>
+      <SprintControlsBar
+        modes={DESIGN_MODES}
+        activeMode={designMode}
+        onModeChange={(id) => setDesignMode(id as DesignMode)}
+        sprints={sprints}
+        activeSprint={activeSprint}
+        onSprintChange={handleSprintChange}
+      />
 
       {/* KPI bar — shown when data is loaded or loading */}
       {loading && <SkeletonKpiBar />}
       {!loading && boardData && (
-        <KpiBar summary={boardData.summary} activeDrawer={kpiDrawer} onKpiClick={setKpiDrawer} columns={boardData.columns} />
+        <KpiBar
+          summary={{ ...boardData.summary, blocked_count: Math.max(0, boardData.summary.blocked_count - ignoredIds.size) }}
+          activeDrawer={kpiDrawer}
+          onKpiClick={setKpiDrawer}
+          columns={boardData.columns}
+        />
       )}
 
       {/* KPI Drawer */}
@@ -2259,8 +2173,8 @@ export function SprintDashboardPage() {
         </div>
       )}
 
-      {/* Skeleton views while loading */}
-      {loading && (
+      {/* Skeleton views while loading board data */}
+      {loading && designMode !== 'sprint-pulse' && (
         <div className="db-content">
           {designMode === 'velocity' && <SkeletonVelocity />}
           {designMode === 'bento'    && <SkeletonBento />}
@@ -2268,8 +2182,19 @@ export function SprintDashboardPage() {
         </div>
       )}
 
-      {/* Design views */}
-      {!loading && boardData && (
+      {/* Sprint Pulse — loads its own data, doesn't need boardData */}
+      {designMode === 'sprint-pulse' && (
+        <SprintPulseView
+          activeSprint={activeSprint}
+          boardData={boardData}
+          boardLoading={loading}
+          onTitleClick={openIssueDetail}
+          onIdClick={openInYt}
+        />
+      )}
+
+      {/* Board design views */}
+      {!loading && boardData && designMode !== 'sprint-pulse' && (
         <div className="db-content">
           {designMode === 'velocity' && (
             <Design1
@@ -2305,6 +2230,7 @@ export function SprintDashboardPage() {
       )}
 
       {/* Ticket detail panel */}
+      {ytDetailLoading && !ytDetailIssue && <IssueDetailSkeleton onClose={() => setYtDetailLoading(false)} />}
       {ytDetailIssue && (
         <IssueDetailPanel
           issue={ytDetailIssue}

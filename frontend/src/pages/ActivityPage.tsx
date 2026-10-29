@@ -5,6 +5,9 @@ import {
 } from 'lucide-react'
 import api from '@/services/api'
 import type { NotificationItem } from '@/services/api'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { SlackMessageText } from '@/components/SlackMessageText'
+import { CountUp } from '../components/CountUp'
 
 type Filter = 'all' | 'unread' | 'task' | 'slack' | 'system'
 
@@ -202,9 +205,7 @@ function NotifCard({
 
         {/* ── Expanded detail (only when open) ── */}
         {expanded && hasDetail && (
-          <div className="act2-card-detail">
-            {notif.message}
-          </div>
+          <SlackMessageText className="act2-card-detail" text={notif.message} />
         )}
 
       </div>
@@ -297,7 +298,7 @@ export function ActivityPage() {
           <div key={k.label} className="act2-kpi-card">
             <div className="act2-kpi-glow" style={{ background: `radial-gradient(circle at 30% 40%, ${k.glow} 0%, transparent 70%)` }} />
             <span className="act2-kpi-label">{k.label}</span>
-            <span className="act2-kpi-value" style={{ color: k.color }}>{k.value}</span>
+            <span className="act2-kpi-value" style={{ color: k.color }}><CountUp value={k.value} /></span>
           </div>
         ))}
       </div>
@@ -318,6 +319,9 @@ export function ActivityPage() {
       {/* Feed */}
       {loading ? <SkeletonFeed /> : filtered.length === 0 ? (
         <div className="act2-empty">
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+          </div>
           <div className="act2-empty-icon"><Bell size={28} strokeWidth={1.3} /></div>
           <p className="act2-empty-title">No activity{filter !== 'all' ? ` for "${filter}"` : ''}</p>
           <p className="act2-empty-sub">Task updates, Slack scans, and AI events appear here.</p>

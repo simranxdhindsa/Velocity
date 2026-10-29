@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { TaskCard } from './TaskCard'
@@ -6,10 +7,12 @@ import type { YouTrackIssue } from '../../services/api'
 interface SortableTaskCardProps {
   issue: YouTrackIssue
   avatarMap: Record<string, string>
-  onClick?: () => void
+  priorityColorMap?: Record<string, string>
+  extraClass?: string
+  onIssueClick?: (issue: YouTrackIssue) => void
 }
 
-export function SortableTaskCard({ issue, avatarMap, onClick }: SortableTaskCardProps) {
+export const SortableTaskCard = memo(function SortableTaskCard({ issue, avatarMap, priorityColorMap, extraClass, onIssueClick }: SortableTaskCardProps) {
   const {
     attributes,
     listeners,
@@ -22,6 +25,8 @@ export function SortableTaskCard({ issue, avatarMap, onClick }: SortableTaskCard
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    // Promote to own compositor layer only while dragging — avoids layout thrash at rest
+    willChange: isDragging ? 'transform' : undefined,
   }
 
   return (
@@ -29,9 +34,11 @@ export function SortableTaskCard({ issue, avatarMap, onClick }: SortableTaskCard
       <TaskCard
         issue={issue}
         avatarMap={avatarMap}
+        priorityColorMap={priorityColorMap}
         isDragging={isDragging}
-        onClick={onClick}
+        extraClass={extraClass}
+        onClick={onIssueClick ? () => onIssueClick(issue) : undefined}
       />
     </div>
   )
-}
+})

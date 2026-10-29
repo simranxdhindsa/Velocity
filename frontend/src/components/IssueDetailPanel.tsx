@@ -3,14 +3,16 @@ import { createPortal } from 'react-dom'
 import {
   ExternalLink, X, Send, MessageSquare, Paperclip, Clock, User, FileText,
   Film, Music, FileCode, File, FileSpreadsheet, Tag, GitBranch, Activity,
-  ChevronDown, Check, Image, Upload,
+  ChevronDown, Check, Image, Upload, Link2, Plus,
 } from 'lucide-react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import api from '@/services/api'
-import type { YouTrackIssue, YouTrackComment, IssueStateLogEntry, YouTrackUser } from '@/services/api'
+import type { YouTrackIssue, YouTrackComment, IssueStateLogEntry, YouTrackUser, IssueLink } from '@/services/api'
 import { getActiveSource } from '@/services/pmDataService'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
+import { LinkTypeahead } from '@/components/LinkTypeahead'
+import { isSkeletonActive } from './issue-detail-handoff'
 import { useYouTrackBaseUrl } from '@/hooks/useYouTrackBaseUrl'
 
 interface IssueDetailPanelProps {
@@ -100,7 +102,7 @@ function priorityBadgeStyle(priority: string): { background: string; color: stri
   if (p.includes('major'))
     return { background: 'rgba(245,158,11,0.18)', color: '#fbbf24' }
   if (p.includes('minor') || p.includes('cosmetic'))
-    return { background: 'rgba(99,102,241,0.18)', color: '#818cf8' }
+    return { background: 'rgba(var(--color-primary-rgb),0.18)', color: 'var(--color-primary-light)' }
   return { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' }
 }
 
@@ -144,6 +146,18 @@ function fmt_file_size(bytes: number): string {
 }
 
 // ── Inline select dropdown ─────────────────────────────────────────────────
+/** Same look and size as InlineSelect's trigger, shown while its options are still loading so rows don't shift. */
+function StaticField({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="idp-inline-select">
+      <span className="idp-editable-field idp-editable-field--static">
+        <span>{children}</span>
+        <ChevronDown size={11} style={{ opacity: 0.5 }} />
+      </span>
+    </div>
+  )
+}
+
 function InlineSelect({
   value, options, onSelect, saving,
 }: {
@@ -202,6 +216,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
   const [localPriority, setLocalPriority] = useState(issue.priority || '')
   const [localAssignee, setLocalAssignee] = useState<YouTrackUser | undefined>(issue.assignee)
   const [localDueDate,  setLocalDueDate]  = useState(issue.due_date ? new Date(issue.due_date).toISOString().slice(0,10) : '')
+  const [localSprint,   setLocalSprint]   = useState(issue.sprint || '')
+  const [localBoard,    setLocalBoard]    = useState(issue.board || '')
 
   // Saving indicators per field
   const [saving, setSaving] = useState<Record<string, boolean>>({})
@@ -210,11 +226,17 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
   const [states,     setStates]     = useState<string[]>([])
   const [priorities, setPriorities] = useState<string[]>([])
   const [users,      setUsers]      = useState<YouTrackUser[]>([])
+  const [boards,     setBoards]     = useState<Array<{ id: string; name: string }>>([])
+  const [sprints,    setSprints]    = useState<Array<{ id: string; name: string; boardId?: string }>>([])
   const [userOpen,   setUserOpen]   = useState(false)
+  const [boardOpen,  setBoardOpen]  = useState(false)
   const userRef = useRef<HTMLDivElement>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
 
   // Comments
   const [comments, setComments] = useState<YouTrackComment[]>([])
+  // Taking over from the loading skeleton: skip the open animation so it doesn't flash
+  const [fromSkeleton] = useState(isSkeletonActive)
   const [commentsLoading, setCommentsLoading] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [posting, setPosting] = useState(false)
@@ -232,6 +254,17 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
   // Transitions
   const [transitions, setTransitions] = useState<IssueStateLogEntry[]>([])
   const [transitionsLoading, setTransitionsLoading] = useState(false)
+
+  // Links
+  const [links, setLinks] = useState<IssueLink[]>([])
+  const [linksLoading, setLinksLoading] = useState(false)
+  const [addLinkOpen, setAddLinkOpen] = useState(false)
+  const [newLinkType, setNewLinkType] = useState('relates to')
+  const [newLinkTarget, setNewLinkTarget] = useState('')
+  const [addingLink, setAddingLink] = useState(false)
+  const [removingLink, setRemovingLink] = useState<string | null>(null)
+  const linkTypeRef = useRef<HTMLDivElement>(null)
+  const [linkTypeOpen, setLinkTypeOpen] = useState(false)
 
   // Display ID — prefer readable (ARD-1767) over internal (3-3797)
   const displayId = issue.idReadable || issue.id
@@ -253,6 +286,14 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
     api.getYouTrackUsers().then(res => {
       const data = (res as any).data ?? res
       setUsers(Array.isArray(data) ? data : [])
+    }).catch(() => {})
+    api.getYouTrackBoards().then(res => {
+      const data = (res as any).data ?? res
+      setBoards(Array.isArray(data) ? data : [])
+    }).catch(() => {})
+    api.getYouTrackSprints().then(res => {
+      const data = (res as any).data ?? res
+      setSprints(Array.isArray(data) ? data : [])
     }).catch(() => {})
   }, [isYouTrack])
 
@@ -282,10 +323,41 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
       .finally(() => setTransitionsLoading(false))
   }, [issue.id])
 
+  // ── Load links ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isYouTrack) return
+    setLinksLoading(true)
+    api.getYouTrackIssueLinks(issue.id)
+      .then(res => {
+        const r = res as { success: boolean; data: IssueLink[] }
+        if (r.success && r.data) setLinks(r.data)
+      })
+      .catch(() => {})
+      .finally(() => setLinksLoading(false))
+  }, [issue.id, isYouTrack])
+
+  // ── Outside click closes link type dropdown ──────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!linkTypeRef.current?.contains(e.target as Node)) setLinkTypeOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   // ── Outside click closes user dropdown ───────────────────────────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (!userRef.current?.contains(e.target as Node)) setUserOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // ── Outside click closes board dropdown ──────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!boardRef.current?.contains(e.target as Node)) setBoardOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -318,6 +390,54 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
     setLocalDueDate(dateStr)
     const ms = dateStr ? new Date(dateStr).getTime() : 0
     saveField('due_date', () => api.updateYouTrackIssue(issue.id, { due_date: ms } as any) as Promise<any>)
+  }
+
+  const handleBoardChange = (boardName: string) => {
+    setLocalBoard(boardName)
+    setBoardOpen(false)
+    // When board changes, filter available sprints to show only sprints from this board
+    // The user then needs to select a sprint from this board
+  }
+
+  const handleSprintChange = (sprintName: string) => {
+    setLocalSprint(sprintName)
+    const sprint = sprints.find(s => s.name === sprintName)
+    const sprintID = sprint ? sprint.id : ''
+    saveField('sprint', () => api.updateYouTrackIssue(issue.id, { sprint_id: sprintID } as any) as Promise<any>)
+  }
+
+  // ── Link handlers ────────────────────────────────────────────────────────
+  const handleAddLink = async () => {
+    const target = newLinkTarget.trim().toUpperCase()
+    if (!target || addingLink) return
+    setAddingLink(true)
+    try {
+      await api.addYouTrackIssueLink(issue.id, newLinkType, target)
+      // Refresh links
+      const res = await api.getYouTrackIssueLinks(issue.id)
+      const r = res as { success: boolean; data: IssueLink[] }
+      if (r.success && r.data) setLinks(r.data)
+      setNewLinkTarget('')
+      setAddLinkOpen(false)
+    } catch { /* ignore */ }
+    finally { setAddingLink(false) }
+  }
+
+  const handleRemoveLink = async (link: IssueLink) => {
+    const key = link.id_readable
+    if (removingLink === key) return
+    setRemovingLink(key)
+    // Optimistic remove
+    setLinks(prev => prev.filter(l => !(l.id_readable === link.id_readable && l.command_key === link.command_key)))
+    try {
+      await api.removeYouTrackIssueLink(issue.id, link.command_key, link.id_readable)
+    } catch {
+      // Revert
+      const res = await api.getYouTrackIssueLinks(issue.id)
+      const r = res as { success: boolean; data: IssueLink[] }
+      if (r.success && r.data) setLinks(r.data)
+    }
+    finally { setRemovingLink(null) }
   }
 
   // ── File handling ────────────────────────────────────────────────────────
@@ -370,8 +490,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
 
   return createPortal(
     <>
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="idp-modal" onClick={e => e.stopPropagation()}>
+    <div className={`modal-overlay${fromSkeleton ? ' idp-no-anim' : ''}`} onClick={onClose}>
+      <div className={`idp-modal${fromSkeleton ? ' idp-no-anim' : ''}`} onClick={e => e.stopPropagation()}>
 
         {/* ── Top bar ── */}
         <div className="idp-topbar">
@@ -402,8 +522,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
             <h2 className="idp-title">{issue.summary}</h2>
 
             <div className="idp-meta-line">
-              {issue.created ? <span>Created {fmtDateTime(issue.created)}</span> : null}
-              {issue.updated ? <span>· Updated {fmtDateTime(issue.updated)}</span> : null}
+              {issue.created ? <span>Created {fmtDateTime(issue.created)}{issue.created_by ? <> by <b className="idp-meta-by">{issue.created_by}</b></> : null}</span> : null}
+              {issue.updated ? <span>· Updated {fmtDateTime(issue.updated)}{issue.updated_by ? <> by <b className="idp-meta-by">{issue.updated_by}</b></> : null}</span> : null}
             </div>
 
             {issue.description && (
@@ -415,6 +535,93 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                     __html: DOMPurify.sanitize(marked.parse(issue.description) as string)
                   }}
                 />
+              </div>
+            )}
+
+            {/* Links */}
+            {isYouTrack && (
+              <div className="idp-links-section">
+                <div className="idp-links-header">
+                  <span className="idp-links-title">
+                    <Link2 size={13} />
+                    Links{links.length > 0 ? ` · ${links.length}` : ''}
+                  </span>
+                  <button className="idp-links-add-btn" onClick={() => { setAddLinkOpen(o => !o); setNewLinkTarget('') }}>
+                    <Plus size={12} /> Add link
+                  </button>
+                </div>
+
+                {addLinkOpen && (
+                  <div className="idp-links-form">
+                    <div className="idp-links-form-row">
+                      <div ref={linkTypeRef} className="idp-link-type-select">
+                        <button className="idp-link-type-trigger" onClick={() => setLinkTypeOpen(o => !o)}>
+                          {newLinkType} <ChevronDown size={11} />
+                        </button>
+                        {linkTypeOpen && (
+                          <div className="idp-link-type-menu">
+                            {['relates to','depends on','is required for','duplicates','is duplicated by','subtask of','parent for'].map(t => (
+                              <button
+                                key={t}
+                                className={`idp-link-type-option${newLinkType === t ? ' active' : ''}`}
+                                onClick={() => { setNewLinkType(t); setLinkTypeOpen(false) }}
+                              >{t}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <LinkTypeahead
+                        value={newLinkTarget}
+                        onChange={setNewLinkTarget}
+                        onSelect={id => setNewLinkTarget(id)}
+                        onConfirm={handleAddLink}
+                      />
+                    </div>
+                    <div className="idp-links-form-actions">
+                      <button className="idp-link-confirm-btn" onClick={handleAddLink} disabled={!newLinkTarget.trim() || addingLink}>
+                        {addingLink ? 'Adding…' : 'Add'}
+                      </button>
+                      <button className="idp-link-cancel-btn" onClick={() => { setAddLinkOpen(false); setNewLinkTarget('') }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {linksLoading ? (
+                  <div className="idp-links-list">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="idp-link-row idp-link-row--skeleton">
+                        <div className="skeleton" style={{ width: 60, height: 10, borderRadius: 4 }} />
+                        <div className="skeleton" style={{ width: '55%', height: 10, borderRadius: 4 }} />
+                      </div>
+                    ))}
+                  </div>
+                ) : links.length > 0 ? (
+                  <div className="idp-links-list">
+                    {links.map((link, i) => (
+                      <div key={`${link.id_readable}-${i}`} className={`idp-link-row${link.resolved ? ' idp-link-row--resolved' : ''}`}>
+                        <span className="idp-link-label">{link.display_label || link.link_type}</span>
+                        <a
+                          className="idp-link-id"
+                          href={`${ytBaseUrl}/issue/${link.id_readable}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >{link.id_readable}</a>
+                        <span className="idp-link-summary">{link.summary}</span>
+                        {link.state && <span className="idp-link-state">{link.state}</span>}
+                        <button
+                          className="idp-link-remove-btn idp-link-remove-btn--visible"
+                          onClick={() => handleRemoveLink(link)}
+                          disabled={removingLink === link.id_readable}
+                          title="Remove link"
+                        ><X size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                ) : !addLinkOpen ? (
+                  <p className="idp-no-comments">No linked tickets.</p>
+                ) : null}
               </div>
             )}
 
@@ -632,6 +839,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                     onSelect={handleStateChange}
                     saving={saving['status']}
                   />
+                ) : isYouTrack ? (
+                  <StaticField>{localStatus || '—'}</StaticField>
                 ) : (
                   <span className="idp-status-badge">{localStatus || '—'}</span>
                 )}
@@ -647,6 +856,8 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                     onSelect={handlePriorityChange}
                     saving={saving['priority']}
                   />
+ ) : isYouTrack ? (
+                  <StaticField>{localPriority || '—'}</StaticField>
                 ) : (
                   localPriority
                     ? <span className="idp-priority-badge" style={priStyle}>{localPriority}</span>
@@ -705,6 +916,22 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                       </div>
                     )}
                   </div>
+                ) : isYouTrack ? (
+                  <div className="idp-inline-select">
+                    <span className="idp-editable-field idp-editable-field--static idp-assignee-btn">
+                      {localAssignee ? (
+                        <>
+                          <div className="idp-assignee-avatar idp-assignee-avatar--sm">
+                            {localAssignee.avatarUrl
+                              ? <img src={localAssignee.avatarUrl} alt={localAssignee.fullName} />
+                              : <span>{getInitials(localAssignee.fullName || localAssignee.login)}</span>}
+                          </div>
+                          <span>{localAssignee.fullName || localAssignee.login}</span>
+                        </>
+                      ) : <span>Unassigned</span>}
+                      <ChevronDown size={11} style={{ opacity: 0.5 }} />
+                    </span>
+                  </div>
                 ) : localAssignee ? (
                   <div className="idp-assignee">
                     <div className="idp-assignee-avatar">
@@ -748,15 +975,53 @@ export function IssueDetailPanel({ issue, onClose, ytBaseUrl: ytBaseUrlProp }: I
                 )}
               </div>
 
+              {/* Board */}
+              <div className="idp-meta-row">
+                <span className="idp-meta-label">Board</span>
+                {isYouTrack && boards.length > 0 ? (
+                  <InlineSelect
+                    value={localBoard}
+                    options={boards.map(b => b.name)}
+                    onSelect={handleBoardChange}
+                    saving={saving['board']}
+                  />
+                ) : isYouTrack ? (
+                  <StaticField>{localBoard || '—'}</StaticField>
+                ) : (
+                  <span className="idp-meta-value">{localBoard || '—'}</span>
+                )}
+              </div>
+
+              {/* Sprint */}
+              <div className="idp-meta-row">
+                <span className="idp-meta-label">Sprint</span>
+                {isYouTrack && sprints.length > 0 ? (
+                  <InlineSelect
+                    value={localSprint}
+                    options={sprints.map(s => s.name)}
+                    onSelect={handleSprintChange}
+                    saving={saving['sprint']}
+                  />
+                ) : isYouTrack ? (
+                  <StaticField>{localSprint || '—'}</StaticField>
+                ) : (
+                  <span className="idp-meta-value">{localSprint || '—'}</span>
+                )}
+              </div>
+
               <div className="idp-meta-divider" />
 
               <div className="idp-meta-row">
                 <span className="idp-meta-label">Created</span>
-                <span className="idp-meta-value idp-meta-value--sm">{fmtDateTime(issue.created)}</span>
+                <span className="idp-meta-value idp-meta-value--sm">
+                  {fmtDateTime(issue.created)}{issue.created_by ? <><br />by <b className="idp-meta-by">{issue.created_by}</b></> : null}
+                </span>
               </div>
               <div className="idp-meta-row">
                 <span className="idp-meta-label">Updated</span>
-                <span className="idp-meta-value idp-meta-value--sm">{fmtDateTime(issue.updated)}</span>
+                <span className="idp-meta-value idp-meta-value--sm">
+                  {fmtDateTime(issue.updated)}{issue.updated_by ? <><br />by <b className="idp-meta-by">{issue.updated_by}</b></> : null}
+                </span>
               </div>
               {transitions.length > 0 && (
                 <div className="idp-meta-row">

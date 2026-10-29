@@ -1,0 +1,76 @@
+/* ── CustomDropdown — portal menu + search ─────────────────────────────────── */
+
+/* The portal menu is appended to <body>, positioned with inline top/left/width */
+.cd-portal-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-elevated);
+  border: 1px solid rgba(var(--overlay-rgb), 0.1);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  animation: cdSlideDown 0.13s ease;
+  min-width: 140px;
+}
+
+@keyframes cdSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Search row */
+.cd-search-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+.cd-search-icon { color: var(--text-muted); flex-shrink: 0; }
+.cd-search-input {
+  flex: 1;
+  min-width: 0; /* inputs default to ~20ch; without this it overflows and focus scrolls the menu sideways */
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.cd-search-input::placeholder { color: var(--text-muted); }
+
+/* Scrollable option list */
+.cd-option-list {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+  padding: 4px 0;
+}
+.cd-option-list::-webkit-scrollbar { width: 4px; }
+.cd-option-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+
+.cd-no-results {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 8px 12px;
+}
+
+/* Light mode */
+[data-theme="light"] .cd-portal-menu {
+  background: rgba(var(--panel-rgb), 0.98);
+  border-color: rgba(var(--color-primary-rgb), 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+/* The search row shares the menu's panel colour; the global light-mode input rule
+   (theme-light.css) would otherwise draw a second bordered box inside it */
+[data-theme="light"] .cd-search-row { background: transparent; border-bottom-color: rgba(var(--color-primary-rgb), 0.1); }
+[data-theme="light"] .cd-portal-menu .cd-search-input,
+[data-theme="light"] .cd-portal-menu .cd-search-input:focus {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0;
+  color: var(--text-primary) !important;
+}

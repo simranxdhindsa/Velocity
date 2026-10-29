@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CalendarView } from '../components/calendar/CalendarView'
 import type { Task } from '../types'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 
 export function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
@@ -107,6 +108,9 @@ export function CalendarPage() {
                 </div>
               ) : (
                 <div className="no-tasks">
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                    <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                  </div>
                   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                     <line x1="16" y1="2" x2="16" y2="6" />
@@ -119,6 +123,9 @@ export function CalendarPage() {
             </>
           ) : (
             <div className="no-selection">
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+              </div>
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <circle cx="12" cy="12" r="10" />
                 <polyline points="12 6 12 12 16 14" />

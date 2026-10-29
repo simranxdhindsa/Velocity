@@ -2,7 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/middleware"
@@ -14,6 +18,51 @@ import (
 // SettingsHandler handles settings API requests
 type SettingsHandler struct {
 	settingsRepo *database.SettingsRepository
+}
+
+// normalizeYouTrackBaseURL defaults to https:// when the user enters a bare
+// host (e.g. "team.youtrack.cloud") — mirrors youtrack.NewClient's normalization
+// so the SSRF check below validates the same URL that will actually be used.
+func normalizeYouTrackBaseURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw != "" && !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+		raw = "https://" + raw
+	}
+	return strings.TrimSuffix(raw, "/")
+}
+
+// validateYouTrackURL rejects SSRF targets: only http/https allowed, no private/loopback/link-local IPs.
+func validateYouTrackURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("only http and https URLs are allowed")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL must include a host")
+	}
+	// Reject if the host resolves to a private/loopback/link-local address
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		// DNS failure is fine — the subsequent YouTrack call will fail with a clear message
+		return nil
+	}
+	privateRanges := []string{
+		"10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.",
+		"172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.", "172.30.",
+		"172.31.", "192.168.", "127.", "169.254.", "::1", "fc", "fd",
+	}
+	for _, addr := range addrs {
+		for _, prefix := range privateRanges {
+			if strings.HasPrefix(addr, prefix) {
+				return fmt.Errorf("private/internal addresses are not allowed")
+			}
+		}
+	}
+	return nil
 }
 
 // NewSettingsHandler creates a new settings handler
@@ -270,6 +319,7 @@ func (h *SettingsHandler) SaveYouTrackIntegration(w http.ResponseWriter, r *http
 		http.Error(w, "base_url and project_id are required", http.StatusBadRequest)
 		return
 	}
+	req.BaseURL = normalizeYouTrackBaseURL(req.BaseURL)
 
 	// Token is optional on update — reuse the existing saved token if not provided
 	if req.Token == "" {
@@ -281,10 +331,36 @@ func (h *SettingsHandler) SaveYouTrackIntegration(w http.ResponseWriter, r *http
 		req.Token = existing.Token
 	}
 
-	// Validate credentials before saving
+	// Block SSRF: reject private/loopback/link-local targets
+	if err := validateYouTrackURL(req.BaseURL); err != nil {
+		http.Error(w, "Invalid base URL: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// One GetProjects call validates both connectivity and project ID
 	client := youtrack.NewClient(req.BaseURL, req.Token, req.ProjectID)
-	if err := client.TestConnection(r.Context()); err != nil {
+	projects, err := client.GetProjects(r.Context())
+	if err != nil {
 		http.Error(w, "YouTrack connection failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	found := false
+	var available []string
+	for _, p := range projects {
+		if p.ID == req.ProjectID || strings.EqualFold(p.ShortName, req.ProjectID) {
+			found = true
+			break
+		}
+		if p.ShortName != "" {
+			available = append(available, p.ShortName)
+		}
+	}
+	if !found {
+		msg := fmt.Sprintf("project %q not found", req.ProjectID)
+		if len(available) > 0 {
+			msg += " — available project IDs: " + strings.Join(available, ", ")
+		}
+		http.Error(w, msg, http.StatusBadRequest)
 		return
 	}
 

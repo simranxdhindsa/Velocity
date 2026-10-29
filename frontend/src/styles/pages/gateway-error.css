@@ -1,239 +1,269 @@
-/* Page: 502 Gateway Error (g5-*) */
+/* ── 502 / Updating experience (g5-*) ──────────────────────────────────────── */
 
 .g5-root {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-gradient);
-  padding: 1.5rem;
+  background: var(--bg-base);
   position: relative;
   overflow: hidden;
 }
 
+/* ── Background blobs ─────────────────────────────────────────────────────── */
+
 .g5-blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
+  filter: blur(90px);
   pointer-events: none;
   z-index: 0;
 }
 
 .g5-blob-1 {
-  width: 500px;
-  height: 500px;
-  top: -150px;
-  left: -150px;
-  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.12) 0%, transparent 70%);
-  animation: g5BlobDrift 8s ease-in-out infinite alternate;
+  width: 600px;
+  height: 600px;
+  top: -180px;
+  left: -180px;
+  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.18) 0%, transparent 65%);
+  animation: g5BlobDrift 9s ease-in-out infinite alternate;
 }
 
 .g5-blob-2 {
-  width: 400px;
-  height: 400px;
-  bottom: -100px;
-  right: -100px;
-  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.08) 0%, transparent 70%);
-  animation: g5BlobDrift 11s ease-in-out infinite alternate-reverse;
+  width: 500px;
+  height: 500px;
+  bottom: -120px;
+  right: -120px;
+  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.12) 0%, transparent 65%);
+  animation: g5BlobDrift 13s ease-in-out infinite alternate-reverse;
+}
+
+.g5-blob-3 {
+  width: 350px;
+  height: 350px;
+  top: 55%;
+  left: 55%;
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.09) 0%, transparent 65%);
+  animation: g5BlobDrift 17s ease-in-out infinite alternate;
 }
 
 @keyframes g5BlobDrift {
   from { transform: translate(0, 0) scale(1); }
-  to   { transform: translate(30px, 20px) scale(1.05); }
+  to   { transform: translate(40px, 30px) scale(1.08); }
 }
 
-.g5-card {
+/* ── Particles ────────────────────────────────────────────────────────────── */
+
+.g5-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.g5-particle {
+  position: absolute;
+  bottom: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(var(--color-primary-rgb), 0.5);
+  box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.6);
+}
+
+/* ── Center content ───────────────────────────────────────────────────────── */
+
+.g5-center {
   position: relative;
   z-index: 1;
-  width: 100%;
-  max-width: 440px;
-  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
-  backdrop-filter: var(--glass-blur-lg);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-2xl);
-  padding: 2.5rem 2rem 2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 1.1rem;
   text-align: center;
-  animation: g5FadeUp 0.4s cubic-bezier(0.34,1.56,0.64,1) both;
+  padding: 2rem;
 }
 
-@keyframes g5FadeUp {
-  from { opacity: 0; transform: translateY(24px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
+/* ── Orbit system ─────────────────────────────────────────────────────────── */
 
-.g5-wordmark {
+.g5-orbit-system {
+  position: relative;
+  width: 220px;
+  height: 220px;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  letter-spacing: 0.02em;
+  justify-content: center;
   margin-bottom: 0.5rem;
 }
 
-/* Icon uses accent cyan — semantic "connectivity" color */
-.g5-icon-wrap {
-  width: 80px;
-  height: 80px;
+.g5-orbit {
+  position: absolute;
   border-radius: 50%;
+  border: 1px solid rgba(var(--color-primary-rgb), 0.14);
+}
+
+.g5-orbit-outer {
+  width: 220px;
+  height: 220px;
+}
+
+.g5-orbit-mid {
+  width: 160px;
+  height: 160px;
+}
+
+.g5-orbit-inner {
+  width: 108px;
+  height: 108px;
+  border-color: rgba(6, 182, 212, 0.14);
+}
+
+/* Dots that ride along orbit rings */
+.g5-orbit-dot {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.g5-orbit-dot--primary {
+  background: rgba(var(--color-primary-rgb), 0.9);
+  box-shadow: 0 0 14px 3px rgba(var(--color-primary-rgb), 0.7);
+}
+
+.g5-orbit-dot--accent {
+  width: 8px;
+  height: 8px;
+  background: #22d3ee;
+  box-shadow: 0 0 12px 2px rgba(6, 182, 212, 0.8);
+}
+
+.g5-orbit-dot--muted {
+  width: 6px;
+  height: 6px;
+  background: rgba(var(--color-primary-rgb), 0.5);
+  box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.5);
+}
+
+/* Logo centered inside orbit rings */
+.g5-logo-wrap {
+  position: absolute;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 0.25rem;
-  background: radial-gradient(circle at 40% 35%, rgba(6,182,212,0.22) 0%, rgba(6,182,212,0.07) 100%);
-  border: 1px solid rgba(6,182,212,0.28);
-  color: #22d3ee;
-  box-shadow: 0 0 32px rgba(6,182,212,0.15);
+  filter: drop-shadow(0 0 24px rgba(var(--color-primary-rgb), 0.4));
 }
 
-.g5-icon-pulse {
-  animation: g5IconPulse 1s ease-in-out infinite;
-}
+/* ── Typography ───────────────────────────────────────────────────────────── */
 
-@keyframes g5IconPulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
-}
-
-.g5-heading {
-  font-size: 1.5rem;
+.g5-brand {
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
-  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.g5-message-wrap {
+  min-height: 2.6em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .g5-message {
-  font-size: 0.875rem;
+  font-size: 0.95rem;
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.65;
   margin: 0;
-  max-width: 320px;
-  min-height: 2.8em;
+  max-width: 280px;
 }
 
-/* Progress bar */
-.g5-progress-wrap {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  align-items: center;
-}
+/* ── Shimmer scanner ──────────────────────────────────────────────────────── */
 
-.g5-progress-bar {
-  width: 100%;
-  height: 4px;
+.g5-scanner-track {
+  width: 200px;
+  height: 2px;
   border-radius: 2px;
   background: rgba(var(--color-primary-rgb), 0.12);
   overflow: hidden;
+  position: relative;
 }
 
-.g5-progress-fill {
+.g5-scanner-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60px;
   height: 100%;
   border-radius: 2px;
-  background: var(--gradient-primary);
-  transition: width 1s linear;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(var(--color-primary-rgb), 0.9) 50%,
+    transparent 100%
+  );
+  box-shadow: 0 0 8px 2px rgba(var(--color-primary-rgb), 0.5);
 }
 
-.g5-countdown {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  letter-spacing: 0.02em;
+/* ── Light mode ───────────────────────────────────────────────────────────── */
+
+[data-theme="light"] .g5-blob-1 {
+  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.1) 0%, transparent 65%);
 }
 
-.g5-gave-up {
-  font-size: 0.8rem;
-  color: var(--color-warning-light);
-  background: var(--color-warning-muted);
-  border: 1px solid rgba(245,158,11,0.2);
-  border-radius: var(--radius-md);
-  padding: 0.65rem 1rem;
-  margin: 0;
-  line-height: 1.5;
+[data-theme="light"] .g5-blob-2 {
+  background: radial-gradient(circle, rgba(var(--color-primary-rgb), 0.07) 0%, transparent 65%);
 }
 
-.g5-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: 100%;
-  margin-top: 0.25rem;
+[data-theme="light"] .g5-blob-3 {
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.06) 0%, transparent 65%);
 }
 
-/* Button follows user's custom primary colour */
-.g5-btn-retry {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.7rem 1.25rem;
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
-  background: rgba(var(--color-primary-rgb), 0.12);
-  border: 1px solid rgba(var(--color-primary-rgb), 0.28);
-  color: var(--color-primary-light);
+[data-theme="light"] .g5-orbit {
+  border-color: rgba(var(--color-primary-rgb), 0.12);
 }
 
-.g5-btn-retry:hover:not(:disabled) {
-  background: rgba(var(--color-primary-rgb), 0.2);
-  border-color: rgba(var(--color-primary-rgb), 0.45);
+[data-theme="light"] .g5-logo-wrap {
+  filter: drop-shadow(0 0 16px rgba(var(--color-primary-rgb), 0.3));
 }
 
-.g5-btn-retry:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+[data-theme="light"] .g5-orbit {
+  border-color: rgba(var(--color-primary-rgb), 0.2);
 }
 
-.g5-spin {
-  animation: g5Spin 1s linear infinite;
+[data-theme="light"] .g5-orbit-inner {
+  border-color: rgba(6, 182, 212, 0.18);
 }
 
-@keyframes g5Spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+[data-theme="light"] .g5-orbit-dot--primary {
+  box-shadow: 0 0 10px 2px rgba(var(--color-primary-rgb), 0.5);
 }
 
-.g5-footnote {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  margin: 0;
-  opacity: 0.55;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+[data-theme="light"] .g5-orbit-dot--accent {
+  box-shadow: 0 0 8px 2px rgba(6, 182, 212, 0.5);
 }
 
-/* ── Light mode ───────────────────────────────────────────── */
-[data-theme="light"] .g5-card {
-  background: var(--glass-bg);
-  border-color: var(--glass-border);
-  box-shadow: var(--shadow-xl);
+[data-theme="light"] .g5-particle {
+  background: rgba(var(--color-primary-rgb), 0.35);
+  box-shadow: 0 0 6px rgba(var(--color-primary-rgb), 0.3);
 }
 
-[data-theme="light"] .g5-icon-wrap {
-  background: radial-gradient(circle at 40% 35%, rgba(6,182,212,0.15) 0%, rgba(6,182,212,0.04) 100%);
-  border-color: rgba(6,182,212,0.22);
-  color: #0891b2;
-  box-shadow: 0 0 24px rgba(6,182,212,0.1);
+[data-theme="light"] .g5-brand {
+  opacity: 0.65;
 }
 
-[data-theme="light"] .g5-btn-retry {
-  background: rgba(var(--color-primary-rgb), 0.07);
-  border-color: rgba(var(--color-primary-rgb), 0.18);
-  color: var(--color-primary-hover);
+[data-theme="light"] .g5-scanner-track {
+  background: rgba(var(--color-primary-rgb), 0.1);
 }
 
-[data-theme="light"] .g5-btn-retry:hover:not(:disabled) {
-  background: rgba(var(--color-primary-rgb), 0.13);
-  border-color: rgba(var(--color-primary-rgb), 0.32);
+[data-theme="light"] .g5-scanner-glow {
+  background: linear-gradient(90deg, transparent 0%, rgba(var(--color-primary-rgb), 0.7) 50%, transparent 100%);
+  box-shadow: 0 0 6px 1px rgba(var(--color-primary-rgb), 0.35);
 }

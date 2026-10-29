@@ -44,14 +44,21 @@ RUN npm run build
 # ─────────────────────────────────────────────────────────────
 # Stage 3: Runtime image
 # ─────────────────────────────────────────────────────────────
-FROM alpine:3.19
+FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata curl
+# poppler-utils: pdftotext, the knowledge base's primary PDF reader
+# (backend/internal/services/kb/pdf_poppler.go); without it PDFs fall back
+# to the pure-Go reader.
+RUN for i in 1 2 3; do \
+      apk add --no-cache ca-certificates tzdata curl poppler-utils && break; \
+      echo "apk retry $i..."; sleep 5; \
+    done
 
 WORKDIR /app
 
 COPY --from=go-builder /app/server .
 COPY --from=frontend-builder /app/frontend/dist ./public
+COPY CHANGELOG.md .
 
 ENV PORT=8080 \
     ENVIRONMENT=production

@@ -242,10 +242,10 @@ export function getTimeTracking(params?: { week?: string; assignee?: string; pri
     : api.getTimeTracking(params)
 }
 
-export function getIssueTimelines() {
+export function getIssueTimelines(sinceMs?: number, untilMs?: number) {
   return getActiveSource() === 'asana'
     ? api.getAsanaIssueTimelines()
-    : api.getIssueTimelines()
+    : api.getIssueTimelines(sinceMs, untilMs)
 }
 
 export function generatePMReport(date: string, scope: 'full' | 'summary' = 'full', overrides?: { priorities?: string[]; open_states?: string[]; sections?: string[] }, sprintId?: string, sprintName?: string) {

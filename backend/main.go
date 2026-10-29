@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/handlers"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
+	"github.com/dhindsa/project-management/internal/services/kb"
 	"github.com/dhindsa/project-management/internal/services/scheduler"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -167,19 +169,36 @@ func main() {
 	// Asana webhook endpoint (public - called by Asana)
 	api.HandleFunc("/webhooks/asana", asanaHandler.HandleWebhook).Methods("POST")
 
-	// SSE hub for real-time updates
+	// SSE hub for real-time updates (auth required — unauthed access leaks team events)
 	sseHub := handlers.NewSSEHub()
-	api.HandleFunc("/events", sseHub.HandleEvents).Methods("GET")
+	sseRoutes := api.PathPrefix("/events").Subrouter()
+	sseRoutes.Use(middleware.AuthMiddleware)
+	sseRoutes.HandleFunc("", sseHub.HandleEvents).Methods("GET")
+
+	// Gantt chart routes (protected)
+	ganttHandler := handlers.NewGanttHandler(database.NewSettingsRepository())
+	ganttRoutes := api.PathPrefix("/gantt").Subrouter()
+	ganttRoutes.Use(middleware.AuthMiddleware)
+	ganttRoutes.HandleFunc("/charts", ganttHandler.GetCharts).Methods("GET")
+	ganttRoutes.HandleFunc("/chart", ganttHandler.GetChart).Methods("GET")
+	ganttRoutes.HandleFunc("/chart/{ganttId}/members/{memberId}", ganttHandler.UpdateMember).Methods("POST")
 
 	// YouTrack routes (protected)
 	youtrackHandler := handlers.NewYouTrackHandler(sseHub)
 
 	// YouTrack webhook endpoint (public - called by YouTrack server)
 	api.HandleFunc("/webhooks/youtrack", youtrackHandler.HandleWebhook).Methods("POST")
+
+	// Slack Events API webhook (public - authenticated via Slack's own request
+	// signature, not JWT). Powers the "DM Velocity, get a funny AI reply" feature.
+	slackEventsHandler := handlers.NewSlackEventsHandler()
+	api.HandleFunc("/slack/events", slackEventsHandler.Handle).Methods("POST")
 	youtrackRoutes := api.PathPrefix("/youtrack").Subrouter()
 	youtrackRoutes.Use(middleware.AuthMiddleware)
 	youtrackRoutes.HandleFunc("/status", youtrackHandler.GetStatus).Methods("GET")
 	youtrackRoutes.HandleFunc("/test", youtrackHandler.TestConnection).Methods("POST")
+	youtrackRoutes.HandleFunc("/probe", youtrackHandler.ProbeYouTrack).Methods("POST")
+	youtrackRoutes.HandleFunc("/probe/boards", youtrackHandler.ProbeYouTrackBoards).Methods("POST")
 	youtrackRoutes.HandleFunc("/projects", youtrackHandler.GetProjects).Methods("GET")
 	youtrackRoutes.HandleFunc("/boards", youtrackHandler.GetBoards).Methods("GET")
 	youtrackRoutes.HandleFunc("/board/columns", youtrackHandler.GetDefaultBoardColumns).Methods("GET")
@@ -187,6 +206,7 @@ func main() {
 	youtrackRoutes.HandleFunc("/sprints", youtrackHandler.GetSprints).Methods("GET")
 	youtrackRoutes.HandleFunc("/states", youtrackHandler.GetStates).Methods("GET")
 	youtrackRoutes.HandleFunc("/priorities", youtrackHandler.GetPriorities).Methods("GET")
+	youtrackRoutes.HandleFunc("/swimlane-field", youtrackHandler.GetSwimlaneField).Methods("GET")
 	youtrackRoutes.HandleFunc("/type-field-values", youtrackHandler.GetTypeFieldValues).Methods("GET")
 	youtrackRoutes.HandleFunc("/users", youtrackHandler.GetUsers).Methods("GET")
 	youtrackRoutes.HandleFunc("/form-meta", youtrackHandler.GetIssueFormMeta).Methods("GET")
@@ -201,11 +221,15 @@ func main() {
 	youtrackRoutes.HandleFunc("/issues/{issue_id}/attachments", youtrackHandler.UploadIssueAttachment).Methods("POST")
 	youtrackRoutes.HandleFunc("/issues/{issue_id}/comments", youtrackHandler.GetIssueComments).Methods("GET")
 	youtrackRoutes.HandleFunc("/issues/{issue_id}/comments", youtrackHandler.AddIssueComment).Methods("POST")
+	youtrackRoutes.HandleFunc("/search", youtrackHandler.SearchIssues).Methods("GET")
+	youtrackRoutes.HandleFunc("/issues/{issue_id}/links", youtrackHandler.GetIssueLinksList).Methods("GET")
+	youtrackRoutes.HandleFunc("/issues/{issue_id}/links", youtrackHandler.AddIssueLink).Methods("POST")
+	youtrackRoutes.HandleFunc("/issues/{issue_id}/links", youtrackHandler.RemoveIssueLink).Methods("DELETE")
 	// Proxy is public (no JWT) — browser <img> tags can't send Authorization headers.
 	// Security is enforced inside ProxyAttachment by checking the URL matches the YouTrack instance.
 	api.HandleFunc("/youtrack/proxy", youtrackHandler.ProxyAttachment).Methods("GET", "HEAD")
 	youtrackRoutes.HandleFunc("/sections", youtrackHandler.GetProjectSectionsFromDB).Methods("GET") // Get synced sections from DB
-	youtrackRoutes.HandleFunc("/import", youtrackHandler.ImportFromYouTrack).Methods("POST")       // Import issues from YouTrack
+	youtrackRoutes.HandleFunc("/import", youtrackHandler.ImportFromYouTrack).Methods("POST")        // Import issues from YouTrack
 	youtrackRoutes.HandleFunc("/match-analysis", youtrackHandler.MatchAnalysis).Methods("POST")
 	youtrackRoutes.HandleFunc("/bulk-update-states", youtrackHandler.BulkUpdateStates).Methods("POST")
 	youtrackRoutes.HandleFunc("/sync-recommendations", youtrackHandler.GetSyncRecommendations).Methods("POST")
@@ -222,6 +246,41 @@ func main() {
 	taskYouTrackRoutes := api.PathPrefix("/tasks/{id}/youtrack").Subrouter()
 	taskYouTrackRoutes.Use(middleware.AuthMiddleware)
 	taskYouTrackRoutes.HandleFunc("/sync", youtrackHandler.SyncTaskToYouTrack).Methods("POST")
+
+	// Ignored blocked tickets (park/unpark per user)
+	ignoredBlockedHandler := handlers.NewIgnoredBlockedHandler()
+	ignoredBlockedRoutes := api.PathPrefix("/ignored-blocked").Subrouter()
+	ignoredBlockedRoutes.Use(middleware.AuthMiddleware)
+	ignoredBlockedRoutes.HandleFunc("", ignoredBlockedHandler.GetIgnored).Methods("GET")
+	ignoredBlockedRoutes.HandleFunc("", ignoredBlockedHandler.IgnoreTicket).Methods("POST")
+	ignoredBlockedRoutes.HandleFunc("/{issue_id}", ignoredBlockedHandler.UnignoreTicket).Methods("DELETE")
+
+	// Update Reminders + Quick Send
+	updateReminderHandler := handlers.NewUpdateReminderHandler()
+	urRoutes := api.PathPrefix("/update-reminders").Subrouter()
+	urRoutes.Use(middleware.AuthMiddleware)
+	urRoutes.HandleFunc("", updateReminderHandler.ListRules).Methods("GET")
+	urRoutes.HandleFunc("", updateReminderHandler.CreateRule).Methods("POST")
+	urRoutes.HandleFunc("/{id}", updateReminderHandler.GetRule).Methods("GET")
+	urRoutes.HandleFunc("/{id}", updateReminderHandler.UpdateRule).Methods("PUT")
+	urRoutes.HandleFunc("/{id}", updateReminderHandler.DeleteRule).Methods("DELETE")
+	urRoutes.HandleFunc("/{id}/toggle", updateReminderHandler.ToggleRule).Methods("PATCH")
+	urRoutes.HandleFunc("/{id}/roster", updateReminderHandler.ListRoster).Methods("GET")
+	urRoutes.HandleFunc("/{id}/roster", updateReminderHandler.AddRosterMember).Methods("POST")
+	urRoutes.HandleFunc("/{id}/roster/{mid}", updateReminderHandler.UpdateRosterMember).Methods("PUT")
+	urRoutes.HandleFunc("/{id}/roster/{mid}", updateReminderHandler.DeleteRosterMember).Methods("DELETE")
+	urRoutes.HandleFunc("/{id}/dry-run", updateReminderHandler.DryRun).Methods("POST")
+	urRoutes.HandleFunc("/{id}/run-now", updateReminderHandler.RunNow).Methods("POST")
+	urRoutes.HandleFunc("/{id}/history", updateReminderHandler.GetHistory).Methods("GET")
+	// workspace-users + quick-send are registered below on the existing slackRoutes subrouter
+
+	// Changelog handler
+	changelogHandler := handlers.NewChangelogHandler()
+	changelogRoutes := api.PathPrefix("/changelog").Subrouter()
+	changelogRoutes.Use(middleware.AuthMiddleware)
+	changelogRoutes.HandleFunc("/status", changelogHandler.GetStatus).Methods("GET")
+	changelogRoutes.HandleFunc("/seen", changelogHandler.MarkSeen).Methods("PATCH")
+	changelogRoutes.HandleFunc("/seen/reset", changelogHandler.ResetSeen).Methods("PATCH")
 
 	// Notification handler must be created before Slack handler (Slack needs it for SSE broadcast)
 	notifHandler := handlers.NewNotificationHandler(sseHub)
@@ -252,36 +311,60 @@ func main() {
 	standupRoutes.HandleFunc("/post", standupHandler.Post).Methods("POST")
 	standupRoutes.HandleFunc("/weekly", standupHandler.Weekly).Methods("POST")
 
-	// Slack routes (protected)
+	// Slack routes — reads + per-user actions: any authenticated user
 	slackHandler := handlers.NewSlackHandler(notifHandler)
 	slackRoutes := api.PathPrefix("/slack").Subrouter()
 	slackRoutes.Use(middleware.AuthMiddleware)
-	slackRoutes.HandleFunc("/connect", slackHandler.Connect).Methods("POST")
-	slackRoutes.HandleFunc("/disconnect", slackHandler.Disconnect).Methods("POST")
 	slackRoutes.HandleFunc("/status", slackHandler.GetStatus).Methods("GET")
 	slackRoutes.HandleFunc("/channels", slackHandler.GetChannels).Methods("GET")
-	slackRoutes.HandleFunc("/channel", slackHandler.SetChannel).Methods("POST")
-	slackRoutes.HandleFunc("/monitor-channel", slackHandler.SetMonitorChannel).Methods("POST")
 	slackRoutes.HandleFunc("/messages", slackHandler.GetMessages).Methods("GET")
 	slackRoutes.HandleFunc("/messages/yesterday", slackHandler.GetYesterdayMessages).Methods("GET")
-	// Slack intelligence routes
-	slackRoutes.HandleFunc("/scan", slackHandler.Scan).Methods("POST")
 	slackRoutes.HandleFunc("/mentions", slackHandler.GetMentions).Methods("GET")
 	slackRoutes.HandleFunc("/mentions/{messageTS}/dismiss", slackHandler.DismissMention).Methods("POST")
 	slackRoutes.HandleFunc("/mentions/{messageTS}/snooze", slackHandler.SnoozeMention).Methods("POST")
-	slackRoutes.HandleFunc("/threads", slackHandler.GetUnansweredThreads).Methods("GET")
-	slackRoutes.HandleFunc("/threads/{threadTS}/snooze", slackHandler.SnoozeThread).Methods("POST")
-	slackRoutes.HandleFunc("/digest", slackHandler.PostDigest).Methods("POST")
-	slackRoutes.HandleFunc("/reminders", slackHandler.CreateFollowupReminder).Methods("POST")
-	slackRoutes.HandleFunc("/post-morning-report", slackHandler.PostMorningReport).Methods("POST")
-	// Slack Intelligence v2
-	slackRoutes.HandleFunc("/reply", slackHandler.ReplyToThread).Methods("POST")
-	slackRoutes.HandleFunc("/thread-replies", slackHandler.GetThreadRepliesHandler).Methods("GET")
 	slackRoutes.HandleFunc("/mentions/{messageTS}/pin", slackHandler.PinMention).Methods("POST")
+	slackRoutes.HandleFunc("/threads", slackHandler.GetUnansweredThreads).Methods("GET")
+	slackRoutes.HandleFunc("/threads/{threadTS}/dismiss", slackHandler.DismissThread).Methods("POST")
+	slackRoutes.HandleFunc("/threads/{threadTS}/snooze", slackHandler.SnoozeThread).Methods("POST")
+	slackRoutes.HandleFunc("/thread-replies", slackHandler.GetThreadRepliesHandler).Methods("GET")
+	slackRoutes.HandleFunc("/reminders", slackHandler.CreateFollowupReminder).Methods("POST")
 	slackRoutes.HandleFunc("/templates", slackHandler.GetTemplates).Methods("GET")
 	slackRoutes.HandleFunc("/templates", slackHandler.CreateTemplate).Methods("POST")
 	slackRoutes.HandleFunc("/templates/{id}", slackHandler.DeleteTemplate).Methods("DELETE")
 	slackRoutes.HandleFunc("/saved-items", slackHandler.GetSavedItems).Methods("GET")
+	// Update Reminders: workspace user list + one-off quick send
+	slackRoutes.HandleFunc("/workspace-users", updateReminderHandler.GetWorkspaceUsers).Methods("GET")
+	slackRoutes.HandleFunc("/quick-send", updateReminderHandler.QuickSend).Methods("POST")
+	slackRoutes.HandleFunc("/quick-send/messages/{channelId}/{ts}", updateReminderHandler.DeleteSlackMessage).Methods("DELETE")
+	slackRoutes.HandleFunc("/quick-send/messages/{channelId}/{ts}", updateReminderHandler.UpdateSlackMessage).Methods("PUT")
+	// Pending message queue (Claude MCP connector sends messages here)
+	pendingMsgHandler := handlers.NewPendingMessagesHandler()
+	slackRoutes.HandleFunc("/queued", pendingMsgHandler.List).Methods("GET")
+	slackRoutes.HandleFunc("/queued", pendingMsgHandler.Create).Methods("POST")
+	slackRoutes.HandleFunc("/queued/{id}", pendingMsgHandler.Update).Methods("PUT")
+	slackRoutes.HandleFunc("/queued/{id}", pendingMsgHandler.Delete).Methods("DELETE")
+	slackRoutes.HandleFunc("/queued/{id}/send-now", pendingMsgHandler.SendNow).Methods("POST")
+	// Slack Messages hub — unified view over every message Velocity has sent, any source
+	sentSlackMsgHandler := handlers.NewSentSlackMessagesHandler()
+	slackRoutes.HandleFunc("/hub/messages", sentSlackMsgHandler.List).Methods("GET")
+	slackRoutes.HandleFunc("/hub/live-messages", sentSlackMsgHandler.GetLive).Methods("GET")
+	slackRoutes.HandleFunc("/hub/messages", sentSlackMsgHandler.Send).Methods("POST")
+	slackRoutes.HandleFunc("/hub/messages/{id}", sentSlackMsgHandler.Update).Methods("PUT")
+	slackRoutes.HandleFunc("/hub/messages/{id}", sentSlackMsgHandler.Delete).Methods("DELETE")
+	// Per-user Slack actions: connect/disconnect + channel selection — any authenticated user
+	slackRoutes.HandleFunc("/connect", slackHandler.Connect).Methods("POST")
+	slackRoutes.HandleFunc("/disconnect", slackHandler.Disconnect).Methods("POST")
+	slackRoutes.HandleFunc("/channel", slackHandler.SetChannel).Methods("POST")
+	slackRoutes.HandleFunc("/monitor-channel", slackHandler.SetMonitorChannel).Methods("POST")
+	// Per-user scan (mentions + threads for the requesting user)
+	slackRoutes.HandleFunc("/scan", slackHandler.Scan).Methods("POST")
+	// Slack write routes — broadcast/digest actions: manager or above only
+	slackWriteRoutes := api.PathPrefix("/slack").Subrouter()
+	slackWriteRoutes.Use(middleware.AuthMiddleware)
+	slackWriteRoutes.Use(middleware.ManagerOrAbove)
+	slackWriteRoutes.HandleFunc("/digest", slackHandler.PostDigest).Methods("POST")
+	slackWriteRoutes.HandleFunc("/reply", slackHandler.ReplyToThread).Methods("POST")
+	slackWriteRoutes.HandleFunc("/post-morning-report", slackHandler.PostMorningReport).Methods("POST")
 
 	// AI Analysis routes (protected)
 	aiHandler := handlers.NewAIHandler()
@@ -314,12 +397,15 @@ func main() {
 	dailyTaskRoutes.HandleFunc("/next-day/reorder", dailyTaskHandler.ReorderNextDayTasks).Methods("PATCH")
 	dailyTaskRoutes.HandleFunc("/next-day/{date}/slack-format", dailyTaskHandler.GetFormattedSlackMessage).Methods("GET")
 
-	// Developer-subsystem config routes (protected)
+	// Developer-subsystem config routes — read: any auth; write: admin only (global config, not per-user)
 	devConfigHandler := handlers.NewDeveloperConfigHandler()
 	devConfigRoutes := api.PathPrefix("/developer-config").Subrouter()
 	devConfigRoutes.Use(middleware.AuthMiddleware)
 	devConfigRoutes.HandleFunc("", devConfigHandler.GetDeveloperConfigs).Methods("GET")
-	devConfigRoutes.HandleFunc("", devConfigHandler.SaveDeveloperConfigs).Methods("POST")
+	devConfigWriteRoutes := api.PathPrefix("/developer-config").Subrouter()
+	devConfigWriteRoutes.Use(middleware.AuthMiddleware)
+	devConfigWriteRoutes.Use(middleware.AdminOnly)
+	devConfigWriteRoutes.HandleFunc("", devConfigHandler.SaveDeveloperConfigs).Methods("POST")
 
 	// Bot Config routes (protected)
 	botConfigHandler := handlers.NewBotConfigHandler()
@@ -368,7 +454,6 @@ func main() {
 	pmScheduler.Start()
 	defer pmScheduler.Stop()
 
-
 	// Wire notification handler into YouTrack handler for overdue/blocked notifications
 	youtrackHandler.SetNotificationHandler(notifHandler)
 
@@ -383,13 +468,17 @@ func main() {
 	reportRoutes.HandleFunc("/pm-report/{date}/saved", reportHandler.GetSavedReport).Methods("GET")
 	reportRoutes.HandleFunc("/pm-report/{date}", reportHandler.GeneratePMReport).Methods("GET")
 	reportRoutes.HandleFunc("/pm-reports", reportHandler.ListReports).Methods("GET")
-	reportRoutes.HandleFunc("/pm-report/{id}/delete", reportHandler.DeletePMReport).Methods("DELETE")
+	adminReportRoutes := api.PathPrefix("/reports").Subrouter()
+	adminReportRoutes.Use(middleware.AuthMiddleware)
+	adminReportRoutes.Use(middleware.AdminOnly)
+	adminReportRoutes.HandleFunc("/pm-report/{id}/delete", reportHandler.DeletePMReport).Methods("DELETE")
 	reportRoutes.HandleFunc("/assignee-stats", reportHandler.GetAssigneeStats).Methods("GET")
 	reportRoutes.HandleFunc("/time-tracking", reportHandler.GetTimeTracking).Methods("GET")
 	reportRoutes.HandleFunc("/pins", reportHandler.GetPins).Methods("GET")
 	reportRoutes.HandleFunc("/pins", reportHandler.PinIssue).Methods("POST")
 	reportRoutes.HandleFunc("/pins/{issueID}", reportHandler.UnpinIssue).Methods("DELETE")
 	reportRoutes.HandleFunc("/issue-timelines", reportHandler.GetIssueTimelines).Methods("GET")
+	reportRoutes.HandleFunc("/activity-by-day", reportHandler.GetActivityByDay).Methods("GET")
 	reportRoutes.HandleFunc("/alerts/dismiss", reportHandler.DismissAlert).Methods("POST")
 	reportRoutes.HandleFunc("/alerts/dismiss/{issueID}", reportHandler.UndismissAlert).Methods("DELETE")
 	reportRoutes.HandleFunc("/backfill", reportHandler.BackfillStateLog).Methods("POST")
@@ -399,9 +488,20 @@ func main() {
 	reportRoutes.HandleFunc("/sprint-board-status", reportHandler.GetSprintBoardStatus).Methods("GET")
 	reportRoutes.HandleFunc("/sprint-qa-summary", reportHandler.GetSprintQASummary).Methods("GET")
 	reportRoutes.HandleFunc("/issue-transitions", reportHandler.GetIssueTransitions).Methods("GET")
+	reportRoutes.HandleFunc("/sprint-velocity", reportHandler.GetSprintVelocity).Methods("GET")
+	reportRoutes.HandleFunc("/sprint-burndown", reportHandler.GetSprintBurndown).Methods("GET")
+	reportRoutes.HandleFunc("/capacity", reportHandler.GetSprintCapacity).Methods("GET")
+	reportRoutes.HandleFunc("/capacity", reportHandler.SaveSprintCapacity).Methods("POST")
+	reportRoutes.HandleFunc("/capacity/{id}", reportHandler.DeleteSprintCapacity).Methods("DELETE")
+	reportRoutes.HandleFunc("/blocker-sla", reportHandler.GetBlockerSLA).Methods("GET")
+	reportRoutes.HandleFunc("/blocker-sla/config", reportHandler.GetEscalationConfig).Methods("GET")
+	reportRoutes.HandleFunc("/blocker-sla/config", reportHandler.SaveEscalationConfig).Methods("POST")
+	reportRoutes.HandleFunc("/releases", reportHandler.GetReleases).Methods("GET")
+	reportRoutes.HandleFunc("/dependencies", reportHandler.GetIssueDependencies).Methods("GET")
+	reportRoutes.HandleFunc("/sprint-radar", reportHandler.GetSprintRadar).Methods("GET")
 
 	// DayTrack routes (protected)
-	dayTrackHandler := handlers.NewDayTrackHandler()
+	dayTrackHandler := handlers.NewDayTrackHandler(youtrackHandler)
 	dayTrackRoutes := api.PathPrefix("/daytrack").Subrouter()
 	dayTrackRoutes.Use(middleware.AuthMiddleware)
 	dayTrackRoutes.HandleFunc("/entries/range", dayTrackHandler.GetEntriesRange).Methods("GET")
@@ -417,6 +517,8 @@ func main() {
 	dayTrackRoutes.HandleFunc("/categories", dayTrackHandler.GetCategories).Methods("GET")
 	dayTrackRoutes.HandleFunc("/categories", dayTrackHandler.AddCategory).Methods("POST")
 	dayTrackRoutes.HandleFunc("/categories/{name}", dayTrackHandler.DeleteCategory).Methods("DELETE")
+	dayTrackRoutes.HandleFunc("/category-emoji", dayTrackHandler.GetAllowedCategoryEmoji).Methods("GET")
+	dayTrackRoutes.HandleFunc("/slack-preview", dayTrackHandler.GetSlackPreview).Methods("GET")
 	// Slack auto-logging config
 	dayTrackRoutes.HandleFunc("/slack-config", dayTrackHandler.GetSlackConfig).Methods("GET")
 	dayTrackRoutes.HandleFunc("/slack-config", dayTrackHandler.UpsertSlackConfig).Methods("PUT")
@@ -427,9 +529,72 @@ func main() {
 	dayTrackRoutes.HandleFunc("/slack-resolve-user", dayTrackHandler.ResolveSlackUser).Methods("GET")
 	dayTrackRoutes.HandleFunc("/transcribe", dayTrackHandler.Transcribe).Methods("POST")
 	dayTrackRoutes.HandleFunc("/post-to-slack", dayTrackHandler.PostToSlack).Methods("POST")
+	dayTrackRoutes.HandleFunc("/slack-post-status", dayTrackHandler.GetSlackPostStatus).Methods("GET")
+	dayTrackRoutes.HandleFunc("/slack-post", dayTrackHandler.DeleteSlackPost).Methods("DELETE")
+
+	// MCP server — Claude connector endpoint (token auth, not JWT)
+	mcpHandler := handlers.NewMCPHandler()
+	api.HandleFunc("/mcp", mcpHandler.HandleSSE).Methods("GET")
+	api.HandleFunc("/mcp", mcpHandler.Handle).Methods("POST")
+	// MCP token management (JWT-protected)
+	mcpTokenHandler := handlers.NewMCPTokenHandler()
+	mcpTokenRoutes := api.PathPrefix("/mcp/token").Subrouter()
+	mcpTokenRoutes.Use(middleware.AuthMiddleware)
+	mcpTokenRoutes.HandleFunc("", mcpTokenHandler.GetToken).Methods("GET")
+	mcpTokenRoutes.HandleFunc("", mcpTokenHandler.GenerateToken).Methods("POST")
+	mcpTokenRoutes.HandleFunc("", mcpTokenHandler.RevokeToken).Methods("DELETE")
+	mcpSettingsRoutes := api.PathPrefix("/mcp/settings").Subrouter()
+	mcpSettingsRoutes.Use(middleware.AuthMiddleware)
+	mcpSettingsRoutes.HandleFunc("", mcpTokenHandler.UpdateSettings).Methods("PUT")
+	// MCP activity log — what's been done through the connector (admin only)
+	mcpActivityHandler := handlers.NewMCPActivityHandler()
+	mcpActivityRoutes := api.PathPrefix("/mcp/activity").Subrouter()
+	mcpActivityRoutes.Use(middleware.AuthMiddleware)
+	mcpActivityRoutes.Use(middleware.AdminOnly)
+	mcpActivityRoutes.HandleFunc("", mcpActivityHandler.List).Methods("GET")
+	// Keep only the last 7 days of MCP activity
+	handlers.RunMCPActivityPruner(database.NewMCPActivityRepository())
+
+	// Slack bot conversation log — full chat transcript of the Velocity Slack
+	// bot. Authenticated for any logged-in user (NOT admin-gated at the route
+	// level) — admins see every conversation, everyone else sees only their
+	// own; the role-based filter lives inside the handler, see
+	// SlackBotConversationsHandler.List.
+	slackBotConvHandler := handlers.NewSlackBotConversationsHandler()
+	slackBotConvRoutes := api.PathPrefix("/slack-bot-chat").Subrouter()
+	slackBotConvRoutes.Use(middleware.AuthMiddleware)
+	slackBotConvRoutes.HandleFunc("", slackBotConvHandler.List).Methods("GET")
+	// Keep only the last 30 days of Slack bot conversation history
+	handlers.RunSlackBotConversationPruner(database.NewSlackBotConversationRepository())
+
+	// Team knowledge base (admin only). Answers reach everyone through the
+	// Slack bot and MCP, filtered by each document's visibility.
+	kbHandler := handlers.NewKBHandler()
+	kbRoutes := api.PathPrefix("/kb").Subrouter()
+	kbRoutes.Use(middleware.AuthMiddleware)
+	kbRoutes.Use(middleware.AdminOnly)
+	kbRoutes.HandleFunc("/documents", kbHandler.List).Methods("GET")
+	kbRoutes.HandleFunc("/documents", kbHandler.Upload).Methods("POST")
+	kbRoutes.HandleFunc("/documents/{id}", kbHandler.Update).Methods("PATCH")
+	kbRoutes.HandleFunc("/documents/{id}", kbHandler.Delete).Methods("DELETE")
+	kbRoutes.HandleFunc("/documents/{id}/file", kbHandler.ReplaceFile).Methods("PUT")
+	kbRoutes.HandleFunc("/documents/{id}/reindex", kbHandler.Reindex).Methods("POST")
+	kbRoutes.HandleFunc("/documents/{id}/chunks", kbHandler.Chunks).Methods("GET")
+	kbRoutes.HandleFunc("/documents/{id}/text", kbHandler.Text).Methods("GET")
+	kbRoutes.HandleFunc("/notes", kbHandler.CreateNote).Methods("POST")
+	kbRoutes.HandleFunc("/notes/{id}", kbHandler.UpdateNote).Methods("PUT")
+	kbRoutes.HandleFunc("/search", kbHandler.Search).Methods("GET")
+	// Finish indexing anything a restart interrupted
+	go kb.ResumePending()
+
+	// Start pending-messages scheduler (fires due Slack messages every 60s)
+	handlers.RunPendingMessagesScheduler(notifHandler)
 
 	// Start DayTrack Slack background scanner (5-min polling)
 	handlers.RunDayTrackSlackScanner(database.NewDayTrackRepository())
+
+	// Start DayTrack daily auto-send scheduler (posts today's update at 11:50 PM IST for opted-in users)
+	handlers.RunDayTrackAutoSendScheduler(dayTrackHandler)
 
 	// User management routes (protected - admin only)
 	userRoutes := api.PathPrefix("/users").Subrouter()
@@ -440,10 +605,11 @@ func main() {
 	userRoutes.HandleFunc("/{id}/role", updateUserRoleHandler).Methods("PATCH")
 	userRoutes.HandleFunc("/{id}", deleteUserHandler).Methods("DELETE")
 
-	// Whitelist/Access Control routes (protected - admin only)
+	// Whitelist/Access Control routes (admin only)
 	whitelistHandler := handlers.NewWhitelistHandler()
 	whitelistRoutes := api.PathPrefix("/settings/access").Subrouter()
 	whitelistRoutes.Use(middleware.AuthMiddleware)
+	whitelistRoutes.Use(middleware.AdminOnly)
 	whitelistRoutes.HandleFunc("", whitelistHandler.GetWhitelistSettingsHandler).Methods("GET")
 	whitelistRoutes.HandleFunc("/emails", whitelistHandler.GetAllowedEmailsHandler).Methods("GET")
 	whitelistRoutes.HandleFunc("/emails", whitelistHandler.AddAllowedEmailHandler).Methods("POST")
@@ -485,6 +651,22 @@ func main() {
 	userThemeRoutes.HandleFunc("", settingsHandler.GetUserTheme).Methods("GET")
 	userThemeRoutes.HandleFunc("", settingsHandler.SaveUserTheme).Methods("PUT")
 
+	// OAuth 2.1 routes — root-level so they work with or without /api prefix
+	oauthHandler := handlers.NewOAuthHandler()
+	// RFC 8414: authorization server metadata (auth/token/registration endpoints)
+	r.HandleFunc("/.well-known/oauth-authorization-server", oauthHandler.Metadata).Methods("GET", "OPTIONS")
+	// RFC 9728: protected resource metadata — Claude.ai fetches this FIRST from WWW-Authenticate.
+	// Must return resource + authorization_servers[], NOT auth server metadata.
+	r.HandleFunc("/.well-known/oauth-protected-resource", oauthHandler.ProtectedResourceMetadata).Methods("GET", "OPTIONS")
+	// Path-specific variant per RFC 9728 §3 (client may append the resource path)
+	r.HandleFunc("/.well-known/oauth-protected-resource/api/mcp", oauthHandler.ProtectedResourceMetadata).Methods("GET", "OPTIONS")
+	r.HandleFunc("/oauth/register", oauthHandler.RegisterClient).Methods("POST", "OPTIONS")
+	r.HandleFunc("/oauth/token", oauthHandler.Token).Methods("POST", "OPTIONS")
+	// JWT-protected: frontend calls this after user approves the OAuth consent screen
+	oauthProtectedRoutes := api.PathPrefix("/oauth").Subrouter()
+	oauthProtectedRoutes.Use(middleware.AuthMiddleware)
+	oauthProtectedRoutes.HandleFunc("/code", oauthHandler.CreateCode).Methods("POST")
+
 	// Serve Vite SPA static files from ./public (production: built into the container image).
 	// Any path not matched by /api routes falls through to here.
 	// For client-side routes (non-asset paths), serve index.html so the React router takes over.
@@ -508,11 +690,31 @@ func main() {
 	if frontendURL != "" {
 		allowedOrigins = append(allowedOrigins, frontendURL)
 	}
+	isDev := os.Getenv("ENVIRONMENT") == "development"
 	c := cors.New(cors.Options{
 		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
+		AllowOriginFunc: func(origin string) bool {
+			if origin == "" {
+				return false
+			}
+			for _, o := range allowedOrigins {
+				if o == origin {
+					return true
+				}
+			}
+			// LAN IPs only allowed in local development — never in production deploys.
+			// AllowCredentials:true + wildcard LAN would let any page on the company
+			// network make authenticated API calls without user consent.
+			if isDev {
+				return strings.HasPrefix(origin, "http://192.168.") ||
+					strings.HasPrefix(origin, "http://10.") ||
+					strings.HasPrefix(origin, "http://172.")
+			}
+			return false
+		},
 	})
 
 	handler := c.Handler(r)
@@ -527,6 +729,7 @@ func main() {
 	go func() {
 		notifRepo := database.NewNotificationRepository()
 		activityRepo := database.NewActivityRepository()
+		sentSlackRepo := database.NewSentSlackMessagesRepository()
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
@@ -540,6 +743,11 @@ func main() {
 				log.Printf("⚠️  Activity log cleanup error: %v", err)
 			} else if n > 0 {
 				log.Printf("🗑️  Cleaned up %d activity entries older than 30 days", n)
+			}
+			if n, err := sentSlackRepo.DeleteOld(ctx, 60); err != nil {
+				log.Printf("⚠️  Slack hub message log cleanup error: %v", err)
+			} else if n > 0 {
+				log.Printf("🗑️  Cleaned up %d Slack hub log entries older than 60 days", n)
 			}
 		}
 	}()

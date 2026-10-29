@@ -1,0 +1,230 @@
+# Velocity MCP Server
+
+## What it is
+
+`/api/mcp` is an MCP (Model Context Protocol) server so Claude.ai's custom connector can call YouTrack and Slack actions directly, on behalf of a Velocity user. Auth is a plain MCP token sent as an `Authorization: Bearer` header (issued via OAuth; `?token=` query params are rejected so tokens never land in URL logs), separate from the app's JWT auth — managed under `/api/mcp/token` (JWT-protected, for generating/revoking the MCP token from Velocity's UI).
+
+## File organization — one file per tool
+
+`backend/internal/handlers/mcp*.go`:
+
+| File | Contents |
+|---|---|
+| `mcp.go` | Core JSON-RPC glue: `MCPHandler` struct/constructor, `mcpYTClient`/`mcpS3Client` builders, JSON-RPC types, `HandleSSE`, `Handle` (top-level `initialize`/`tools/list`/`tools/call` routing), `toolOK`/`toolError`, `resolveUser` |
+| `mcp_dispatch.go` | `callTool` — parses the `tools/call` request and looks up the handler in `mcpToolHandlers`, a `map[string]mcpToolFunc` |
+| `mcp_tools.go` | `mcpTools` — aggregates every tool's schema var into the slice returned by `tools/list` |
+| `mcp_slack.go` | `resolveChannel`, `resolveSlackUser`, `resolveSlackMentions`, `parseFlexTime` — helpers used only by `queue_slack_message` |
+| `mcp_token.go` | `MCPTokenHandler` — JWT-protected `/api/mcp/token` lifecycle (generate/revoke/settings). Separate concern from the MCP protocol handler itself. |
+| `mcp_tool_<name>.go` | **One file per tool.** Each holds both the tool's JSON schema (`<name>ToolSchema`) and its handler function (`mcp<Name>`) together. |
+
+## Adding a new tool
+
+1. Create `mcp_tool_<name>.go` with:
+   - a schema var: `var <name>ToolSchema = map[string]interface{}{...}`
+   - a handler: `func mcp<Name>(ctx context.Context, h *MCPHandler, userID string, id interface{}, args json.RawMessage) rpcResponse`
+2. Register the schema in `mcpTools` (`mcp_tools.go`)
+3. Register the handler in `mcpToolHandlers` (`mcp_dispatch.go`)
+
+Never add tool logic inline to `mcp_dispatch.go` or `mcp.go` — each tool is self-contained in its own file so the dispatch/routing files stay thin as the tool count grows.
+
+## Board resolution (`mcpYTClient`)
+
+Per-user integration board, then the org-wide `youtrack_board_id` setting, then `YOUTRACK_BOARD_ID`. If all are empty, it uses the board an admin selected in their own integration for the same project (`GetAdminYouTrackBoardID`), so members land on the admin's board instead of the client auto-detecting a different one (it picked "Ardoise Tracker" 183-4 over "Ardoise Board" 183-7).
+
+## Current tools (as of this writing)
+
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments, images and the status history: every column move from → to, who moved it, when, hours in the previous column, from Velocity's `issue_state_log`, which starts July 2025), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `search_knowledge_base` (read-only: the admin-managed team knowledge base), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered), `generate_deployment_report` (read-only deployment report for chosen columns, with exclusions).
+
+### `read_slack_messages` / `get_slack_mentions` notes (read-only)
+
+Files: `mcp_tool_read_slack_messages.go`, `mcp_tool_get_slack_mentions.go`, shared helpers in `mcp_slack_read.go` (`slackReader`: caller identity, access control, mention/link resolution, 12-hour formatting), Slack API read calls in `services/slack/client_read.go` (`GetHistoryPaged`, `GetThreadPaged`, `GetConversationInfo`, `GetConversationMembers`, `GetBotMemberChannels`, `WorkspaceURL`).
+
+| Tool | Params (defaults) |
+|---|---|
+| `read_slack_messages` | one of `channel` (name or raw ID), `link` (permalink, returns message + whole thread), `my_dm: true`; `limit` 30 (max 200; for a link, max replies, default 100); `since` (`30m`/`2h`/`1d`/`1w`/`today`/`yesterday`/`YYYY-MM-DD` in the user's timezone); `query` (substring on resolved text + author, scans up to 1000 messages) |
+| `get_slack_mentions` | `since` 3d (max 30d), `channel` optional, `unanswered_only`, `limit` 30 (max 100) |
+
+- **Identity**: the caller's Slack user comes from their Velocity email (`users.lookupByEmail`), never from tool args.
+- **Access control** (`slackReader.authorize`): public channels need the bot to be a member; private channels and group DMs also require the caller to be a member (`conversations.members`); DMs are only allowed if the ID equals the caller's own DM with the bot (`conversations.open` with the caller's ID). Someone else's DM with the bot is refused.
+- **Output**: author (bot posts named via `bots.info`), 12-hour AM/PM time, text with `<@U..>`, `<#C..|x>`, `<!here>`, `<url|label>` resolved and HTML entities unescaped (no raw tokens survive), permalink built from the `auth.test` workspace URL (no per-message API call), `reply_count`, reactions, file names. Channel reads return oldest to newest.
+- **Mentions**: scans every channel the bot is in (`users.conversations`) within the window, plus up to 40 most recently active threads (`conversations.replies` is Tier 3) to find in-thread mentions and check whether the caller replied *after* the mention. `awaiting_reply` = not replied and not dismissed in Velocity's Slack tab (`slack_mentions.replied`). Top-level mentions whose thread wasn't scanned fall back to `reply_users`. Slackbot system messages are ignored.
+- **Scopes**: works with the current bot scopes (`channels:history`, `groups:history`, `groups:read`, `im:history`, `im:write`, `users:read.email`). Missing: `mpim:read`/`mpim:history` (group DMs fail with an honest missing_scope error), `im:read`. `search.messages` is not usable with a bot token, so mentions are found by scanning history. @group (`subteam`) and @here mentions are not counted.
+
+### `bulk_update_tickets` notes
+
+- **Scope**: `sprint_name` (name or `current`); omitted means the CURRENT sprint of the board from the user's YouTrack integration (`BoardID`, e.g. `183-7` Ardoise Board). Never project-wide. Current sprint = `youtrack.LatestSprint` (most recently started, not completed), the same rule as `GetLatestSprintName`. `next` = `youtrack.NextSprint` (first non-completed sprint starting after the current one). No next sprint gives an error telling Claude to offer `create_sprint`.
+- **Sprint membership comes from the agile endpoint** (`GetAllSprintIssues`, board-scoped, custom fields included). The YQL `sprint: {Sprint 13}` attribute matched only 4 of 54 tickets on this instance; `#{Sprint 13}` and `Board Ardoise Board: {Sprint 13}` match all 54.
+- **Selection**: `from_state` (validated against `GetStates`, accepts workflow-config aliases), `from_role` (states the workflow config gives that role, intersected with real states; `blocked` also includes `report_config.blocked_states`), `ticket_ids` (intersected with the scope sprint, misses listed in `not_in_sprint`). Filters: `exclude_ids`, `assignee_login`, `subsystem`. Tickets already in `to_state` with no sprint move are skipped.
+- **Actions**: `to_state` (validated the same way, applied with `UpdateIssueState`, the same call `/bulk-update-states` uses) and/or `to_sprint`. Sprint move = `AddIssueToSprint(target)` then, only if the ticket is still in the source sprint, `RemoveIssueFromSprint(source)` (`DELETE /api/agiles/{board}/sprints/{sprint}/issues/{id}`). Ardoise Board doesn't allow a card on several sprints, so YouTrack already moves it on add and a blind remove would 404.
+- **Safety**: `dry_run` defaults to true and returns the exact list (id, summary, current state/sprint, target). The description tells Claude to show it, wait for confirmation, then re-call with `dry_run=false` plus the previewed `ticket_ids`. Max 100 tickets per call. The real run reports `ok`/`errors` per ticket and never stops on a failure.
+- Files: `mcp_tool_bulk_update_tickets.go`, `mcp_sprint_scope.go` (board/sprint/state/role resolution shared with `create_sprint`), `services/youtrack/sprints.go`.
+
+### `create_sprint` notes
+
+- Creates a sprint on the user's selected board via `POST /api/agiles/{board}/sprints` (`youtrack.Client.CreateSprint`, `services/youtrack/sprint_create.go`).
+- `start_date` / `finish_date` (YYYY-MM-DD) are required; the description tells Claude to ask the user for the period and never invent one. Stored as 00:00 UTC on the first day to 23:59:59.999 UTC on the last, matching existing sprints. `finish_date` before `start_date` is rejected.
+- `name` defaults to the next number after the highest numbered sprint, keeping its prefix ("Sprint 13" gives "Sprint 14", `nextNumberedSprintName`). If no sprint name ends in a number, the tool errors and asks Claude to get a name. Duplicate names (case-insensitive) are rejected. Optional `goal`.
+- No `make_current`: Velocity derives the current sprint from dates (`LatestSprint`), so a sprint becomes current once its start date arrives.
+
+### `generate_deployment_report` notes
+
+Same report as PM Reports → Deployment Report (`YouTrackStageReport` in `PMReportsPage.tsx`). The shared core lives in `handlers/deployment_report.go` and is used by both the REST endpoints and the tool: `deploymentColumnNames` (`/bots/stage-report/columns`), `fetchDeploymentIssues` (`/bots/deployment/tickets`), `generateDeploymentFixStatement` (`/bots/deployment/generate-ticket`), and `buildDeploymentReportText`, a Go port of the frontend's `buildDeployReport` (keep `TYPE_CATEGORY_ORDER` / `DR_TYPE_CATEGORIES` / `SUBSYSTEM_ORDER` in sync with it). Filters and the AI loop are in `mcp_deployment_report_helpers.go`.
+
+| Param | Default | Notes |
+|---|---|---|
+| `list_columns` | false | Returns the real columns, the sprints and the default sprint. No report is generated |
+| `columns` | required | Matched case-insensitively against `GetStates`. Missing or unknown columns return an error that lists the real ones, so Claude asks the user |
+| `sprint_name` | current | Same rule as the UI: the not-completed sprint with the earliest finish still in the future. `"all"` means the whole project (the UI's "All sprints") |
+| `updated` | `all` | `today` / `yesterday`, like the UI date pills (server local time) |
+| `exclude_subsystems` / `exclude_types` / `exclude_keywords` / `exclude_tags` / `exclude_ids` | none | "Website tickets" means Subsystem `Website`. Tags are resolved per tag via `tag: {X}` YQL. Unknown tags and filters that match nothing come back as `warnings` |
+| `include_ids` | none | Always included: fetched if out of scope, and exclusions are skipped |
+| `generate_fix_statements` | true | false = raw summaries (leading `Subsystem:` prefix dropped). Much faster |
+
+- Output: `report` (Slack-ready text, identical format to the UI's Copy text), `tickets` (with `fix_source` ai / summary / summary_fallback), `excluded` with a reason each, `generation_failed`, `warnings`.
+- Read-only: it never posts to Slack or edits tickets. The flow's "generate-ticket" step is only the per-ticket AI rewrite. It does not create a YouTrack ticket.
+- AI: 2 workers, with rate-limit waits honoring Groq's retry-after and a 100s budget. A ticket that still fails uses its summary in the report and is listed in `generation_failed`. The UI drops such tickets instead. On Groq's 8000 TPM tier, about 20 tickets take around 90s.
+- `ai.QueryWithContext` now honors `GROQ_MODEL` (it used to hardcode `llama-3.3-70b-versatile`, which Groq has removed). `GROQ_MODEL` in `.env` must name a live model, or every AI fix statement fails, in the UI too.
+- Default sprint follows the Deployment Report tab (earliest-finishing non-completed sprint whose finish is still ahead), not `youtrack.LatestSprint` (most recently started) used by `bulk_update_tickets`. They differ only while two sprints overlap.
+
+### `get_slack_reply_config` / `update_slack_reply_config` notes
+
+- Read/write the `bot_configs` row (`bot_type='slack_reply'`) that powers the Slack Events webhook's funny auto-reply persona — see [`docs/features/slack-events-bot.md`](docs/features/slack-events-bot.md). This is what lets the persona be changed by asking Claude, instead of editing a hardcoded Go string and redeploying.
+- `update_slack_reply_config` replaces the whole prompt; there's no partial/append edit, so callers that want to tweak rather than replace should `get` first, then send back the edited full text.
+
+### Markdown tables and long messages (`queue_slack_message`, `send_slack_message_now`, Quick Send)
+
+All three paths send through `updatesvc.Service.QuickSend`, which now calls `slacksvc.BuildSendParts(message)` before posting. Slack's classic mrkdwn `text` field has no concept of a Markdown table — posting `| col | col |` rows as plain text just shows the raw pipe characters — so:
+
+- A message containing a GFM pipe-table (header row + `|:---|:---|` separator, the format the Ardoise daily-update report uses) is converted to real Block Kit blocks: non-table text becomes `markdown`-type blocks (which, unlike classic mrkdwn, correctly parse GFM `**bold**`/`*italic*`), and the table itself becomes a native `table` block with actual bordered rows — the same rendering the official Slack MCP connector produces. See `backend/internal/services/slack/blocks.go`.
+- Table cells are parsed into real rich_text elements (`parseInline`): `**bold**`, `*italic*`/`_italic_`, and `<@UID>` mentions become real mention chips, not literal angle-bracket text.
+- A row of all-blank/invisible-char cells (`| ㅤ | ㅤ |`, used in the Ardoise template to separate people) is treated as a safe split point (`maxTableRowsPerBlock`) if a table needs to span multiple `table` blocks — the header row repeats in each one.
+- Plain messages with no table are sent completely unchanged — no behavior change there.
+- Long content (with or without a table) is split across multiple messages sent in sequence, each labeled "— continued", instead of being truncated with a cutoff notice. `QuickSend` returns the first part's `ts` for edit/delete tracking; later parts are additional posts in the same destination.
+- This only affects the Claude Queue / Quick Send send path. DayTrack's Slack posting (`client.PostMessage`/`UpdateMessage`, its own `truncateForSlack`) and reminder-rule roster DMs are untouched — they don't go through `QuickSend`.
+
+### Raw conversation IDs (`queue_slack_message`, `send_slack_message_now`, `delete_slack_message`)
+
+`resolveChannel` (`mcp_slack.go`) accepts a raw Slack conversation ID — any channel, group DM, or DM ID matching `^[CGD][A-Z0-9]{8,}$` — in the `channel` param, passed straight through. When the ID is a channel the bot can list, the label becomes `#name` (so Claude Queue and the Claude actions log say "#project-managers", not a bare ID); group DMs keep the ID as their label since they have no name. Passing a raw ID doesn't grant access by itself — the Velocity bot still has to actually be a member of that conversation, or Slack returns `channel_not_found` just like it would for any other unauthorized conversation.
+
+**Example IDs in tool descriptions must be fake.** The descriptions used to show a real channel ID (`C0B30MXMDHQ`, which is #project-managers) as the example, and a weekly report Claude was meant to DM ended up in that channel (26 Oct 2026). Examples now use the placeholder `C0XXXXXXXXX` / `https://workspace.slack.com/archives/C0XXXXXXXXX/p1700000000000000`, which Slack rejects as `channel_not_found` if copied, and the send/queue descriptions tell Claude to pass only IDs the user gave it and to use `dm_user` for one person. Never put a real workspace ID in a schema description.
+
+### `send_slack_message_now` notes
+
+- Sends immediately by calling `updatesvc.Service.QuickSend` directly (the same service the Quick Send UI tab uses) — no waiting for the scheduler's next tick.
+- Requires `channel` or `dm_user` to resolve to a real Slack destination; unlike `queue_slack_message`, it does not fall back to "user picks a destination in Velocity" — resolution failures return a tool error instead.
+- No `send_time` param — this tool is for "send right now" requests only. Anything scheduled/reviewed first still goes through `queue_slack_message`.
+- Still writes a row to `pending_slack_messages` (via `msgRepo.Create` + `MarkSent`/`MarkFailed`), same table `queue_slack_message` uses, just created already-sent instead of pending. This is what makes an instant send show up in Update Reminders → Claude Queue (KPI counts, "Recent" list, and the existing "Delete from Slack" button) instead of only existing in Slack with no trace in the app.
+
+### `delete_slack_message` notes
+
+- Only ever deletes messages Velocity itself posted — cross-references `slacksvc.Service.GetLiveChannelMessages`'s `IsVelocity` flag (backed by the separate `sent_slack_messages` hub-log table, not `pending_slack_messages`) before allowing a delete. Slack's API wouldn't allow deleting another user's message with a bot token anyway, but this also stops Claude from trying.
+- Without `contains`, deletes the most recent Velocity message in that channel/DM (`GetLiveChannelMessages` returns newest-first). Pass `contains` to target an older one by a text snippet.
+- After deleting from Slack, separately looks up and removes the matching `pending_slack_messages` row by `slack_ts` (a second lookup — `GetLiveChannelMessages`'s own `ID` field belongs to the hub-log table, not the queue table, so it can't be reused for this) so the Claude Queue "Recent" list doesn't keep a dangling card pointing at a deleted message.
+- DM destinations open the DM channel via a fresh `slacksvc.Client.OpenDirectMessageChannel` call rather than through `Service`, since `Service` doesn't expose that resolution itself.
+- When nothing matches in the named destination, the error carries a "sent elsewhere" hint (`sentElsewhereHint`, `mcp_slack_delete_hint.go`): up to 3 of the user's recent sent rows from `pending_slack_messages` in *other* destinations (text matches for `contains` first, otherwise the latest sends), each with a preview and the exact `channel:` / `dm_user:` to retry with, plus an instruction to tell the user where the message went before deleting. Read-only, it never deletes elsewhere on its own. Added after Claude reported "not found in Rohit's DM" for a report that had actually gone to #project-managers.
+
+### Every send is recorded (DMs and split parts included)
+
+`edit_slack_message` / `delete_slack_message` only act on messages whose ts is in `sent_slack_messages` (`IsVelocity`). `QuickSend` used to skip DMs ("not shown in the hub") and log only the first part of a split message, so Velocity could never find its own DMs again (26-27 Oct 2026: "couldn't find a Velocity-sent message in DM with Rohit/suryansh"). Now every posted part is logged, DMs included; edits and deletes keep `sent_slack_messages` and the Claude Queue row in step. DMs sent before the fix aren't recorded: target them with the message's Slack `link` (both tools accept it).
+
+Queued DMs (`sendQueuedMessage`, shared by the scheduler and "Send now") store the real ts plus the DM channel (`MarkSentTo`). Both paths used to read QuickSend's `(ts, channel)` the wrong way round and stored the channel ID as the ts; a startup migration moves those IDs into `channel_id`.
+
+**Regression:** `VELOCITY_E2E_SLACK=1 go test -race ./internal/handlers -run TestMCPSlackE2E -v -count=1` runs 5 simulated users at once through the real tools, dev DB and real Slack (#velocity-app and the DM with Simran Dhindsa only, everything deleted afterwards), plus every read-only tool. Unit tests with a fake Slack: `go test -race ./internal/services/update_reminder/`.
+
+### Claude actions log (`mcp_activity_log`)
+
+Every tools/call is logged by `callTool` (`mcp_dispatch.go`): action label, the tool's one-line result (`summary`), success, duration. `detail` holds the start of the message for `send_slack_message_now`, `queue_slack_message` and `edit_slack_message` (whitespace collapsed, 280 chars, `mcpActivityDetail`), shown as a two-line quoted preview on each Claude actions card so you can see what was sent, not just "Sent. DM sent to Rohit." Rows are pruned after 7 days.
+
+### `edit_slack_message` notes
+
+- Targeting (resolve channel/DM, `IsVelocity`-only matching, `contains` to pick a specific message) is identical to `delete_slack_message` — same safety guarantee, Claude can only edit Velocity's own messages.
+- Calls `updatesvc.Service.UpdateSlackMessage` → `chat.update`, the same path the Quick Send history UI's edit button uses. Plain text only — it does not run the new text through `slacksvc.BuildSendParts`, so editing a message that was originally sent as a Markdown table (native `table` block) isn't supported; that message keeps its original table content regardless of the new text passed in.
+- Does not touch the `pending_slack_messages` row's stored `message` text (consistent with the existing REST edit endpoint, which only takes `channelId`/`ts`, not a queue row ID) — only the live Slack message content changes.
+
+### `get_youtrack_ticket` notes
+
+Returns the ticket fields plus the full discussion, because comments are often where a ticket is actually concluded (resolved? what was done? who still owes a reply?).
+
+| Param | Default | Notes |
+|---|---|---|
+| `issue_id` | required | Readable ID, e.g. `ARD-123` |
+| `comments_limit` | 50 (max 500) | Newest kept, still listed oldest first. `comments_truncated` / `comments_note` say when older ones were dropped |
+| `include_images` | `true` | `false` gives a text-only result |
+| `max_images` | 5 (max 10) | Over-cap images are listed as skipped in `images_note` |
+| `image_names` | none | Only return these attachments by exact name, e.g. to fetch ones skipped by the cap |
+
+- **Comments**: every non-deleted comment (paginated past YouTrack's default page size), each with `author` (login + full name), `created`/`created_at`, `updated`/`updated_at` (only when edited), `text`, its own `attachments` names, and `inline_images`.
+- **Attachments**: from `/api/issues/{id}/attachments` (non-removed), each with `source`: `description`, `comment` (+ `comment_id`, `comment_index`), `older_comment_not_included` (comment cut by `comments_limit`), or `deleted_comment`. Each image's `image` field says whether it was returned, skipped (and why), or not requested.
+- **Inline refs**: `![](image.png){width=70%}` in the description and comments is parsed into `description_inline_images` / `inline_images` and mapped to an attachment by name (exact, then case-insensitive, then URL basename). Unmapped refs have `attachment: null`.
+- **Images as MCP image content blocks**: the result is a JSON text block, then for each image a short text label (`Image 1 of 2: image.png (attached to comment #4 by ...)`) followed by `{"type":"image","data":<base64>,"mimeType":...}`. Built with `toolOKContent` + `mcpTextBlock`/`mcpImageBlock` (`mcp.go`). `mcpResultSummary` (`mcp_dispatch.go`) handles both `[]map[string]string` and `[]map[string]interface{}` content and always logs the first text block, never base64.
+- **Image sizing**: downloads go through the YouTrack client's own token (`Client.DownloadAttachment`, resolves the relative `url` against the instance host and refuses other hosts). PNG/JPEG/GIF over ~1MB or 1568px on the longest side are downscaled with a stdlib box filter and re-encoded as JPEG (`PrepareImageForLLM`). WebP has no stdlib decoder, so it's passed through only when already under 1MB. Anything that still doesn't fit is skipped and named in `images_note`.
+- Images from comments outside `comments_limit` are skipped unless named in `image_names`.
+- Files: `mcp_tool_get_youtrack_ticket.go` (schema + handler), `mcp_ticket_discussion.go` (payload/image helpers), `services/youtrack/issue_discussion.go` (comments/attachments/download/inline-ref parsing), `services/youtrack/attachment_images.go` (downscaling).
+- The Slack bot's `get_ticket` tool (`slack_events_tools.go`) reuses `GetIssueDiscussion` but only appends the last 5 comments as compact text (author, time, 300 chars each, image embeds replaced with `[image: name]`). No images there, to keep the Groq context small.
+
+### `search_youtrack_tickets` notes
+
+- Resolves `assignee_login` from a display name via `get_developer_configs` first — YouTrack YQL rejects the whole query with a `400 invalid_query` error if `Assignee:` doesn't match a real login (not just an empty result), so the tool surfaces a hint to verify the login when that happens.
+- `sprint_name` accepts the literal `"current"`/`"latest"` to resolve the active sprint via `GetLatestSprintName`.
+- Always scopes to `project: <projectID>` plus whatever filters are given; YQL parts are ANDed by joining with spaces.
+- `priority`, `type`, `subsystem` are passed as `Field: {value}` and must be exact project values (e.g. priorities here are `A1`/`P3`/`Normal`, subsystems `FE UI`/`BE UI`). An unknown value makes YouTrack reject the query with `invalid_query`, so the tool adds a hint to copy the value from a returned ticket. Never hardcode example values in the schema.
+- `updated_since` / `created_since` take `YYYY-MM-DD` or a relative `Nd` and become `updated: <date> .. Today`.
+- `unresolved_only` adds `#Unresolved` **and** `State: -{x}` for every state the workflow config gives the `closed` role. YouTrack's own resolved flag doesn't cover `Closed` in this project (220 Closed tickets matched `#Unresolved`). Config states/aliases are intersected with the project's real states via `GetStates` first, because a non-existent state name (e.g. an alias like `Fixed` not used in YouTrack) fails the whole query.
+- `yql` is a raw fragment ANDed onto the rest (`has: comments`, `tag: Hotfix`, `commented: {Last week}`).
+- Results are always sorted: `sort_by` = `updated` (default, `desc`), `created` (`desc`), or `priority` (`asc`, since Priority sorts by enum order and `asc` puts P0/A1 first).
+- Each result includes `type`, `reporter`, `created` and `updated` (ISO) in addition to the original fields.
+
+### `get_daytrack` notes
+
+Read-only view of a user's DayTrack log. Files: `mcp_tool_get_daytrack.go` (schema + handler), `mcp_daytrack.go` (target-user resolution, date parsing, 12-hour time formatting, ticket ID extraction).
+
+| Param | Default | Notes |
+|---|---|---|
+| `date` | `today` | `YYYY-MM-DD`, `today` or `yesterday`, resolved in the user's DayTrack timezone (`daytrack_slack_config.timezone`, default `Asia/Kolkata`) |
+| `from` / `to` | none | Inclusive range, max 62 days. `to` defaults to `from`. Can't be combined with `date` |
+| `category` | none | Case-insensitive exact match on the entry category. No match returns an error listing the categories present |
+| `user_email` / `user` | caller | Admins only (`models.RoleAdmin`). A non-admin naming anyone but themselves is refused before any lookup, so the tool never reveals whether another user exists. `user` matches name, email or email local part; ambiguous names list the candidates |
+| `include_report_text` | true for one day, false for ranges | Adds `report_text` per day |
+| `summary_only` | false | Totals only, no entries. Use for long ranges (a busy 2-week range is ~50KB with entries, ~2KB without) |
+
+- Reads with `DayTrackRepository.GetEntriesRange`. It does NOT call `pruneDeletedYouTrackEntries` (the REST handlers do), since that deletes rows.
+- `report_text` reuses `DayTrackHandler.buildDayTrackReportText`, the same function behind Copy DayTrack, the on-screen summary and the Slack post. It runs with `ytHandler=nil`, which makes the pruning step a no-op, so it stays read-only. It always covers the whole day and ignores `category`.
+- Totals count top-level entries only. Subtasks are nested under their parent and not added again, same as the DayTrack page export. Duration is `duration_mins`, or end minus start when only times were saved (`duration_from_times: true`). Entries with neither count as 0.
+- Times are normalised to 12-hour (`9:03 AM`), including legacy `HH:MM` values. Emoji comes from `categoryEmoji` (built-in map, then the user's custom category icon, then `▪️`).
+- `ticket_ids` combines `youtrack_issue_id`, `external_ref` (`yt-tested-ARD-1-prod`, `yt-create-ARD-1`) and any `ABC-123` IDs in the name or notes.
+
+### `search_knowledge_base` notes
+
+Params: `query` (required), `limit` (1-10, default 5). Hybrid keyword + meaning search over the admin knowledge base, same `kb.Search` the Slack bot uses, same answers for every caller. File: `mcp_tool_search_knowledge_base.go`. Full feature: [`knowledge-base.md`](knowledge-base.md).
+
+### `whoami` notes
+
+No params. Lets Claude resolve "me / my / I" before calling other tools (`youtrack.login` as `assignee_login`, `slack.user_id` as a DM target, `current_sprint` as `sprint_name`). File: `mcp_tool_whoami.go`. Never returns tokens.
+
+- **Velocity**: `users` row (id, name, email, role).
+- **YouTrack identity**: with a connected personal integration (`youtrack_integrations`), `GET /api/users/me` with that token, the same way DayTrack's YouTrack scan identifies the user. Without one, `mcpYTClient` falls back to shared org/env credentials whose `/users/me` is the token owner, so the tool instead matches the Velocity email against `GetUsers`. `matched_by` says which one was used. The login is then looked up in `developer_subsystem_configs` (`developer_config`: name, subsystems, is_qa).
+- **Board / current sprint**: `ResolveBoard` and `GetLatestSprintName` on the same client the other tools use, so `current_sprint` is exactly what `search_youtrack_tickets sprint_name="current"` and `get_developer_load` resolve. `credentials` says whether that is the personal integration, global settings or env. Users without a personal integration get the auto-detected board (global settings carry no board ID today), so their `current_sprint` can differ from an admin's.
+- **PM data source**: same rule as `AsanaPMHandler.GetDataSource`: admins/PMs use their own `user_data_source`, members/viewers follow the admin's. Both `active` and `own_setting` are returned.
+- **Slack user ID**: `slack_integrations.slack_user_id`, then `daytrack_slack_config.slack_user_id`, then `users.lookupByEmail` via the user's Slack bot token or `SLACK_BOT_TOKEN`. `source` says which.
+- **Timezone**: `daytrack_slack_config.timezone` (the only per-user timezone stored), else the `Asia/Kolkata` default, with `source` saying which.
+
+### `add_youtrack_comment` / `edit_youtrack_comment` / `delete_youtrack_comment` notes
+
+- **Edit/delete gate**: members without a personal YouTrack integration share the org token, so "written by the token user" can't tell them apart. `loadOwnComment` therefore refuses edit/delete unless the caller has their own connected integration (`mcpHasPersonalYouTrack`) or is an admin, before any YouTrack call.
+
+| Param | Default | Notes |
+|---|---|---|
+| `issue_id` | required | Readable ID, e.g. `ARD-123` |
+| `text` | required | YouTrack Markdown. May be empty only when `attachments` are given (then becomes `Attached: <names>`) |
+| `attachments` | none | Array of `{file_url \| file_base64 \| s3_object_key, filename, mime_type}`. Same sources as `upload_youtrack_attachment` (shared `mcpAttachmentSource` in `mcp_attachment_source.go`) |
+| `visible_to_groups` | none (everyone) | YouTrack group names or IDs, sent as `LimitedVisibility.permittedGroups`. On edit, `[]` resets to everyone and omitting keeps the current visibility |
+| `resolve_mentions` | `true` | |
+| `convert_slack_links` | `true` | |
+
+- **Markdown**: posts to `POST /api/issues/{id}/comments` with `usesMarkdown: true`. YouTrack Cloud has **retired** the per-comment `usesMarkdown` flag: it is ignored on write, never returned on read, and every comment renders as Markdown (verified live: `usesMarkdown:false` still rendered `**d**` as `<strong>`). It's still sent for older/self-hosted servers. The result's `markdown_rendered` comes from the returned `textPreview` (rendered HTML) carrying the `common-markdown` class, not from the flag.
+- **Slack syntax**: only `<url|label>` is converted to `[label](url)`. `*bold*` is NOT converted because in Markdown `*x*` is italic and there's no safe way to tell intent; the tool description tells Claude to use `**bold**`.
+- **Mentions** (`mcp_youtrack_comment_text.go`): `@login`, `@Display Name`, `@{Display Name}` and `@firstname` resolve against YouTrack users (`GetUsers`) plus developer configs (dev config names count as extra aliases, but only for logins YouTrack knows). Order: multi-word full name (up to 4 words, unique) > exact login (case normalised) > single-word full name > unique first name. Ambiguous/unknown names stay as written and are listed in `mention_warnings`. Skipped: fenced code blocks, inline code, and `@` after a word char or `/` (emails, `medium.com/@x`). Many YouTrack users here have `fullName == login`, so `@Deepak Kumar` resolves `@Deepak` by login and leaves `Kumar` as plain text.
+- **Attachments** go on the comment itself via `POST /api/issues/{id}/comments/{commentId}/attachments` (multipart), so they show under the comment. Inline display is `![](name)` in the text. **YouTrack keeps duplicate attachment names and resolves `![](name)` issue-wide to the first match**, so a file whose name already exists on the ticket is uploaded as `name-2.ext` and the text's references are rewritten before posting (`uniquifyAttachmentNames`). All files are loaded before posting, so a bad source posts nothing. `![](...)` refs matching no attachment on the ticket are reported in `unresolved_image_refs`.
+- **Result**: `comment_id`, `permalink` (`<base>/issue/<ID>#focus=Comments-<commentId>.0-0`), `author`, `text` (stored), `rendered_html` (YouTrack `textPreview`), `attachments`, `visibility`, `mentions`, `mention_warnings`, `notes`. If the comment posts but a file fails to attach, it returns `isError` with the comment details plus `attachment_errors`.
+- **Edit/delete safety**: both call `loadOwnComment`, which refuses unless the comment's author matches `GetCurrentUser` (the YouTrack token's user). `comment_id` also accepts a permalink. Deleting a comment also removes the files attached to it.
+- Service calls: `services/youtrack/comments.go`.

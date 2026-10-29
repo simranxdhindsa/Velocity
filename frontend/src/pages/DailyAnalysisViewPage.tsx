@@ -18,6 +18,8 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import api from '../services/api'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 
 interface TasksByAssignee {
   assignee: string
@@ -484,14 +486,16 @@ export function DailyAnalysisViewPage() {
 
       {loading && (
         <div className="daily-loading">
-          <div className="loading-spinner" />
+          <SprintScanLoader size={48} />
           <p>Loading analysis...</p>
         </div>
       )}
 
       {!loading && tasksByAssignee.length === 0 && (
         <div className="daily-empty-state glass-card">
-          <Calendar size={48} />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <VelocityLogo variant="icon" size="lg" showStatusDot={false} style={{ opacity: 0.3 }} />
+          </div>
           <h3>No Analysis Available</h3>
           <p>
             No task analysis found for this date. Go to the AI Analysis page to analyze
@@ -508,7 +512,7 @@ export function DailyAnalysisViewPage() {
               className="ai-summary-card glass-card clickable"
               onClick={() => setModalFilter('all')}
             >
-              <div className="ai-summary-icon" style={{ backgroundColor: 'rgba(99, 102, 241, 0.2)' }}>
+              <div className="ai-summary-icon" style={{ backgroundColor: 'rgba(var(--color-primary-rgb), 0.2)' }}>
                 <CheckCircle size={24} color="var(--color-primary)" />
               </div>
               <div className="ai-summary-content">

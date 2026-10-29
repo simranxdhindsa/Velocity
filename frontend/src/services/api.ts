@@ -1,4 +1,10 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
+// Dynamically resolve the API host so the app works on both localhost (desktop)
+// and any LAN IP (mobile testing) without changing env files.
+const API_URL = (() => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
+  const { hostname } = window.location
+  return `http://${hostname}:8080/api`
+})()
 
 export class GatewayError extends Error {
   status: number
@@ -60,6 +66,7 @@ class ApiService {
     })
 
     if (response.status === 502 || response.status === 503 || response.status === 504) {
+      window.dispatchEvent(new CustomEvent('velocity:gateway-down'))
       throw new GatewayError(response.status)
     }
 
@@ -290,6 +297,20 @@ class ApiService {
     return this.request<YouTrackBoard[]>('/youtrack/boards')
   }
 
+  async probeYouTrack(baseUrl: string, token: string) {
+    return this.request<YouTrackProject[]>('/youtrack/probe', {
+      method: 'POST',
+      body: JSON.stringify({ base_url: baseUrl, token }),
+    })
+  }
+
+  async probeYouTrackBoards(baseUrl: string, token: string, projectId: string) {
+    return this.request<YouTrackBoard[]>('/youtrack/probe/boards', {
+      method: 'POST',
+      body: JSON.stringify({ base_url: baseUrl, token, project_id: projectId }),
+    })
+  }
+
   async getYouTrackBoardColumns(boardId: string) {
     return this.request<YouTrackColumn[]>(`/youtrack/boards/${boardId}/columns`)
   }
@@ -308,6 +329,10 @@ class ApiService {
 
   async getYouTrackPriorities() {
     return this.request<{ name: string; background?: string; foreground?: string }[]>('/youtrack/priorities')
+  }
+
+  async getYouTrackSwimlaneField() {
+    return this.request<{ field_name: string; values: { name: string; background?: string; foreground?: string }[] }>('/youtrack/swimlane-field')
   }
 
   async getYouTrackTypeFieldValues(fieldName: string) {
@@ -344,6 +369,28 @@ class ApiService {
     })
   }
 
+  async searchYouTrackIssues(q: string) {
+    return this.request<{ id: string; summary: string }[]>(`/youtrack/search?q=${encodeURIComponent(q)}`)
+  }
+
+  async getYouTrackIssueLinks(issueId: string) {
+    return this.request<IssueLink[]>(`/youtrack/issues/${issueId}/links`)
+  }
+
+  async addYouTrackIssueLink(issueId: string, linkType: string, targetId: string) {
+    return this.request<{ success: boolean }>(`/youtrack/issues/${issueId}/links`, {
+      method: 'POST',
+      body: JSON.stringify({ link_type: linkType, target_id: targetId }),
+    })
+  }
+
+  async removeYouTrackIssueLink(issueId: string, linkType: string, targetId: string) {
+    return this.request<{ success: boolean }>(`/youtrack/issues/${issueId}/links`, {
+      method: 'DELETE',
+      body: JSON.stringify({ link_type: linkType, target_id: targetId }),
+    })
+  }
+
   buildProxyUrl(attachmentUrl: string): string {
     return `${API_URL}/youtrack/proxy?url=${btoa(attachmentUrl)}`
   }
@@ -364,8 +411,17 @@ class ApiService {
     return resp.text()
   }
 
+  // 30-second in-memory cache so multiple components mounting simultaneously
+  // (CreateIssueModal + DevelopersTab) share one network round-trip.
+  private _formMetaCache: { ts: number; promise: Promise<any> } | null = null
+
   async getYouTrackFormMeta() {
-    return this.request<{
+    const TTL = 30_000
+    const now = Date.now()
+    if (this._formMetaCache && now - this._formMetaCache.ts < TTL) {
+      return this._formMetaCache.promise
+    }
+    const p = this.request<{
       states: YouTrackState[]
       priorities: { name: string; background: string; foreground: string }[]
       types: { name: string; background: string; foreground: string }[]
@@ -375,6 +431,10 @@ class ApiService {
       developer_configs: DeveloperSubsystemConfig[]
       errors: string[]
     }>('/youtrack/form-meta')
+    this._formMetaCache = { ts: now, promise: p }
+    // Evict on failure so the next call retries fresh.
+    p.catch(() => { this._formMetaCache = null })
+    return p
   }
 
   async getDeveloperConfigs() {
@@ -708,6 +768,12 @@ class ApiService {
     })
   }
 
+  async dismissSlackThread(threadTS: string) {
+    return this.request(`/slack/threads/${encodeURIComponent(threadTS)}/dismiss`, {
+      method: 'POST',
+    })
+  }
+
   async getSlackThreads() {
     return this.request<{ success: boolean; threads: SlackThread[]; count: number }>('/slack/threads')
   }
@@ -768,6 +834,218 @@ class ApiService {
 
   async getSlackPinnedMentions() {
     return this.request<{ mentions: SlackMention[] }>('/slack/mentions?pinned=true')
+  }
+
+  // ── Update Reminders ────────────────────────────────────────────────────────
+
+  async getWorkspaceUsers() {
+    return this.request<SlackWorkspaceUser[]>('/slack/workspace-users')
+  }
+
+  async quickSend(payload: { channel_id?: string; message: string; dm_user_id?: string }) {
+    return this.request<{ slack_ts: string; channel_id: string }>('/slack/quick-send', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async deleteSlackMessage(channelId: string, ts: string) {
+    return this.request<{ success: boolean }>(`/slack/quick-send/messages/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async updateSlackMessage(channelId: string, ts: string, message: string) {
+    return this.request<{ success: boolean }>(`/slack/quick-send/messages/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ message }),
+    })
+  }
+
+  // ── Pending message queue (Claude MCP connector) ──────────────────────────
+
+  async listQueuedMessages() {
+    return this.request<PendingSlackMessage[]>('/slack/queued')
+  }
+
+  async createQueuedMessage(
+    message: string,
+    scheduledAt?: string,
+    channelId?: string,
+    channelLabel?: string,
+    dmUserId?: string,
+  ) {
+    return this.request<PendingSlackMessage>('/slack/queued', {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        scheduled_at: scheduledAt ?? '',
+        channel_id: channelId ?? '',
+        channel_label: channelLabel ?? '',
+        dm_user_id: dmUserId ?? '',
+      }),
+    })
+  }
+
+  async createOAuthCode(params: {
+    client_id: string
+    redirect_uri: string
+    code_challenge: string
+    code_challenge_method: string
+  }) {
+    return this.request<{ code: string }>('/oauth/code', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
+  async updateQueuedMessage(id: string, message: string, scheduledAt?: string, channelId?: string, channelLabel?: string, dmUserId?: string) {
+    return this.request<PendingSlackMessage>(`/slack/queued/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ message, scheduled_at: scheduledAt, channel_id: channelId, channel_label: channelLabel, dm_user_id: dmUserId ?? '' }),
+    })
+  }
+
+  async deleteQueuedMessage(id: string) {
+    return this.request<{ success: boolean }>(`/slack/queued/${id}`, { method: 'DELETE' })
+  }
+
+  async sendQueuedMessageNow(id: string) {
+    return this.request<{ slack_ts: string }>(`/slack/queued/${id}/send-now`, { method: 'POST' })
+  }
+
+  // ── Slack Messages hub — unified view over every message Velocity sends ──
+
+  async getSentSlackMessages(channelId?: string, source?: string) {
+    const params = new URLSearchParams()
+    if (channelId) params.append('channel_id', channelId)
+    if (source) params.append('source', source)
+    const query = params.toString() ? `?${params}` : ''
+    return this.request<SentSlackMessage[]>(`/slack/hub/messages${query}`)
+  }
+
+  async sendHubMessage(channelId: string, channelLabel: string, message: string) {
+    return this.request<{ success: boolean }>('/slack/hub/messages', {
+      method: 'POST',
+      body: JSON.stringify({ channel_id: channelId, channel_label: channelLabel, message }),
+    })
+  }
+
+  async updateHubMessage(id: string, message: string) {
+    return this.request<{ success: boolean }>(`/slack/hub/messages/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ message }),
+    })
+  }
+
+  async deleteHubMessage(id: string) {
+    return this.request<{ success: boolean }>(`/slack/hub/messages/${id}`, { method: 'DELETE' })
+  }
+
+  async getLiveSlackMessages(channelId: string, threadTs?: string) {
+    const params = new URLSearchParams({ channel_id: channelId })
+    if (threadTs) params.append('thread_ts', threadTs)
+    return this.request<LiveSlackMessage[]>(`/slack/hub/live-messages?${params}`)
+  }
+
+  // ── MCP token management ──────────────────────────────────────────────────
+
+  async getMcpToken() {
+    return this.request<{
+      exists: boolean
+      created_at?: string
+      last_used_at?: string
+      connections?: MCPConnection[]
+    }>('/mcp/token')
+  }
+
+  async generateMcpToken() {
+    return this.request<{ token: string }>('/mcp/token', { method: 'POST' })
+  }
+
+  async revokeMcpToken(clientId?: string) {
+    const qs = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
+    return this.request<{ success: boolean }>(`/mcp/token${qs}`, { method: 'DELETE' })
+  }
+
+  async updateMcpSettings(defaultSendTime: string, timezone?: string) {
+    return this.request<{ success: boolean }>('/mcp/settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        default_send_time: defaultSendTime,
+        default_send_timezone: timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    })
+  }
+
+  async listUpdateReminderRules() {
+    return this.request<UpdateReminderRule[]>('/update-reminders')
+  }
+
+  async createUpdateReminderRule(req: Partial<UpdateReminderRule>) {
+    return this.request<UpdateReminderRule>('/update-reminders', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  }
+
+  async getUpdateReminderRule(id: string) {
+    return this.request<UpdateReminderRule>(`/update-reminders/${id}`)
+  }
+
+  async updateUpdateReminderRule(id: string, req: Partial<UpdateReminderRule>) {
+    return this.request<UpdateReminderRule>(`/update-reminders/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    })
+  }
+
+  async deleteUpdateReminderRule(id: string) {
+    return this.request<{ success: boolean }>(`/update-reminders/${id}`, { method: 'DELETE' })
+  }
+
+  async toggleUpdateReminderRule(id: string, enabled: boolean) {
+    return this.request<{ success: boolean }>(`/update-reminders/${id}/toggle`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    })
+  }
+
+  async listUpdateReminderRoster(ruleId: string) {
+    return this.request<UpdateReminderRosterMember[]>(`/update-reminders/${ruleId}/roster`)
+  }
+
+  async addUpdateReminderRosterMember(ruleId: string, req: { display_name: string; slack_user_id: string; enabled: boolean }) {
+    return this.request<UpdateReminderRosterMember>(`/update-reminders/${ruleId}/roster`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  }
+
+  async updateUpdateReminderRosterMember(ruleId: string, memberId: string, req: { display_name?: string; enabled?: boolean }) {
+    return this.request<UpdateReminderRosterMember>(`/update-reminders/${ruleId}/roster/${memberId}`, {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    })
+  }
+
+  async deleteUpdateReminderRosterMember(ruleId: string, memberId: string) {
+    return this.request<{ success: boolean }>(`/update-reminders/${ruleId}/roster/${memberId}`, { method: 'DELETE' })
+  }
+
+  async dryRunUpdateReminder(ruleId: string) {
+    return this.request<UpdateReminderRunResult>(`/update-reminders/${ruleId}/dry-run`, { method: 'POST' })
+  }
+
+  async runNowUpdateReminder(ruleId: string, forceSnapshot: boolean) {
+    return this.request<UpdateReminderRunResult>(`/update-reminders/${ruleId}/run-now`, {
+      method: 'POST',
+      body: JSON.stringify({ force_snapshot: forceSnapshot }),
+    })
+  }
+
+  async getUpdateReminderHistory(ruleId: string) {
+    return this.request<UpdateReminderRun[]>(`/update-reminders/${ruleId}/history`)
   }
 
   async analyzeSlackMessages(projectId: string) {
@@ -1202,6 +1480,15 @@ class ApiService {
     return this.request('/notifications/clear-all', { method: 'DELETE' })
   }
 
+  // Changelog endpoints
+  async getChangelogStatus() {
+    return this.request<ChangelogStatus>('/changelog/status')
+  }
+
+  async markChangelogSeen() {
+    return this.request('/changelog/seen', { method: 'PATCH' })
+  }
+
   // Activity endpoints
   async getActivity(limit?: number, offset?: number) {
     const params = new URLSearchParams()
@@ -1303,8 +1590,73 @@ class ApiService {
     return this.request<TimeTrackingRow[]>(`/reports/time-tracking${query}`)
   }
 
+  // Gantt endpoints
+  async getGanttCharts() {
+    return this.request('/gantt/charts')
+  }
+
+  async getGanttChart(ganttId: string) {
+    return this.request(`/gantt/chart?id=${encodeURIComponent(ganttId)}`)
+  }
+
+  async updateGanttMember(ganttId: string, memberId: string, startMs: number | null, dueMs: number | null) {
+    return this.request(
+      `/gantt/chart/${encodeURIComponent(ganttId)}/members/${encodeURIComponent(memberId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ startDate: startMs, dueDate: dueMs }),
+      }
+    )
+  }
+
   async pinIssue(issueID: string) {
     return this.request<void>('/reports/pins', { method: 'POST', body: JSON.stringify({ issue_id: issueID }) })
+  }
+
+  // PM Features
+  async getSprintVelocity(limit = 8) {
+    return this.request<SprintVelocityPoint[]>(`/reports/sprint-velocity?limit=${limit}`)
+  }
+
+  async getSprintBurndown(params: { sprint_id: string; sprint_name?: string; sprint_start_ms?: number; sprint_finish_ms?: number }) {
+    const qs = new URLSearchParams({ sprint_id: params.sprint_id })
+    if (params.sprint_name) qs.set('sprint_name', params.sprint_name)
+    if (params.sprint_start_ms) qs.set('sprint_start_ms', String(params.sprint_start_ms))
+    if (params.sprint_finish_ms) qs.set('sprint_finish_ms', String(params.sprint_finish_ms))
+    return this.request<{ points: BurndownPoint[]; sprint_name: string }>(`/reports/sprint-burndown?${qs}`)
+  }
+
+  async getSprintCapacity(sprintId?: string) {
+    const qs = sprintId ? `?sprint_id=${encodeURIComponent(sprintId)}` : ''
+    return this.request<{ capacity: CapacityRow[]; load: Record<string, number> | null }>(`/reports/capacity${qs}`)
+  }
+
+  async saveSprintCapacity(body: { sprint_id: string; sprint_name: string; assignee_name: string; available_days: number; notes?: string }) {
+    return this.request<{ id: string }>('/reports/capacity', { method: 'POST', body: JSON.stringify(body) })
+  }
+
+  async deleteSprintCapacity(id: string) {
+    return this.request<void>(`/reports/capacity/${id}`, { method: 'DELETE' })
+  }
+
+  async getReleases() {
+    return this.request<ReleaseInfo[]>('/reports/releases')
+  }
+
+  async getIssueDependencies(issueId: string) {
+    return this.request<DependencyLink[]>(`/reports/dependencies?issue_id=${encodeURIComponent(issueId)}`)
+  }
+
+  async getBlockerSLA() {
+    return this.request<{ items: BlockerSLAItem[]; sla_hours: number }>('/reports/blocker-sla')
+  }
+
+  async getEscalationConfig() {
+    return this.request<EscalationConfig>('/reports/blocker-sla/config')
+  }
+
+  async saveEscalationConfig(body: { sla_hours: number; notify_slack_channel: string; auto_notify: boolean }) {
+    return this.request<void>('/reports/blocker-sla/config', { method: 'POST', body: JSON.stringify(body) })
   }
 
   async unpinIssue(issueID: string) {
@@ -1313,6 +1665,16 @@ class ApiService {
 
   async getPinnedIssues() {
     return this.request<string[]>('/reports/pins')
+  }
+
+  /** Per-day ticket moves for the Dev Activity skyline (last ~year), bucketed in the given time zone. */
+  async getActivityByDay(tz: string) {
+    return this.request<ActivityDayRow[]>(`/reports/activity-by-day?tz=${encodeURIComponent(tz)}`)
+  }
+
+  /** Every ticket move on one day (YYYY-MM-DD in tz), newest first. */
+  async getActivityDay(day: string, tz: string) {
+    return this.request<ActivityMove[]>(`/reports/activity-by-day?day=${day}&tz=${encodeURIComponent(tz)}`)
   }
 
   async getIssueTimelines(sinceMs?: number, untilMs?: number) {
@@ -1328,6 +1690,22 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ issue_id: issueID }),
     })
+  }
+
+  async getSprintRadar(sinceMs?: number, untilMs?: number) {
+    const params = new URLSearchParams()
+    if (sinceMs) params.set('since', String(sinceMs))
+    if (untilMs) params.set('until', String(untilMs))
+    const qs = params.toString()
+    return this.request<SprintRadarData>(`/reports/sprint-radar${qs ? `?${qs}` : ''}`)
+  }
+
+  async dismissSprintAlert(alertId: number) {
+    return this.request<void>(`/reports/sprint-alerts/${alertId}/dismiss`, { method: 'POST' })
+  }
+
+  async dismissAllSprintAlerts() {
+    return this.request<void>('/reports/sprint-alerts/dismiss-all', { method: 'POST' })
   }
 
   async undismissAlert(issueID: string) {
@@ -1678,6 +2056,220 @@ class ApiService {
     const qs = sprintId ? `?sprint_id=${encodeURIComponent(sprintId)}` : ''
     return this.request<FeatureGroup[]>(`/youtrack/feature-groups${qs}`)
   }
+
+  // ── Ignored blocked tickets ──────────────────────────────────────────────────
+  async getIgnoredBlocked() {
+    return this.request<string[]>('/ignored-blocked')
+  }
+
+  async ignoreBlockedTicket(issueId: string) {
+    return this.request<void>('/ignored-blocked', {
+      method: 'POST',
+      body: JSON.stringify({ issue_id: issueId }),
+    })
+  }
+
+  async unignoreBlockedTicket(issueId: string) {
+    return this.request<void>(`/ignored-blocked/${encodeURIComponent(issueId)}`, { method: 'DELETE' })
+  }
+
+  // ── MCP activity log ──────────────────────────────────────────────────────
+  async getMcpActivity(limit = 200) {
+    return this.request<MCPActivityEntry[]>(`/mcp/activity?limit=${limit}`)
+  }
+
+  /** One page of MCP activity (newest first) with totals for pagination. */
+  async getMcpActivityPage(page: number, pageSize = 25) {
+    return this.request<MCPActivityEntry[]>(`/mcp/activity?page=${page}&page_size=${pageSize}`) as Promise<
+      ApiResponse<MCPActivityEntry[]> & { total?: number; failed?: number; page?: number; page_size?: number }
+    >
+  }
+
+  // ── Slack bot conversation log ────────────────────────────────────────────
+  /** One page of bot conversations (newest first) with the total for pagination. */
+  async getSlackBotConversationsPage(page: number, pageSize = 20) {
+    return this.request<SlackBotConversation[]>(`/slack-bot-chat?page=${page}&page_size=${pageSize}`) as Promise<
+      ApiResponse<SlackBotConversation[]> & { is_admin_view?: boolean; total?: number; page?: number; page_size?: number }
+    >
+  }
+
+  async getSlackBotConversations(limit = 200) {
+    return this.request<SlackBotConversation[]>(`/slack-bot-chat?limit=${limit}`) as Promise<
+      ApiResponse<SlackBotConversation[]> & { is_admin_view?: boolean }
+    >
+  }
+
+  // ── Team knowledge base (admin only) ──────────────────────────────────────
+  async getKBDocuments() {
+    return this.request<KBDocument[]>('/kb/documents') as Promise<
+      ApiResponse<KBDocument[]> & { smart_search?: boolean; supported_extensions?: string[]; max_file_bytes?: number }
+    >
+  }
+
+  // Multipart, so it bypasses request() (which forces a JSON content type).
+  async uploadKBDocuments(files: File[]) {
+    const fd = new FormData()
+    files.forEach(f => fd.append('files', f, f.name))
+    return this.sendForm<KBUploadResult[]>('/kb/documents', 'POST', fd)
+  }
+
+  // One file with real upload progress (XHR, since fetch has no upload
+  // progress events). Used by the Knowledge Base upload dialog.
+  uploadKBFile(file: File, onProgress: (pct: number) => void): { promise: Promise<KBUploadResult>; abort: () => void } {
+    const xhr = new XMLHttpRequest()
+    const promise = new Promise<KBUploadResult>((resolve, reject) => {
+      const fd = new FormData()
+      fd.append('files', file, file.name)
+      xhr.open('POST', `${API_URL}/kb/documents`)
+      if (this.token) xhr.setRequestHeader('Authorization', `Bearer ${this.token}`)
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+      xhr.onload = () => {
+        let data: { message?: string; data?: KBUploadResult[] } = {}
+        try { data = JSON.parse(xhr.responseText) } catch { /* handled below */ }
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(data.message || `Upload failed (${xhr.status})`))
+          return
+        }
+        resolve(data.data?.[0] ?? { filename: file.name, error: 'No response from server' })
+      }
+      xhr.onerror = () => reject(new Error('Network error, check your connection'))
+      xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'))
+      xhr.send(fd)
+    })
+    return { promise, abort: () => xhr.abort() }
+  }
+
+  async replaceKBFile(id: string, file: File) {
+    const fd = new FormData()
+    fd.append('file', file, file.name)
+    return this.sendForm<KBDocument>(`/kb/documents/${id}/file`, 'PUT', fd)
+  }
+
+  private async sendForm<T>(endpoint: string, method: string, body: FormData): Promise<ApiResponse<T>> {
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      method,
+      headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      body,
+    })
+    let data: any
+    try {
+      data = await res.json()
+    } catch {
+      throw new Error(`Upload failed (${res.status})`)
+    }
+    if (!res.ok) throw new Error(data?.message || `Upload failed (${res.status})`)
+    return data
+  }
+
+  async updateKBDocument(id: string, patch: { title?: string }) {
+    return this.request<KBDocument>(`/kb/documents/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+  }
+
+  async reindexKBDocument(id: string) {
+    return this.request<KBDocument>(`/kb/documents/${id}/reindex`, { method: 'POST' })
+  }
+
+  async deleteKBDocument(id: string) {
+    return this.request<void>(`/kb/documents/${id}`, { method: 'DELETE' })
+  }
+
+  async getKBChunks(id: string) {
+    return this.request<KBHit[]>(`/kb/documents/${id}/chunks`)
+  }
+
+  async getKBNoteText(id: string) {
+    return this.request<{ title: string; content: string }>(`/kb/documents/${id}/text`)
+  }
+
+  async createKBNote(note: { title: string; content: string }) {
+    return this.request<KBDocument>('/kb/notes', { method: 'POST', body: JSON.stringify(note) })
+  }
+
+  async updateKBNote(id: string, note: { title: string; content: string }) {
+    return this.request<KBDocument>(`/kb/notes/${id}`, { method: 'PUT', body: JSON.stringify(note) })
+  }
+
+  async searchKB(q: string) {
+    return this.request<KBHit[]>(`/kb/search?q=${encodeURIComponent(q)}`)
+  }
+}
+
+export interface KBDocument {
+  id: string
+  title: string
+  filename: string
+  mime_type: string
+  size_bytes: number
+  status: 'processing' | 'ready' | 'failed'
+  /** Failure reason, or a warning on a ready doc (e.g. keyword search only) */
+  error: string
+  chunk_count: number
+  char_count: number
+  embedded: boolean
+  uploaded_by: string
+  uploader_name: string
+  created_at: string
+  updated_at: string
+  /** Parts of a long, unstructured text still waiting for their AI summary line */
+  context_pending?: number
+}
+
+export interface KBUploadResult {
+  filename: string
+  document?: KBDocument
+  error?: string
+}
+
+export interface KBHit {
+  chunk_id: number
+  document_id: string
+  document_title: string
+  heading: string
+  content: string
+  /** One-line AI summary of a part cut from long, unstructured text */
+  context?: string
+  /** Cut from long text without paragraph breaks */
+  windowed?: boolean
+  score: number
+  matched?: 'keyword' | 'meaning' | 'both'
+}
+
+export interface MCPConnection {
+  client_id: string
+  client_name: string
+  created_at: string
+  last_used_at?: string
+}
+
+export interface MCPActivityEntry {
+  id: string
+  user_id: string
+  user_name: string
+  tool_name: string
+  action_label: string
+  summary: string
+  /** Start of the message a Slack send/queue/edit carried; '' for other tools */
+  detail?: string
+  success: boolean
+  duration_ms: number
+  created_at: string
+}
+
+export interface SlackBotConversation {
+  id: string
+  user_id: string
+  slack_user_id: string
+  slack_user_email: string
+  channel_id: string
+  channel_label: string
+  event_type: string
+  incoming_text: string
+  reply_text: string
+  success: boolean
+  error_message: string
+  created_at: string
 }
 
 // Types
@@ -1806,10 +2398,15 @@ export interface YouTrackIssue {
   assignee?: YouTrackUser
   created: number
   updated: number
+  created_by?: string
+  updated_by?: string
   attachments?: YouTrackAttachment[]
   permalink?: string
   section?: string
   due_date?: number
+  swimlane_value?: string
+  sprint?: string
+  board?: string
 }
 
 export interface YouTrackAttachment {
@@ -1830,6 +2427,18 @@ export interface YouTrackComment {
     login: string
     avatarUrl: string
   }
+}
+
+export interface IssueLink {
+  id_readable: string
+  summary: string
+  state: string
+  resolved: boolean
+  link_type: string
+  direction: string
+  display_label: string
+  command_key: string
+  link_id: string
 }
 
 export interface YouTrackSettings {
@@ -1861,6 +2470,137 @@ export interface SlackAnalysis {
   }>
 }
 
+// ── Update Reminder types ─────────────────────────────────────────────────────
+
+export interface ChannelRef { id: string; name: string }
+export interface SnapshotMember { slack_user_id: string; display_name: string }
+export interface UpdateReminderSnapshot {
+  posted: SnapshotMember[]
+  missing: SnapshotMember[]
+  on_leave: SnapshotMember[]
+  computed_at: string
+}
+export interface SnapshotDiff {
+  now_posted: SnapshotMember[]
+  now_missing: SnapshotMember[]
+  now_on_leave: SnapshotMember[]
+  has_changes: boolean
+}
+export interface UpdateReminderRule {
+  id: string
+  user_id: string
+  name: string
+  enabled: boolean
+  schedule_time: string
+  schedule_days: number[]
+  timezone: string
+  source_channel_ids: ChannelRef[]
+  detection_mode: 'any_message' | 'keywords' | 'pattern' | 'mention_missing'
+  detection_value: string
+  check_day_offset: number
+  check_window_start: string
+  check_window_end_day_offset: number
+  check_window_end: string
+  leave_channel_id: string
+  leave_channel_name: string
+  leave_keywords: string[]
+  leave_action: 'exclude' | 'list_separately'
+  delivery_channel: boolean
+  delivery_dm: boolean
+  delivery_channel_id: string
+  delivery_channel_name: string
+  channel_template: string
+  dm_template: string
+  last_snapshot?: UpdateReminderSnapshot
+  last_snapshot_at?: string
+  created_at: string
+  updated_at: string
+}
+export interface UpdateReminderRosterMember {
+  id: string
+  rule_id: string
+  display_name: string
+  slack_user_id: string
+  enabled: boolean
+  created_at: string
+}
+export interface UpdateReminderRun {
+  id: string
+  rule_id: string
+  user_id: string
+  triggered_by: 'scheduler' | 'manual' | 'dry_run'
+  ran_at: string
+  posted_names: string[]
+  on_leave_names: string[]
+  skipped_names: string[]
+  delivered_to: string[]
+  error?: string
+  snapshot_used?: UpdateReminderSnapshot
+  expires_at: string
+}
+export interface UpdateReminderRunResult {
+  snapshot: UpdateReminderSnapshot
+  diff: SnapshotDiff
+  rendered_msg: string
+  rendered_dm: string
+  delivered_to?: string[]
+  channel_errors?: string[]
+  delivery_errors?: string[]
+  skipped_send?: string
+}
+export interface PendingSlackMessage {
+  id: string
+  user_id: string
+  message: string
+  channel_id: string
+  channel_label: string
+  dm_user_id: string
+  scheduled_at: string | null
+  status: 'pending' | 'sent' | 'failed' | 'cancelled'
+  slack_ts: string
+  error_message: string
+  created_at: string
+  sent_at: string | null
+}
+
+export type SentSlackMessageSource =
+  | 'claude_queue' | 'quick_send' | 'rules' | 'blocker_alert'
+  | 'time_threshold_alert' | 'daily_digest' | 'standup' | 'daytrack' | 'report' | 'hub'
+
+export interface SentSlackMessage {
+  id: string
+  user_id: string
+  source: SentSlackMessageSource
+  channel_id: string
+  channel_label: string
+  message: string
+  slack_ts: string
+  sent_at: string
+  edited_at: string | null
+}
+
+export interface LiveSlackMessage {
+  ts: string
+  user_id: string
+  user_name: string
+  user_avatar: string
+  is_bot: boolean
+  text: string
+  is_velocity: boolean
+  id?: string
+  thread_ts?: string
+  reply_count?: number
+}
+
+export interface SlackWorkspaceUser {
+  id: string
+  name: string
+  real_name: string
+  is_bot: boolean
+  deleted: boolean
+  profile: { display_name: string; email: string; image_48: string }
+}
+
 export interface SlackMention {
   id: string
   user_id: string
@@ -1883,11 +2623,13 @@ export interface SlackThread {
   id: string
   user_id: string
   channel_id: string
+  channel_name: string
   thread_ts: string
   message_text: string
   reply_count: number
   last_checked_at?: string
   has_reply: boolean
+  dismissed: boolean
   reminder_sent: boolean
   snoozed_until?: string
   created_at: string
@@ -1970,6 +2712,20 @@ export interface CalendarData {
   year: string
   month: string
   days: Record<string, { status: string; count: string }>
+}
+
+export interface ChangelogEntry {
+  date: string
+  features: string[]
+  enhancements: string[]
+  bugs: string[]
+  refactors: string[]
+}
+
+export interface ChangelogStatus {
+  has_new: boolean
+  latest_date: string
+  entries: ChangelogEntry[]
 }
 
 export interface Notification {
@@ -2220,6 +2976,7 @@ export interface IssueTimeline {
   issue_summary: string
   assignee: string
   priority: string
+  issue_type: string
   pinned: boolean
   total_stints: number
   total_hours: number
@@ -2233,6 +2990,23 @@ export interface IssueTimeline {
   last_activity_at: string
   stints: IssueStint[]
   alert_dismissed: boolean
+}
+
+export interface ActivityDayRow {
+  date: string        // YYYY-MM-DD
+  to_state: string
+  assignee: string
+  moved_by: string
+  count: number       // distinct tickets
+}
+
+export interface ActivityMove {
+  issue_id: string
+  issue_summary: string
+  to_state: string
+  assignee: string
+  moved_by: string
+  transitioned_at: string
 }
 
 export interface TimeTrackingRow {
@@ -2382,6 +3156,78 @@ export interface WorkflowConfig {
   report_config: ReportConfig
 }
 
+// PM Feature interfaces
+export interface SprintVelocityPoint {
+  sprint_id: string
+  sprint_name: string
+  start: number
+  finish: number
+  completed: number
+  total: number
+  is_completed: boolean
+  completion_rate: number
+}
+
+export interface BurndownPoint {
+  date: string
+  total: number
+  completed: number
+  remaining: number
+  ideal_remain: number
+}
+
+export interface CapacityRow {
+  id: string
+  sprint_id: string
+  sprint_name: string
+  assignee_name: string
+  available_days: number
+  notes: string
+}
+
+export interface ReleaseIssue {
+  id: string
+  summary: string
+  state: string
+  assignee: string
+  priority: string
+  done: boolean
+}
+
+export interface ReleaseInfo {
+  version: string
+  issues: ReleaseIssue[]
+  total: number
+  completed: number
+  progress: number
+}
+
+export interface DependencyLink {
+  id_readable: string
+  summary: string
+  state: string
+  resolved: boolean
+  link_type: string
+  direction: string
+}
+
+export interface BlockerSLAItem {
+  issue_id: string
+  summary: string
+  assignee: string
+  blocked_since: string
+  hours_blocked: number
+  sla_hours: number
+  breached: boolean
+  reason: string
+}
+
+export interface EscalationConfig {
+  sla_hours: number
+  notify_slack_channel: string
+  auto_notify: boolean
+}
+
 // Export singleton instance
 export const api = new ApiService()
 export default api
@@ -2402,6 +3248,7 @@ export interface DayTrackEntry {
   parent_entry_id: string | null
   entry_source: string   // manual | slack | youtrack_qa | youtrack_created
   external_ref: string   // Slack TS or YouTrack issue ID
+  youtrack_issue_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -2423,6 +3270,7 @@ export interface DayTrackSlackConfig {
   dest_channel_id: string
   dest_channel_name: string
   timezone: string  // IANA tz, e.g. "Asia/Kolkata"
+  auto_send_enabled: boolean  // auto-post today's update to dest_channel_id at the fixed daily time (server-side, not user-configurable)
 }
 
 export const DEFAULT_KEYWORD_RULES: DayTrackKWRule[] = [
@@ -2445,8 +3293,16 @@ export interface DayTrackPlanned {
   when_type: string
   notes: string
   status: string
+  entry_source?: string
+  external_ref?: string
+  youtrack_issue_id?: string | null
   created_at: string
   updated_at: string
+}
+
+export interface DayTrackCategory {
+  name: string
+  icon: string
 }
 
 function dtHeaders(): Record<string, string> {
@@ -2486,11 +3342,15 @@ export const dayTrackApi = {
   getSuggestions: () =>
     dtFetch<string[]>(`${API_URL}/daytrack/suggestions`),
   getCategories: () =>
-    dtFetch<string[]>(`${API_URL}/daytrack/categories`),
-  addCategory: (name: string) =>
-    dtFetch<{ name: string }>(`${API_URL}/daytrack/categories`, { method: 'POST', body: JSON.stringify({ name }) }),
+    dtFetch<DayTrackCategory[]>(`${API_URL}/daytrack/categories`),
+  addCategory: (name: string, icon: string) =>
+    dtFetch<DayTrackCategory>(`${API_URL}/daytrack/categories`, { method: 'POST', body: JSON.stringify({ name, icon }) }),
   deleteCategory: (name: string) =>
     dtFetch<void>(`${API_URL}/daytrack/categories/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  getAllowedCategoryEmoji: () =>
+    dtFetch<string[]>(`${API_URL}/daytrack/category-emoji`),
+  getSlackPreview: (date?: string) =>
+    dtFetch<{ text: string; empty: boolean }>(`${API_URL}/daytrack/slack-preview${date ? `?date=${date}` : ''}`),
 
   getSlackConfig: () =>
     dtFetch<DayTrackSlackConfig>(`${API_URL}/daytrack/slack-config`),
@@ -2507,7 +3367,11 @@ export const dayTrackApi = {
   resolveSlackUser: () =>
     dtFetch<{ slack_user_id: string }>(`${API_URL}/daytrack/slack-resolve-user`),
   postToSlack: (date?: string) =>
-    dtFetch<{ ok: boolean }>(`${API_URL}/daytrack/post-to-slack`, { method: 'POST', body: JSON.stringify({ date: date ?? '' }) }),
+    dtFetch<{ ok: boolean; updated: boolean }>(`${API_URL}/daytrack/post-to-slack`, { method: 'POST', body: JSON.stringify({ date: date ?? '' }) }),
+  getSlackPostStatus: (date?: string) =>
+    dtFetch<{ posted: boolean; posted_at?: string; updated_at?: string }>(`${API_URL}/daytrack/slack-post-status${date ? `?date=${date}` : ''}`),
+  deleteSlackPost: (date?: string) =>
+    dtFetch<{ ok: boolean }>(`${API_URL}/daytrack/slack-post${date ? `?date=${date}` : ''}`, { method: 'DELETE' }),
   getEntriesRange: (start: string, end: string) =>
     dtFetch<DayTrackEntry[]>(`${API_URL}/daytrack/entries/range?start=${start}&end=${end}`),
 
@@ -2530,6 +3394,11 @@ export const dayTrackApi = {
 let _ytAvatarCache: Record<string, string> | null = null
 let _ytAvatarPromise: Promise<Record<string, string>> | null = null
 
+/** The avatar map if it has already loaded, else null (no request). */
+export function peekYouTrackAvatarMap(): Record<string, string> | null {
+  return _ytAvatarCache
+}
+
 export async function getYouTrackAvatarMap(): Promise<Record<string, string>> {
   if (_ytAvatarCache) return _ytAvatarCache
   if (_ytAvatarPromise) return _ytAvatarPromise
@@ -2540,9 +3409,12 @@ export async function getYouTrackAvatarMap(): Promise<Record<string, string>> {
       ? res
       : ((res as unknown as { data?: YouTrackUser[] }).data ?? [])
     for (const u of users) {
-      if (u.fullName && u.avatarUrl) {
-        // YouTrack Cloud returns absolute URLs (https://xxx.youtrack.cloud/hub/...)
-        map[u.fullName] = u.avatarUrl
+      if (!u.avatarUrl) continue
+      // YouTrack Cloud returns absolute URLs (https://xxx.youtrack.cloud/hub/...)
+      if (u.fullName) map[u.fullName] = u.avatarUrl
+      // The state log stores either the full name or the login, in any case: key both, lowercased too.
+      for (const k of [u.fullName, u.login]) {
+        if (k && !map[k.toLowerCase()]) map[k.toLowerCase()] = u.avatarUrl
       }
     }
     _ytAvatarCache = map
@@ -2635,6 +3507,56 @@ export interface PersonUpdate {
   raw_text: string
   sections: UpdateSection[]
   is_owner: boolean
+}
+
+// ── Sprint Pulse / Radar ──────────────────────────────────────────────────────
+
+export interface RadarIssue {
+  issue_id: string
+  issue_summary: string
+  assignee: string
+  priority: string
+  issue_type: string
+  current_state: string
+  state_entered_at: string
+  hours_in_state: number
+  is_done: boolean
+  tier: number  // 0=Regression 1=Critical 2=Urgent 3=Scheduled 4=Normal
+}
+
+export interface SprintAlert {
+  id: number
+  issue_id: string
+  issue_summary: string
+  tier: number
+  priority: string
+  issue_type: string
+  current_state: string
+  assignee: string
+  hours_in_state: number
+  message: string
+  created_at: string
+  slack_notified: boolean
+}
+
+export interface SprintHealthStats {
+  critical_total: number
+  critical_done: number
+  urgent_total: number
+  urgent_done: number
+  normal_total: number
+  normal_done: number
+  at_risk: string[]
+}
+
+export interface SprintRadarData {
+  tier1: RadarIssue[]
+  tier2: RadarIssue[]
+  tier3: RadarIssue[]
+  tier4: RadarIssue[]
+  regressions: RadarIssue[]
+  health: SprintHealthStats
+  alerts: SprintAlert[]
 }
 
 export const standupApi = {

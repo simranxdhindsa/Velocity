@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   X, Bold, Italic, Strikethrough, Code, Link2, List, MoreHorizontal,
-  ChevronDown, Loader2, Check, Eye, FileCode2, Paperclip, Type, Hash,
-  Sparkles, AlertCircle, Pencil,
+  ChevronDown, Check, Eye, FileCode2, Paperclip, Type, Hash,
+  Sparkles, AlertCircle, Pencil, Plus,
 } from 'lucide-react'
 import { marked } from 'marked'
 import api from '../services/api'
 import type { YouTrackUser, YouTrackState, DeveloperSubsystemConfig, YouTrackIssue } from '../services/api'
+import { LinkTypeahead } from './LinkTypeahead'
 import MicButton from './MicButton'
 import { IssueDetailPanel } from './IssueDetailPanel'
 import { useYouTrackBaseUrl } from '../hooks/useYouTrackBaseUrl'
+import { QuantumOrbitLoader } from './brand/VelocityLoaders'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +78,12 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
   const [metaLoading, setMetaLoading] = useState(true)
 
   const [stagedFiles, setStagedFiles] = useState<File[]>([])
+  const [plannedLinks, setPlannedLinks] = useState<{linkType: string; targetId: string}[]>([])
+  const [addLinkOpen, setAddLinkOpen] = useState(false)
+  const [newLinkType, setNewLinkType] = useState('relates to')
+  const [newLinkTarget, setNewLinkTarget] = useState('')
+  const [linkTypeOpen, setLinkTypeOpen] = useState(false)
+  const linkTypeRef = useRef<HTMLDivElement>(null)
   const [creating, setCreating] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -101,18 +109,26 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
     api.getYouTrackFormMeta().then(res => {
       if (res.success && res.data) {
         const d = res.data
-        setMeta({ ...d, developerConfigs: d.developer_configs ?? [] })
+        // A partial YouTrack fetch failure can leave any of these fields null —
+        // never trust the response shape, always fall back to an empty array.
+        const states = d.states ?? []
+        const priorities = d.priorities ?? []
+        const types = d.types ?? []
+        const subsystems = d.subsystems ?? []
+        const users = d.users ?? []
+        const sprints = d.sprints ?? []
+        setMeta({ states, priorities, types, subsystems, users, sprints, developerConfigs: d.developer_configs ?? [] })
         // Default state: prefer "To Do", fall back to "Backlog", then first state
         const todoState =
-          d.states.find(s => s.name.toLowerCase() === 'to do') ??
-          d.states.find(s => s.name.toLowerCase() === 'backlog') ??
-          d.states[0]
+          states.find(s => s.name.toLowerCase() === 'to do') ??
+          states.find(s => s.name.toLowerCase() === 'backlog') ??
+          states[0]
         if (todoState) {
           setForm(f => ({ ...f, state: todoState.name }))
         }
         // Default sprint: last non-completed sprint (highest index = most recent)
-        const activesprints = d.sprints.filter(s => !s.isCompleted)
-        const defaultSprint = activesprints[activesprints.length - 1] ?? d.sprints[d.sprints.length - 1]
+        const activesprints = sprints.filter(s => !s.isCompleted)
+        const defaultSprint = activesprints[activesprints.length - 1] ?? sprints[sprints.length - 1]
         if (defaultSprint) {
           setForm(f => ({ ...f, sprint_id: defaultSprint.id, sprint_name: defaultSprint.name }))
         }
@@ -153,6 +169,14 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
     }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!linkTypeRef.current?.contains(e.target as Node)) setLinkTypeOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
   }, [])
 
   const set = (k: keyof CreateIssueFormData, v: string) =>
@@ -285,6 +309,12 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
         // Upload staged attachments after creation
         if (stagedFiles.length > 0 && id) {
           await Promise.allSettled(stagedFiles.map(f => api.uploadYouTrackAttachment(id, f)))
+        }
+        // Apply planned links after creation
+        if (plannedLinks.length > 0 && (readable || id)) {
+          await Promise.allSettled(
+            plannedLinks.map(l => api.addYouTrackIssueLink(readable || id, l.linkType, l.targetId))
+          )
         }
         setCreated(true)
         setCreatedIssueId(id)
@@ -522,7 +552,7 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
                   title="Fill all fields with AI"
                 >
                   {aiLoading
-                    ? <Loader2 size={13} className="animate-spin" />
+                    ? <QuantumOrbitLoader size={16} />
                     : <Sparkles size={13} />
                   }
                   {aiLoading ? 'Analysing…' : 'AI Fill'}
@@ -582,7 +612,7 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
             ) : createdIssueId ? (
               <>
                 <button className="ci-btn-create" onClick={handleUpdate} disabled={creating}>
-                  {creating ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : <><Check size={13} /> Save</>}
+                  {creating ? <><QuantumOrbitLoader size={16} /> Saving…</> : <><Check size={13} /> Save</>}
                 </button>
                 <button className="ci-btn-cancel" onClick={() => { setIsViewMode(true); setDescMode('visual') }}>Cancel</button>
               </>
@@ -590,7 +620,7 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
               <>
                 <button className="ci-btn-create" onClick={handleCreate} disabled={!canCreate}>
                   {created ? <><Check size={14} /> Created</>
-                   : creating ? <><Loader2 size={14} className="animate-spin" /> Creating…</>
+                   : creating ? <><QuantumOrbitLoader size={16} /> Creating…</>
                    : 'Create'}
                 </button>
                 <button className="ci-btn-cancel" onClick={onClose}>Cancel</button>
@@ -857,6 +887,94 @@ export default function CreateIssueModal({ onClose, onCreated }: CreateIssueModa
               onChange={e => !isViewMode && set('due_date', e.target.value)}
               onClick={e => { e.stopPropagation(); setOpenDropdown(null) }}
             />
+          </div>
+
+          {/* Links */}
+          <div className="idp-links-section">
+            <div className="idp-links-header">
+              <span className="idp-links-title">
+                <Link2 size={13} />
+                Links{plannedLinks.length > 0 ? ` · ${plannedLinks.length}` : ''}
+              </span>
+              {!isViewMode && (
+                <button className="idp-links-add-btn" onClick={() => { setAddLinkOpen(o => !o); setNewLinkTarget('') }}>
+                  <Plus size={12} /> Add link
+                </button>
+              )}
+            </div>
+
+            {addLinkOpen && !isViewMode && (
+              <div className="idp-links-form">
+                <div className="idp-links-form-row">
+                  <div ref={linkTypeRef} className="idp-link-type-select">
+                    <button className="idp-link-type-trigger" onClick={() => setLinkTypeOpen(o => !o)}>
+                      {newLinkType} <ChevronDown size={11} />
+                    </button>
+                    {linkTypeOpen && (
+                      <div className="idp-link-type-menu">
+                        {['relates to','depends on','is required for','duplicates','is duplicated by','subtask of','parent for'].map(t => (
+                          <button
+                            key={t}
+                            className={`idp-link-type-option${newLinkType === t ? ' active' : ''}`}
+                            onClick={() => { setNewLinkType(t); setLinkTypeOpen(false) }}
+                          >{t}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <LinkTypeahead
+                    value={newLinkTarget}
+                    onChange={setNewLinkTarget}
+                    onSelect={id => {
+                      setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: id }])
+                      setNewLinkTarget('')
+                      setAddLinkOpen(false)
+                    }}
+                    onConfirm={() => {
+                      if (!newLinkTarget.trim()) return
+                      setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
+                      setNewLinkTarget('')
+                      setAddLinkOpen(false)
+                    }}
+                  />
+                </div>
+                <div className="idp-links-form-actions">
+                  <button
+                    className="idp-link-confirm-btn"
+                    disabled={!newLinkTarget.trim()}
+                    onClick={() => {
+                      if (!newLinkTarget.trim()) return
+                      setPlannedLinks(l => [...l, { linkType: newLinkType, targetId: newLinkTarget.trim() }])
+                      setNewLinkTarget('')
+                      setAddLinkOpen(false)
+                    }}
+                  >Add</button>
+                  <button className="idp-link-cancel-btn" onClick={() => { setAddLinkOpen(false); setNewLinkTarget('') }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {plannedLinks.length > 0 ? (
+              <div className="idp-links-list">
+                {plannedLinks.map((l, i) => (
+                  <div key={i} className="idp-link-row">
+                    <span className="idp-link-label">{l.linkType}</span>
+                    <span className="idp-link-id">{l.targetId}</span>
+                    {!isViewMode && (
+                      <button
+                        className="idp-link-remove-btn idp-link-remove-btn--visible"
+                        onClick={() => setPlannedLinks(ls => ls.filter((_, j) => j !== i))}
+                        title="Remove"
+                      ><X size={12} /></button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : !addLinkOpen ? (
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>No links yet</span>
+            ) : null}
           </div>
 
         </div>

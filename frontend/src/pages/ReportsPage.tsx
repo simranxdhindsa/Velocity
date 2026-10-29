@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api from '../services/api'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import type {
   TeamProductivityReport,
   IndividualReport,
@@ -376,7 +377,7 @@ export function ReportsPage() {
       <div className="report-content">
         {loading ? (
           <div className="loading-state">
-            <div className="loading-spinner" />
+            <SprintScanLoader size={48} />
             <p>Loading report data...</p>
           </div>
         ) : (

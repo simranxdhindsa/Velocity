@@ -36,6 +36,8 @@ import {
 } from 'lucide-react'
 import api from '../services/api'
 import { ConfirmModal } from '../components/ConfirmModal'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 
 // NextDayTask interface for new API
 interface NextDayTask {
@@ -656,14 +658,16 @@ export function DailyTaskListPage() {
 
         {loading && (
           <div className="daily-loading">
-            <div className="loading-spinner" />
+            <SprintScanLoader size={48} />
             <p>Loading task list...</p>
           </div>
         )}
 
         {!loading && !taskList && (
           <div className="daily-empty-state glass-card">
-            <Calendar size={48} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+              <VelocityLogo variant="icon" size="lg" showStatusDot={false} style={{ opacity: 0.3 }} />
+            </div>
             <h3>No Task List Yet</h3>
             <p>
               Click "Generate List" to create today's task list from pending tasks,
@@ -678,7 +682,9 @@ export function DailyTaskListPage() {
 
         {!loading && taskList && taskList.assignments.length === 0 && (
           <div className="daily-empty-state glass-card">
-            <Calendar size={48} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+              <VelocityLogo variant="icon" size="lg" showStatusDot={false} style={{ opacity: 0.3 }} />
+            </div>
             <h3>No Tasks Found</h3>
             <p>
               No pending tasks found for this date. You can add people and tasks

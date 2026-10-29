@@ -72,9 +72,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null)
         api.setToken(null)
       }
-    } catch {
-      setUser(null)
-      api.setToken(null)
+    } catch (error) {
+      // TypeError means "Failed to fetch" — backend is temporarily down (e.g. branch
+      // switch caused air to restart). The token is still valid; don't log the user out.
+      // Only clear auth state on actual server errors (401, 403, etc.).
+      if (!(error instanceof TypeError)) {
+        setUser(null)
+        api.setToken(null)
+      }
     }
   }, [refreshToken])
 
@@ -108,7 +113,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (error) {
-      // 403 from backend — access denied or blocked
+      // TypeError = "Failed to fetch" — backend temporarily down (branch switch / restart).
+      // Don't show Access Denied for a network error; rethrow so the login page can handle it.
+      if (error instanceof TypeError) throw error
+      // Actual server rejection (403 blocked, 401 whitelist, etc.) → show Access Denied page
       const message = error instanceof Error ? error.message : 'Access denied'
       setAccessDenied(true)
       setAccessDeniedMessage(message)

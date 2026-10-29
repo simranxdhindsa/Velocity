@@ -3,6 +3,8 @@
 // Eliminates the 3x duplicate connections from useYouTrackEvents, useNotifications,
 // and VelocityDataContext.
 
+import { api } from './api'
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 const DOWN_THRESHOLD = 4
 
@@ -31,7 +33,11 @@ class SSEService {
 
   private ensureConnection(eventType: string) {
     if (!this.es) {
-      this.es = new EventSource(`${API_URL}/events`)
+      // EventSource cannot set custom headers, so pass the JWT as a query param.
+      // The backend AuthMiddleware accepts ?token= as a fallback for SSE connections.
+      const token = api.getToken() ?? ''
+      const url = `${API_URL}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`
+      this.es = new EventSource(url)
 
       this.es.onopen = () => {
         if (this.wasDown) {

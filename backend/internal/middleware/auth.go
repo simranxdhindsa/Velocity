@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/dhindsa/project-management/internal/auth"
@@ -20,27 +21,29 @@ const (
 // AuthMiddleware validates JWT token and adds user info to context
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get token from Authorization header
+		// Primary: Authorization header. Fallback: ?token= query param for SSE/EventSource
+		// (browsers cannot set custom headers on EventSource connections).
+		var tokenString string
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
+		if authHeader != "" {
+			parts := strings.Split(authHeader, " ")
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				http.Error(w, `{"success":false,"message":"Invalid authorization format"}`, http.StatusUnauthorized)
+				return
+			}
+			tokenString = parts[1]
+		} else if q := r.URL.Query().Get("token"); q != "" {
+			tokenString = q
+		} else {
 			http.Error(w, `{"success":false,"message":"Authorization header required"}`, http.StatusUnauthorized)
 			return
 		}
 
-		// Check Bearer prefix
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, `{"success":false,"message":"Invalid authorization format"}`, http.StatusUnauthorized)
-			return
-		}
-
-		tokenString := parts[1]
-
 		var user *models.User
 
-		// Check for dev-mode token
-		if strings.HasPrefix(tokenString, "dev-mode-token-") {
-			// Dev mode - bypass JWT validation
+		// Dev-mode bypass — only valid when ENVIRONMENT=development (local only).
+		// Dockerfile sets ENVIRONMENT=production, so this is dead in any deployed build.
+		if os.Getenv("ENVIRONMENT") == "development" && strings.HasPrefix(tokenString, "dev-mode-token-") {
 			user = &models.User{
 				ID:    "08938fa6-27b4-446f-a9aa-b8fe5c7b97c4",
 				Email: "simranjot@apyhub.com",
@@ -59,6 +62,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			user = &models.User{
 				ID:    claims.UserID,
 				Email: claims.Email,
+				Name:  claims.Name,
 				Role:  claims.Role,
 			}
 		}

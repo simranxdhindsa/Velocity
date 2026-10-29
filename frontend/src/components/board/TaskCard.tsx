@@ -1,11 +1,12 @@
 import { Paperclip } from 'lucide-react'
 import type { YouTrackIssue } from '../../services/api'
-import HoverCard, { HCRow, HCDivider } from '../HoverCard'
 
 interface TaskCardProps {
   issue: YouTrackIssue
   avatarMap: Record<string, string>
+  priorityColorMap?: Record<string, string>
   isDragging?: boolean
+  extraClass?: string
   onClick?: () => void
 }
 
@@ -32,44 +33,37 @@ function getStatusBadge(status: string): { label: string; cls: string } {
   return { label: status || 'Backlog', cls: 'badge-todo' }
 }
 
-function cardHoverContent(issue: YouTrackIssue) {
-  const id = issue.idReadable || issue.id
-  const assigneeName = issue.assignee?.fullName || issue.assignee?.login
-  return (
-    <div>
-      <div className="hc-title">{id}</div>
-      <div className="hc-subtitle">{issue.summary}</div>
-      <HCDivider />
-      <HCRow label="State" value={issue.status || '—'} />
-      {issue.priority && <HCRow label="Priority" value={issue.priority} />}
-      {assigneeName && <HCRow label="Assignee" value={assigneeName} />}
-    </div>
-  )
-}
-
-export function TaskCard({ issue, avatarMap, isDragging, onClick }: TaskCardProps) {
+export function TaskCard({ issue, avatarMap, priorityColorMap, isDragging, extraClass, onClick }: TaskCardProps) {
   const priorityCls = getPriorityClass(issue.priority || '')
+  const priorityColor = issue.priority ? priorityColorMap?.[issue.priority] : undefined
   const { label: statusLabel, cls: statusCls } = getStatusBadge(issue.status || '')
   const assigneeName = issue.assignee?.fullName || issue.assignee?.login || ''
   const avatarUrl = assigneeName ? avatarMap[assigneeName] : undefined
 
   return (
-    <HoverCard content={cardHoverContent(issue)} maxWidth={280}>
-      <div
-        className={`task-card ${priorityCls} ${isDragging ? 'dragging' : ''}`}
-        onClick={onClick}
-      >
-        {/* Attachment count — top-right corner */}
-        {(issue.attachments?.length ?? 0) > 0 && (
-          <span className="task-attachment-count" title={`${issue.attachments!.length} attachment${issue.attachments!.length !== 1 ? 's' : ''}`}>
-            <Paperclip size={10} />
-            {issue.attachments!.length}
-          </span>
-        )}
-
-        {/* Issue ID */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-          <span style={{ color: '#8250df', fontSize: '0.75rem', fontWeight: 600 }}>{issue.idReadable || issue.id}</span>
+    <div
+      className={`task-card ${priorityCls} ${isDragging ? 'dragging' : ''} ${extraClass || ''}`}
+      onClick={onClick}
+    >
+        {/* Top row: issue ID (left) + priority chip (right) */}
+        <div className="task-card-top-row">
+          <span className="task-card-id">{issue.idReadable || issue.id}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {issue.priority && (
+              <span className="task-priority-chip">
+                {priorityColor && (
+                  <span className="board-priority-dot" style={{ background: priorityColor }} />
+                )}
+                {issue.priority}
+              </span>
+            )}
+            {(issue.attachments?.length ?? 0) > 0 && (
+              <span className="task-attachment-count" title={`${issue.attachments!.length} attachment${issue.attachments!.length !== 1 ? 's' : ''}`}>
+                <Paperclip size={10} />
+                {issue.attachments!.length}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Title */}
@@ -94,7 +88,6 @@ export function TaskCard({ issue, avatarMap, isDragging, onClick }: TaskCardProp
             )
           )}
         </div>
-      </div>
-    </HoverCard>
+    </div>
   )
 }

@@ -1,441 +1,53 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  DndContext, DragOverlay, useDraggable, useDroppable, closestCenter,
+  PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { dayTrackApi, api, type DayTrackEntry, type DayTrackPlanned, type DayTrackSlackConfig, type DayTrackKWRule, DEFAULT_KEYWORD_RULES } from '../services/api'
 import { CalendarPicker } from '../components/CalendarPicker'
+import { useYouTrackEvents } from '../services/useYouTrackEvents'
+import { YouTrackSyncIcon } from '../components/YouTrackSyncIcon'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { usePasteSplit } from '../hooks/usePasteSplit'
+import { PasteSplitPrompt } from '../components/PasteSplitPrompt'
+import { SmoothToggle } from '../components/SmoothToggle'
+import { ConfirmModal } from '../components/ConfirmModal'
+import { Checkbox } from '../components/Checkbox'
+import { EmojiPicker } from '../components/EmojiPicker'
+import { MrkdwnText } from './SlackMessagesShared'
+import { getISTHours, getISTMinutes, getISTDate } from '../utils/istTime'
+import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import '../styles/pages/daytrack.css'
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-const PALETTE = ['#6366f1','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ec4899','#f97316','#ef4444','#84cc16','#14b8a6']
-const DEFAULT_CATS = ['Development','Testing','Meetings','Breaks','Review','Research','Sign In','Sign Off']
-
-function catColor(cat: string, cats: string[]): string {
-  const fixed: Record<string,string> = {
-    Development: '#6366f1', Testing: '#10b981', Meetings: '#8b5cf6',
-    Breaks: '#f59e0b', Review: '#06b6d4', Research: '#ec4899',
-    'Sign In': '#22c55e', 'Sign Off': '#94a3b8',
-  }
-  if (fixed[cat]) return fixed[cat]
-  const idx = cats.indexOf(cat)
-  return PALETTE[((idx < 0 ? 0 : idx)) % PALETTE.length]
-}
-
-function toDateStr(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-function fmtDate(d: Date): string {
-  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
-}
-
-function to12h(hhmm: string): string {
-  if (!hhmm) return ''
-  const [h, m] = hhmm.split(':').map(Number)
-  if (isNaN(h) || isNaN(m)) return hhmm
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
-}
-
-function to24h(time12: string): string {
-  if (!time12) return ''
-  const match = time12.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
-  if (!match) return time12
-  let h = parseInt(match[1])
-  const m = match[2]
-  const ampm = match[3].toUpperCase()
-  if (ampm === 'AM' && h === 12) h = 0
-  if (ampm === 'PM' && h !== 12) h += 12
-  return `${String(h).padStart(2, '0')}:${m}`
-}
-
-function nowHHMM(): string {
-  const n = new Date()
-  return to12h(`${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`)
-}
-
-function timeToMins(t: string): number {
-  if (!t) return 0
-  const match = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
-  if (match) {
-    let h = parseInt(match[1])
-    const m = parseInt(match[2])
-    const ampm = match[3].toUpperCase()
-    if (ampm === 'AM' && h === 12) h = 0
-    if (ampm === 'PM' && h !== 12) h += 12
-    return h * 60 + m
-  }
-  const [h, m] = t.split(':').map(Number)
-  return h * 60 + m
-}
-
-function addMinute(time12: string): string {
-  const mins = timeToMins(time12)
-  const total = mins + 1
-  const h = Math.floor(total / 60) % 24
-  const m = total % 60
-  return to12h(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`)
-}
-
-function calcDuration(s: string, e: string): number | null {
-  if (!s || !e) return null
-  let diff = timeToMins(e) - timeToMins(s)
-  if (diff < 0) diff += 24 * 60
-  return diff > 0 ? diff : null
-}
-
-function minsLabel(m: number | null | undefined): string {
-  if (m == null) return '—'
-  const h = Math.floor(m / 60), min = m % 60
-  return h > 0 ? `${h}h ${min}m` : `${min}m`
-}
-
-// ── Toast ──────────────────────────────────────────────────────────────────────
-
-type ToastType = 'success' | 'info' | 'warn'
-interface Toast { id: number; msg: string; type: ToastType }
-
-function ToastContainer({ toasts }: { toasts: Toast[] }) {
-  const icon = (t: ToastType) => {
-    if (t === 'success') return <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-    if (t === 'warn')    return <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-    return <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-  }
-  return (
-    <div className="dt-toast-container">
-      {toasts.map(t => (
-        <div key={t.id} className={`dt-toast dt-toast--${t.type}`}>
-          {icon(t.type)}
-          <span>{t.msg}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Main Component ─────────────────────────────────────────────────────────────
-
-// ── Month picker ──────────────────────────────────────────────────────────────
-
-function MonthPicker({ value, onChange }: { value: string; onChange: (m: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const [year, setYear] = useState(() => value ? parseInt(value.slice(0, 4)) : new Date().getFullYear())
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const dropRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const t = e.target as Node
-      if (!triggerRef.current?.contains(t) && !dropRef.current?.contains(t)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  const fmtDisplay = (v: string) => {
-    if (!v) return 'Select month'
-    const [y, m] = v.split('-')
-    return `${months[parseInt(m) - 1]} ${y}`
-  }
-
-  return (
-    <div className="form-group">
-      <label className="form-label">Select Month</label>
-      <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-        <button ref={triggerRef} className="dr-cal-trigger" style={{ width: '100%', justifyContent: 'flex-start' }}
-          onClick={() => {
-            if (triggerRef.current) {
-              const r = triggerRef.current.getBoundingClientRect()
-              setPos({ top: r.bottom + 6, left: r.left })
-            }
-            if (value) setYear(parseInt(value.slice(0, 4)))
-            setOpen(o => !o)
-          }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-          <span>{fmtDisplay(value)}</span>
-        </button>
-        {open && pos && createPortal(
-          <div ref={dropRef} className="dr-cal-dropdown glass-card"
-            style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999, minWidth: 240, padding: 12 }}>
-            <div className="calendar-nav">
-              <button onClick={() => setYear(y => y - 1)}>
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
-              </button>
-              <span className="calendar-month-label">{year}</span>
-              <button onClick={() => setYear(y => y + 1)}>
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </div>
-            <div className="dt-month-grid">
-              {months.map((m, i) => {
-                const val = `${year}-${String(i + 1).padStart(2, '0')}`
-                const isSelected = val === value
-                const isCurrent = val === toDateStr(new Date()).slice(0, 7)
-                return (
-                  <button key={m}
-                    className={`dt-month-cell${isSelected ? ' selected' : ''}${isCurrent ? ' today' : ''}`}
-                    onClick={() => { onChange(val); setOpen(false) }}>
-                    {m}
-                  </button>
-                )
-              })}
-            </div>
-          </div>,
-          document.body
-        )}
-      </div>
-    </div>
-  )
-}
-
-// CalendarPicker is imported from src/components/CalendarPicker.tsx
-
-function CategoryChips({ value, onChange, categories }: {
-  value: string
-  onChange: (v: string) => void
-  categories: string[]
-}) {
-  return (
-    <div className="dt-chip-group">
-      {categories.map(c => {
-        const col = (() => {
-          const fixed: Record<string,string> = {
-            Development: '#6366f1', Testing: '#10b981', Meetings: '#8b5cf6',
-            Breaks: '#f59e0b', Review: '#06b6d4', Research: '#ec4899',
-          }
-          if (fixed[c]) return fixed[c]
-          const PALETTE = ['#6366f1','#10b981','#8b5cf6','#f59e0b','#06b6d4','#ec4899','#f97316','#ef4444','#84cc16','#14b8a6']
-          const idx = categories.indexOf(c)
-          return PALETTE[(idx < 0 ? 0 : idx) % PALETTE.length]
-        })()
-        const selected = value === c
-        return (
-          <button
-            key={c}
-            type="button"
-            className={`dt-chip${selected ? ' dt-chip--selected' : ''}`}
-            style={selected ? { background: col + '25', borderColor: col, color: col } : {}}
-            onClick={() => onChange(c)}
-          >
-            <span className="dt-chip-dot" style={{ background: col }}/>
-            {c}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function TaskNameInput({ value, onChange, suggestions, placeholder, onEnter }: {
-  value: string
-  onChange: (v: string) => void
-  suggestions: string[]
-  placeholder?: string
-  onEnter?: () => void
-}) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [showDrop, setShowDrop] = useState(false)
-  const [dropPos, setDropPos] = useState<{ top: number; left: number; width: number } | null>(null)
-
-  const ghost = value.trim().length > 0
-    ? (suggestions.find(s => s.toLowerCase().startsWith(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()) ?? '')
-    : ''
-  const ghostSuffix = ghost ? ghost.slice(value.length) : ''
-
-  const matches = value.trim().length >= 2
-    ? suggestions.filter(s => s.toLowerCase().includes(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()).slice(0, 6)
-    : []
-
-  function updatePos() {
-    if (inputRef.current) {
-      const r = inputRef.current.getBoundingClientRect()
-      setDropPos({ top: r.bottom + 2, left: r.left, width: r.width })
-    }
-  }
-
-  return (
-    <div className="dt-suggest-wrap">
-      {ghostSuffix && (
-        <div className="dt-suggest-ghost" aria-hidden>
-          <span className="dt-suggest-ghost-typed">{value}</span>
-          <span className="dt-suggest-ghost-hint">{ghostSuffix}</span>
-        </div>
-      )}
-      <input
-        ref={inputRef}
-        className="form-input dt-suggest-input"
-        value={value}
-        onChange={e => { onChange(e.target.value); updatePos(); setShowDrop(e.target.value.trim().length >= 2) }}
-        placeholder={ghostSuffix ? '' : placeholder}
-        autoComplete="off"
-        onFocus={() => { updatePos(); if (value.trim().length >= 2 && matches.length > 0) setShowDrop(true) }}
-        onBlur={() => setTimeout(() => setShowDrop(false), 150)}
-        onKeyDown={e => {
-          if (e.key === 'Tab' && ghostSuffix) { e.preventDefault(); onChange(ghost) }
-          if (e.key === 'Enter') { onEnter?.(); setShowDrop(false) }
-          if (e.key === 'Escape') setShowDrop(false)
-        }}
-      />
-      {showDrop && dropPos && matches.length > 0 && createPortal(
-        <div className="dt-suggest-dropdown"
-          style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 9999 }}>
-          {matches.map(s => (
-            <button key={s} className="dt-suggest-item"
-              onMouseDown={e => { e.preventDefault(); onChange(s); setShowDrop(false) }}>
-              {s}
-            </button>
-          ))}
-        </div>,
-        document.body
-      )}
-    </div>
-  )
-}
-
-// ── Category auto-detect ──────────────────────────────────────────────────────
-
-function detectCategory(text: string, categories: string[]): string {
-  const lower = text.toLowerCase()
-  const rules: [string, string[]][] = [
-    ['Testing', ['test', 'testing', 'qa', 'playwright', 'cypress', 'debug', 'bug', 'regression', 'e2e']],
-    ['Development', ['develop', 'implement', 'build', 'feature', 'refactor', 'commit', 'pull request', 'code', 'coding', 'programming']],
-    ['Meetings', ['meeting', 'standup', 'stand-up', 'call', 'sync', 'discussion', 'demo', 'retrospective', 'retro', 'planning']],
-    ['Breaks', ['break', 'lunch', 'coffee', 'aws', 'away from screen', 'brb']],
-    ['Research', ['research', 'reading', 'study', 'investigate', 'explore', 'analyze', 'analysis', 'look into']],
-    ['Review', ['review', 'code review', 'pr review', 'feedback']],
-    ['Sign In', ['signing in', 'signed in', 'logging in', 'starting work']],
-    ['Sign Off', ['signing off', 'signed off', 'logging off', 'end of day']],
-  ]
-  for (const [cat, keywords] of rules) {
-    if (keywords.some(kw => lower.includes(kw)) && categories.includes(cat)) return cat
-  }
-  return ''
-}
-
-// ── Mic button ────────────────────────────────────────────────────────────────
-
-function MicButton({ onResult, onError }: {
-  onResult: (text: string) => void
-  onError?: (msg: string) => void
-}) {
-  const [state, setState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
-  const mrRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const startTimeRef = useRef<number>(0)
-
-  function startBrowserFallback() {
-    const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
-    if (!SR) { onError?.('Microphone not available'); return }
-    const rec = new SR()
-    rec.lang = 'en-IN'
-    rec.continuous = false
-    rec.interimResults = false
-    rec.onresult = (e: any) => { onResult(e.results[0][0].transcript); setState('idle') }
-    rec.onerror = () => { onError?.('Could not recognise speech'); setState('idle') }
-    rec.onend = () => setState('idle')
-    setState('recording')
-    rec.start()
-  }
-
-  async function toggle() {
-    if (state === 'transcribing') return
-    if (state === 'recording') { mrRef.current?.stop(); return }
-
-    if (!navigator.mediaDevices?.getUserMedia) { startBrowserFallback(); return }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg'
-      const mr = new MediaRecorder(stream, { mimeType })
-      chunksRef.current = []
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop())
-        const duration = Date.now() - startTimeRef.current
-        if (duration < 400) {
-          onError?.('Recording too short — please hold and speak, then tap to stop')
-          setState('idle')
-          return
-        }
-        setState('transcribing')
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType })
-        try {
-          const res = await dayTrackApi.transcribe(blob)
-          if (res?.text) onResult(res.text.trim())
-          else onError?.('No speech detected — please try again')
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : ''
-          if (msg.includes('400') || msg.includes('empty') || msg.includes('no audio')) {
-            onError?.('No audio detected — please try again')
-          } else {
-            onError?.('Transcription failed — please try again')
-          }
-        }
-        setState('idle')
-      }
-      mr.start()
-      startTimeRef.current = Date.now()
-      mrRef.current = mr
-      setState('recording')
-    } catch {
-      startBrowserFallback()
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      className={`dt-mic-btn${state === 'recording' ? ' dt-mic-btn--rec' : state === 'transcribing' ? ' dt-mic-btn--loading' : ''}`}
-      onClick={toggle}
-      disabled={state === 'transcribing'}
-      title={state === 'idle' ? 'Click to record, click again to stop' : state === 'recording' ? 'Recording… click to stop' : 'Transcribing…'}
-    >
-      {state === 'transcribing' ? (
-        <svg className="dt-spin" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-        </svg>
-      ) : state === 'recording' ? (
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
-      ) : (
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-          <line x1="12" y1="19" x2="12" y2="23"/>
-          <line x1="8" y1="23" x2="16" y2="23"/>
-        </svg>
-      )}
-    </button>
-  )
-}
-
-// Isolated clock component — keeps 1-second re-renders scoped to this tiny node
-// instead of re-rendering the entire DayTrackPage tree.
-const ClockDisplay = memo(function ClockDisplay() {
-  const [clock, setClock] = useState(() => {
-    const n = new Date()
-    return n.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  })
-  useEffect(() => {
-    const id = setInterval(() => {
-      const n = new Date()
-      setClock(n.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
-    }, 1000)
-    return () => clearInterval(id)
-  }, [])
-  return <>{clock}</>
-})
+import {
+  DEFAULT_CATS, REPORT_EXCLUDED_CATS, NOT_IN_PROGRESS_CATS,
+  catColor, categoryEmoji, toDateStr, fmtDate, to12h, to24h, nowHHMM, timeToMins,
+  addMinute, calcDuration, minsLabel, truncateChannel, statusLabel,
+  nearestAllowedCategory, plannedStatusLabel, dtRelativeTime, detectCategory,
+  type Toast,
+} from './daytrack-helpers'
+import {
+  ToastContainer, MonthPicker, useIsDesktopWidth, DraggableRow, DroppableTBody,
+  CategoryChips, TaskNameInput, MicButton, ClockDisplay,
+} from './DayTrackShared'
 
 export function DayTrackPage() {
+  const { config: wfConfig } = useWorkflowConfig('youtrack')
   const [date, setDate] = useState<string>(toDateStr(new Date()))
   const [entries, setEntries] = useState<DayTrackEntry[]>([])
   const [planned, setPlanned] = useState<DayTrackPlanned[]>([])
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATS)
+  const [customCategoryIcons, setCustomCategoryIcons] = useState<Record<string, string>>({})
+  const [allowedEmojis, setAllowedEmojis] = useState<string[]>([])
+  // The exact text "Post to Slack" would send for `date` — single source of truth shared by
+  // the on-screen summary preview and the "Copy DayTrack" button, so neither can drift from
+  // what's actually posted.
+  const [slackPreviewText, setSlackPreviewText] = useState('')
+  const [copyFlash, setCopyFlash] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Active tab in left card: manual | timer | plan
@@ -456,7 +68,14 @@ export function DayTrackPage() {
   const [destChanOpen, setDestChanOpen] = useState(false)
   const destChanRef = useRef<HTMLButtonElement>(null)
   const [destChanPos, setDestChanPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const autoSendChipRef = useRef<HTMLDivElement>(null)
+  const autoSendHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [autoSendHoverPos, setAutoSendHoverPos] = useState<{ top: number; left: number } | null>(null)
+  useEffect(() => () => { if (autoSendHoverTimer.current) clearTimeout(autoSendHoverTimer.current) }, [])
   const [posting, setPosting] = useState(false)
+  const [slackPostStatus, setSlackPostStatus] = useState<{ posted: boolean; updated_at?: string } | null>(null)
+  const [deletingPost, setDeletingPost] = useState(false)
+  const [showDeletePostConfirm, setShowDeletePostConfirm] = useState(false)
   const [openRuleCatIdx, setOpenRuleCatIdx] = useState<number | null>(null)
   const [ruleCatPos, setRuleCatPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const ruleCatRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -482,6 +101,12 @@ export function DayTrackPage() {
   const [mStart, setMStart] = useState(_draft?.mStart ?? '')
   const [mEnd, setMEnd] = useState(_draft?.mEnd ?? '')
   const [mNotes, setMNotes] = useState(_draft?.mNotes ?? '')
+  const [mInProgress, setMInProgress] = useState(false)
+
+  // Paste-to-split: pasting 2+ lines into the task-name or subtask-name input
+  // prompts to create one entry per line instead of collapsing them into one.
+  const manualPasteSplit = usePasteSplit()
+  const subtaskPasteSplit = usePasteSplit()
 
   // Timer form — restored from draft
   const [tName, setTName] = useState(_draft?.tName ?? '')
@@ -501,6 +126,9 @@ export function DayTrackPage() {
   const [pCat, setPCat] = useState(_draft?.pCat ?? '')
   const [pTime, setPTime] = useState(_draft?.pTime ?? '')
   const [pWhen, setPWhen] = useState<'today'|'tomorrow'>(_draft?.pWhen ?? 'today')
+  const [pWhenOpen, setPWhenOpen] = useState(false)
+  const [pWhenPos, setPWhenPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const pWhenRef = useRef<HTMLButtonElement>(null)
   const [pNotes, setPNotes] = useState(_draft?.pNotes ?? '')
 
   // Export modal
@@ -518,6 +146,7 @@ export function DayTrackPage() {
 
   // Category manager
   const [newCat, setNewCat] = useState('')
+  const [newCatIcon, setNewCatIcon] = useState('')
   const [catMgrOpen, setCatMgrOpen] = useState(false)
 
   // Edit modal
@@ -582,6 +211,7 @@ export function DayTrackPage() {
       if (!inTrigger) setOpenDrop(null)
       if (!calTriggerRef.current?.contains(t) && !calDropRef.current?.contains(t)) setCalOpen(false)
       if (!slackChanRef.current?.contains(t)) { setSlackChanOpen(false) }
+      if (!pWhenRef.current?.contains(t)) { setPWhenOpen(false) }
       if (!destChanRef.current?.contains(t)) { setDestChanOpen(false) }
       const inRuleCat = ruleCatRefs.current.some(r => r?.contains(t))
       if (!inRuleCat) setOpenRuleCatIdx(null)
@@ -610,8 +240,11 @@ export function DayTrackPage() {
       setEntries(e)
       setPlanned(p)
       // Always show defaults + any custom categories from DB (deduped)
-      const custom = c.filter(cat => !DEFAULT_CATS.includes(cat))
-      setCategories([...DEFAULT_CATS, ...custom])
+      const custom = c.filter(cat => !DEFAULT_CATS.includes(cat.name))
+      setCategories([...DEFAULT_CATS, ...custom.map(cat => cat.name)])
+      const iconMap: Record<string, string> = {}
+      custom.forEach(cat => { if (cat.icon) iconMap[cat.name.toLowerCase()] = cat.icon })
+      setCustomCategoryIcons(iconMap)
     } catch {
       // silently ignore — show empty state
     } finally {
@@ -621,10 +254,52 @@ export function DayTrackPage() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
+  // Keep the Slack preview in sync with whatever's currently on the page — refetches
+  // whenever entries/planned change (i.e. after any add/edit/delete/drag mutation) or the
+  // viewed date changes.
+  useEffect(() => {
+    let cancelled = false
+    dayTrackApi.getSlackPreview(date)
+      .then(res => { if (!cancelled) setSlackPreviewText(res.empty ? '' : res.text) })
+      .catch(() => { if (!cancelled) setSlackPreviewText('') })
+    return () => { cancelled = true }
+  }, [date, entries, planned])
+
+  // Curated emoji allow-list for custom categories — fetched once, served from the
+  // same list the backend validates against so the picker can never offer something
+  // the server would reject.
+  useEffect(() => {
+    dayTrackApi.getAllowedCategoryEmoji().then(setAllowedEmojis).catch(() => {})
+  }, [])
+
+  // Auto-sync YouTrack once per page open, only when viewing today — silent (no toasts),
+  // deliberately runs once on mount only (not on every date change / not on an interval).
+  useEffect(() => {
+    if (date !== toDateStr(new Date())) return
+    dayTrackApi.scanYouTrackTickets(date).then(() => loadAll()).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Live-refresh: when a YouTrack ticket's state changes, or a ticket referenced by today's
+  // entries is confirmed deleted (pushed by the backend's webhook-triggered check), reload
+  // entries so Day Track reflects it without a manual reopen.
+  useYouTrackEvents(event => {
+    if (event.field !== 'State' && event.field !== 'deleted') return
+    if (date !== toDateStr(new Date())) return
+    if (event.field === 'deleted') {
+      console.log(`%c[DayTrack] ${event.issue_id} deleted on YouTrack — auto-removing from today's entries`, 'color:#e8912d;font-weight:600')
+    }
+    loadAll()
+  })
+
   useEffect(() => {
     dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
     loadSlackConfig()
   }, [])
+
+  useEffect(() => {
+    dayTrackApi.getSlackPostStatus(date).then(setSlackPostStatus).catch(() => setSlackPostStatus(null))
+  }, [date])
 
   // Default category to first in list (only if not restored from draft)
   useEffect(() => {
@@ -659,27 +334,95 @@ export function DayTrackPage() {
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
+  // Today's Log only ever holds finished (done) work; anything still in progress
+  // belongs in Planned & Carry Over instead — never both at once, no exceptions.
   async function addManualEntry() {
     if (!mName.trim()) { toast('Enter a task name', 'warn'); return }
-    const dur = calcDuration(mStart, mEnd)
+    const name = mName.trim()
+    const category = mCat || categories[0] || 'General'
     try {
-      await dayTrackApi.createEntry({
-        entry_date: date,
-        name: mName.trim(),
-        category: mCat || categories[0] || 'General',
-        start_time: mStart,
-        end_time: mEnd,
-        duration_mins: dur,
-        notes: mNotes,
-        status: (mStart && mEnd) ? 'done' : 'active',
-      })
+      if (mInProgress) {
+        const createdPlanned = await dayTrackApi.createPlanned({
+          entry_date: date,
+          name,
+          category,
+          scheduled_time: mStart,
+          start_time: mStart,
+          end_time: '',
+          when_type: 'today',
+          notes: mNotes,
+          status: 'in_progress',
+        })
+        setPlanned(prev => [...prev, createdPlanned])
+      } else {
+        const dur = calcDuration(mStart, mEnd)
+        const created = await dayTrackApi.createEntry({
+          entry_date: date,
+          name,
+          category,
+          start_time: mStart,
+          end_time: mEnd,
+          duration_mins: dur,
+          notes: mNotes,
+          status: 'done',
+        })
+        setEntries(prev => [...prev, created])
+      }
       const nextStart = mEnd ? addMinute(mEnd) : ''
-      setMName(''); setMStart(nextStart); setMEnd(''); setMNotes('')
+      setMName(''); setMStart(nextStart); setMEnd(''); setMNotes(''); setMInProgress(false)
       clearDraft()
-      await loadAll()
       dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
-      toast(`"${mName.trim()}" logged`)
+      toast(`"${name}" logged`)
     } catch { toast('Failed to add entry', 'warn') }
+  }
+
+  // Creates one entry per pasted line (task-name input's "Split into N" action).
+  // Same done-vs-in-progress split as addManualEntry, applied to every line.
+  async function addManualEntriesSplit(names: string[]) {
+    const category = mCat || categories[0] || 'General'
+    const createdEntries: DayTrackEntry[] = []
+    const createdPlanned: DayTrackPlanned[] = []
+    let failed = 0
+    for (const raw of names) {
+      const name = raw.trim()
+      if (!name) continue
+      try {
+        if (mInProgress) {
+          createdPlanned.push(await dayTrackApi.createPlanned({
+            entry_date: date,
+            name,
+            category,
+            scheduled_time: mStart,
+            start_time: mStart,
+            end_time: '',
+            when_type: 'today',
+            notes: '',
+            status: 'in_progress',
+          }))
+        } else {
+          createdEntries.push(await dayTrackApi.createEntry({
+            entry_date: date,
+            name,
+            category,
+            start_time: mStart,
+            end_time: '',
+            duration_mins: null,
+            notes: '',
+            status: 'done',
+          }))
+        }
+      } catch { failed++ }
+    }
+    setMName(''); setMEnd(''); setMNotes(''); setMInProgress(false)
+    clearDraft()
+    if (createdEntries.length > 0) setEntries(prev => [...prev, ...createdEntries])
+    if (createdPlanned.length > 0) setPlanned(prev => [...prev, ...createdPlanned])
+    if (createdEntries.length > 0 || createdPlanned.length > 0) {
+      dayTrackApi.getSuggestions().then(setSuggestions).catch(() => {})
+    }
+    const total = createdEntries.length + createdPlanned.length
+    if (failed === 0) toast(`${total} tasks logged`)
+    else toast(`${total} of ${total + failed} tasks logged — some failed`, 'warn')
   }
 
   function timerStart() {
@@ -715,7 +458,7 @@ export function DayTrackPage() {
     const fmt = (d: Date) => to12h(`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`)
     const name = tName.trim()
     try {
-      await dayTrackApi.createEntry({
+      const created = await dayTrackApi.createEntry({
         entry_date: date,
         name,
         category: tCat || categories[0] || 'General',
@@ -725,7 +468,7 @@ export function DayTrackPage() {
         notes: tNotes,
         status: 'done',
       })
-      await loadAll()
+      setEntries(prev => [...prev, created])
       toast(`"${name}" logged — ${minsLabel(mins)}`)
     } catch { toast('Failed to log entry', 'warn') }
     setTimerRunning(false); setTimerPaused(false); setTimerStatus('idle')
@@ -736,10 +479,11 @@ export function DayTrackPage() {
 
   async function addPlanned() {
     if (!pName.trim()) { toast('Enter a task name', 'warn'); return }
+    const name = pName.trim()
     try {
-      await dayTrackApi.createPlanned({
+      const created = await dayTrackApi.createPlanned({
         entry_date: date,
-        name: pName.trim(),
+        name,
         category: pCat || categories[0] || 'General',
         scheduled_time: pTime,
         when_type: pWhen,
@@ -748,15 +492,15 @@ export function DayTrackPage() {
       })
       setPName(''); setPTime(''); setPNotes('')
       clearDraft()
-      await loadAll()
-      toast(`"${pName.trim()}" scheduled for ${pWhen}`)
+      setPlanned(prev => [...prev, created])
+      toast(`"${name}" scheduled for ${pWhen}`)
     } catch { toast('Failed to schedule task', 'warn') }
   }
 
   async function deleteEntry(id: string) {
     try {
       await dayTrackApi.deleteEntry(id)
-      await loadAll()
+      setEntries(prev => prev.filter(e => e.id !== id && e.parent_entry_id !== id))
       toast('Entry removed', 'info')
     } catch { toast('Failed to delete', 'warn') }
   }
@@ -764,13 +508,78 @@ export function DayTrackPage() {
   async function deletePlanned(id: string) {
     try {
       await dayTrackApi.deletePlanned(id)
-      await loadAll()
+      setPlanned(prev => prev.filter(p => p.id !== id))
     } catch { toast('Failed to delete', 'warn') }
   }
 
+  // ── Drag and drop: Today's Log <-> Planned & Carry Over ───────────────────────
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const isDesktopDrag = useIsDesktopWidth()
+  const [draggedLabel, setDraggedLabel] = useState<string | null>(null)
+  // Row ids currently playing the "bounced back after a failed move" animation.
+  const [rollbackIds, setRollbackIds] = useState<Set<string>>(new Set())
+  function flashRollback(id: string) {
+    setRollbackIds(prev => new Set(prev).add(id))
+    setTimeout(() => setRollbackIds(prev => { const n = new Set(prev); n.delete(id); return n }), 650)
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    const id = String(event.active.id)
+    if (id.startsWith('entry-')) {
+      const found = parentEntries.find(e => e.id === id.slice('entry-'.length))
+      setDraggedLabel(found?.name ?? null)
+    } else if (id.startsWith('planned-')) {
+      const found = planned.find(p => p.id === id.slice('planned-'.length))
+      setDraggedLabel(found?.name ?? null)
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setDraggedLabel(null)
+    const { active, over } = event
+    if (!over) return
+    const activeId = String(active.id)
+    const overZone = String(over.id)
+
+    if (activeId.startsWith('entry-') && overZone === 'planned-zone') {
+      const entryId = activeId.slice('entry-'.length)
+      const entry = parentEntries.find(e => e.id === entryId)
+      if (entry) carryEntry(entry)
+    } else if (activeId.startsWith('planned-') && overZone === 'today-zone') {
+      const plannedId = activeId.slice('planned-'.length)
+      const item = planned.find(p => p.id === plannedId)
+      if (item) startPlanned(item)
+    }
+  }
+
   async function carryEntry(entry: DayTrackEntry) {
+    const subs = subtaskMap.get(entry.id) ?? []
+    const tempId = `temp-${entry.id}`
+    const optimisticPlanned: DayTrackPlanned = {
+      id: tempId,
+      user_id: entry.user_id,
+      entry_date: date,
+      name: entry.name,
+      category: entry.category,
+      scheduled_time: entry.start_time || '',
+      start_time: entry.start_time,
+      end_time: entry.end_time,
+      when_type: 'tomorrow',
+      notes: entry.notes,
+      status: 'in_progress',
+      entry_source: entry.entry_source,
+      external_ref: entry.external_ref,
+      youtrack_issue_id: entry.youtrack_issue_id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    // Instant move: pull the row (and any subtasks) out of Today's Log and drop a
+    // placeholder into Planned & Carry Over right away, before the network round trip.
+    setEntries(prev => prev.filter(e => e.id !== entry.id && e.parent_entry_id !== entry.id))
+    setPlanned(prev => [...prev, optimisticPlanned])
+
     try {
-      const subs = subtaskMap.get(entry.id) ?? []
       // Carry subtasks first (as separate planned items), then delete them individually
       for (const s of subs) {
         await dayTrackApi.createPlanned({
@@ -782,12 +591,14 @@ export function DayTrackPage() {
           end_time: s.end_time,
           when_type: 'tomorrow',
           notes: s.notes ? `[subtask of ${entry.name}] ${s.notes}` : `[subtask of ${entry.name}]`,
-          status: 'carry',
+          status: 'in_progress',
         })
         await dayTrackApi.deleteEntry(s.id)
       }
-      // Now carry parent (no subtasks remain to cascade-delete)
-      await dayTrackApi.createPlanned({
+      // Now carry parent (no subtasks remain to cascade-delete). Preserve YouTrack
+      // lineage so resuming it later (drag back into Today's Log) is still recognized
+      // as a YouTrack-sourced item, not a plain manual one.
+      const real = await dayTrackApi.createPlanned({
         entry_date: date,
         name: entry.name,
         category: entry.category,
@@ -796,50 +607,124 @@ export function DayTrackPage() {
         end_time: entry.end_time,
         when_type: 'tomorrow',
         notes: entry.notes,
-        status: 'carry',
+        status: 'in_progress',
+        entry_source: entry.entry_source,
+        external_ref: entry.external_ref,
+        youtrack_issue_id: entry.youtrack_issue_id,
       })
       await dayTrackApi.deleteEntry(entry.id)
-      await loadAll()
+      // Reconcile the placeholder with the real server record (real id, timestamps).
+      setPlanned(prev => prev.map(p => p.id === tempId ? real : p))
       toast(`"${entry.name}" carried to tomorrow${subs.length > 0 ? ` (+${subs.length} subtask${subs.length > 1 ? 's' : ''})` : ''}`)
-    } catch { toast('Failed to carry entry', 'warn') }
+    } catch {
+      // Roll back: drop the placeholder and put the entry (+ subtasks) back in Today's Log.
+      setPlanned(prev => prev.filter(p => p.id !== tempId))
+      setEntries(prev => [...prev, entry, ...subs])
+      flashRollback(entry.id)
+      toast('Failed to carry entry, moved it back', 'warn')
+    }
   }
 
+  // Resolves the workflow state name for the dev_done role (e.g. "Dev"), falling back
+  // to the literal "Dev" when no workflow config is set up yet.
+  function resolveDevState(): string {
+    const col = wfConfig?.column_hierarchy.find(c => c.role === 'dev_done')
+    return col?.state || 'Dev'
+  }
+
+  // Moving a planned/in-progress item into Today's Log means "this is done" — Today's
+  // Log only ever holds finished work, so landing there marks it done, not active.
   async function startPlanned(item: DayTrackPlanned) {
     const now = nowHHMM()
+    const startTime = item.start_time || item.scheduled_time || now
+    const dur = calcDuration(startTime, now)
+    const isYouTrackDev = item.entry_source === 'youtrack' && item.category === 'Development' && !!item.youtrack_issue_id
+    const tempId = `temp-${item.id}`
+    const optimisticEntry: DayTrackEntry = {
+      id: tempId,
+      user_id: item.user_id,
+      entry_date: date,
+      name: item.name,
+      category: item.category,
+      start_time: startTime,
+      end_time: now,
+      duration_mins: dur,
+      notes: item.notes,
+      status: 'done',
+      parent_entry_id: null,
+      entry_source: item.entry_source ?? 'manual',
+      external_ref: item.external_ref ?? '',
+      youtrack_issue_id: item.youtrack_issue_id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    // Instant move: pull it out of Planned & Carry Over and drop a placeholder into
+    // Today's Log right away, before the network round trip.
+    setPlanned(prev => prev.filter(p => p.id !== item.id))
+    setEntries(prev => [...prev, optimisticEntry])
+
     try {
-      await dayTrackApi.createEntry({
-        entry_date: date,
-        name: item.name,
-        category: item.category,
-        start_time: now,
-        end_time: '',
-        duration_mins: null,
-        notes: item.notes,
-        status: 'active',
-      })
-      await dayTrackApi.deletePlanned(item.id)
-      await loadAll()
-      toast(`Started "${item.name}"`)
-    } catch { toast('Failed to start task', 'warn') }
+      const [created] = await Promise.all([
+        dayTrackApi.createEntry({
+          entry_date: date,
+          name: item.name,
+          category: item.category,
+          start_time: startTime,
+          end_time: now,
+          duration_mins: dur,
+          notes: item.notes,
+          status: 'done',
+          entry_source: item.entry_source,
+          external_ref: item.external_ref,
+          youtrack_issue_id: item.youtrack_issue_id,
+        }),
+        dayTrackApi.deletePlanned(item.id),
+      ])
+      // Reconcile the placeholder with the real server record.
+      setEntries(prev => prev.map(e => e.id === tempId ? created : e))
+      // Finishing a real YouTrack Development ticket also moves it to Dev in YouTrack
+      // itself — a plain manual entry never triggers this.
+      if (isYouTrackDev) {
+        try {
+          await api.updateYouTrackIssueState(item.youtrack_issue_id!, resolveDevState())
+          toast(`"${item.name}" marked done and moved to ${resolveDevState()} in YouTrack`)
+        } catch {
+          toast(`"${item.name}" marked done (failed to update YouTrack state)`, 'warn')
+        }
+      } else {
+        toast(`"${item.name}" marked done`)
+      }
+    } catch {
+      // Roll back: drop the placeholder and put the item back in Planned & Carry Over.
+      setEntries(prev => prev.filter(e => e.id !== tempId))
+      setPlanned(prev => [...prev, item])
+      flashRollback(item.id)
+      toast('Failed to mark task done, moved it back', 'warn')
+    }
   }
 
   async function rollbackPlanned(item: DayTrackPlanned) {
-    const s = item.start_time || item.scheduled_time || ''
-    const e = item.end_time || ''
+    // Rolling back into Today's Log also means "done" — same rule as starting one.
+    const s = item.start_time || item.scheduled_time || nowHHMM()
+    const e = item.end_time || nowHHMM()
     const dur = calcDuration(s, e)
     try {
-      await dayTrackApi.createEntry({
-        entry_date: date,
-        name: item.name,
-        category: item.category,
-        start_time: s,
-        end_time: e,
-        duration_mins: dur,
-        notes: item.notes,
-        status: (s && e) ? 'done' : 'active',
-      })
-      await dayTrackApi.deletePlanned(item.id)
-      await loadAll()
+      const [created] = await Promise.all([
+        dayTrackApi.createEntry({
+          entry_date: date,
+          name: item.name,
+          category: item.category,
+          start_time: s,
+          end_time: e,
+          duration_mins: dur,
+          notes: item.notes,
+          status: 'done',
+        }),
+        dayTrackApi.deletePlanned(item.id),
+      ])
+      setEntries(prev => [...prev, created])
+      setPlanned(prev => prev.filter(p => p.id !== item.id))
       toast(`"${item.name}" rolled back to today's log`)
     } catch { toast('Failed to roll back task', 'warn') }
   }
@@ -940,14 +825,47 @@ export function DayTrackPage() {
     } catch { toast('Failed to add subtask', 'warn') }
   }
 
+  // Creates one subtask per pasted line (subtask input's "Split into N" action).
+  async function addSubtasksSplit(names: string[]) {
+    if (!subtaskParent) return
+    const parent = subtaskParent
+    let createdCount = 0
+    for (const raw of names) {
+      const name = raw.trim()
+      if (!name) continue
+      try {
+        await dayTrackApi.createEntry({
+          entry_date: date,
+          name,
+          category: stCat || parent.category,
+          start_time: stStart,
+          end_time: '',
+          duration_mins: null,
+          notes: '',
+          status: 'active',
+          parent_entry_id: parent.id,
+        })
+        createdCount++
+      } catch { /* keep going — report the partial count below */ }
+    }
+    setExpandedEntries(prev => { const s = new Set(prev); s.add(parent.id); return s })
+    setSubtaskParent(null)
+    await loadAll()
+    if (createdCount === names.filter(n => n.trim()).length) toast(`${createdCount} subtasks added`)
+    else toast(`${createdCount} of ${names.length} subtasks added — some failed`, 'warn')
+  }
+
   async function addCategory() {
     const v = newCat.trim()
     if (!v) return
+    if (!newCatIcon) { toast('Pick an icon for this category first', 'warn'); return }
     if (categories.includes(v)) { toast('Category already exists', 'warn'); return }
     try {
-      await dayTrackApi.addCategory(v)
+      await dayTrackApi.addCategory(v, newCatIcon)
       setNewCat('')
       setCategories(prev => [...prev, v])
+      setCustomCategoryIcons(prev => ({ ...prev, [v.toLowerCase()]: newCatIcon }))
+      setNewCatIcon('')
       toast(`Category "${v}" added`)
     } catch { toast('Failed to add category', 'warn') }
   }
@@ -956,6 +874,11 @@ export function DayTrackPage() {
     try {
       await dayTrackApi.deleteCategory(name)
       setCategories(prev => prev.filter(c => c !== name))
+      setCustomCategoryIcons(prev => {
+        const next = { ...prev }
+        delete next[name.toLowerCase()]
+        return next
+      })
     } catch { toast('Failed to remove category', 'warn') }
   }
 
@@ -965,7 +888,7 @@ export function DayTrackPage() {
       const cfg = await dayTrackApi.getSlackConfig()
       setSlackCfg(cfg.keyword_rules?.length ? cfg : { ...cfg, keyword_rules: DEFAULT_KEYWORD_RULES })
     } catch {
-      setSlackCfg({ channel_id: '', channel_name: '', slack_user_id: '', keyword_rules: DEFAULT_KEYWORD_RULES, enabled: true, dest_channel_id: '', dest_channel_name: '', timezone: 'Asia/Kolkata' })
+      setSlackCfg({ channel_id: '', channel_name: '', slack_user_id: '', keyword_rules: DEFAULT_KEYWORD_RULES, enabled: true, dest_channel_id: '', dest_channel_name: '', timezone: 'Asia/Kolkata', auto_send_enabled: false })
     } finally {
       setSlackCfgLoading(false)
     }
@@ -980,6 +903,34 @@ export function DayTrackPage() {
       setSlackChannels([])
     } finally {
       setChannelsLoading(false)
+    }
+  }
+
+  function autoSendTooltipLines(): string[] {
+    if (!slackCfg?.dest_channel_id) {
+      return ['Set a Destination Channel in settings first to turn on Auto Send.']
+    }
+    const channel = slackCfg.dest_channel_name ? `#${slackCfg.dest_channel_name}` : slackCfg.dest_channel_id
+    return [
+      slackCfg.auto_send_enabled
+        ? `Auto Send is on, today's update posts to ${channel} every day at 11:50 PM IST.`
+        : `Turn on to post today's update to ${channel} every day at 11:50 PM IST.`,
+      'Pulls the latest YouTrack tickets first, so it is always in sync.',
+      'Only sends today\'s entries, never a previous or future day.',
+      'The time is fixed and cannot be changed.',
+    ]
+  }
+
+  async function toggleAutoSend(checked: boolean) {
+    if (!slackCfg) return
+    const prev = slackCfg
+    setSlackCfg(c => c ? { ...c, auto_send_enabled: checked } : c)
+    try {
+      await dayTrackApi.saveSlackConfig({ ...slackCfg, auto_send_enabled: checked })
+      toast(checked ? 'Auto send enabled, posts today\'s update daily at 11:50 PM IST' : 'Auto send disabled', 'info')
+    } catch {
+      setSlackCfg(prev)
+      toast('Failed to update auto send', 'warn')
     }
   }
 
@@ -1047,13 +998,29 @@ export function DayTrackPage() {
   async function postToSlack() {
     setPosting(true)
     try {
-      await dayTrackApi.postToSlack(date)
-      toast('Posted to Slack!', 'success')
+      const res = await dayTrackApi.postToSlack(date)
+      toast(res.updated ? 'Updated in Slack!' : 'Posted to Slack!', 'success')
+      setSlackPostStatus({ posted: true, updated_at: new Date().toISOString() })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to post'
       toast(msg, 'warn')
     } finally {
       setPosting(false)
+    }
+  }
+
+  async function deleteSlackPost() {
+    setDeletingPost(true)
+    try {
+      await dayTrackApi.deleteSlackPost(date)
+      toast('Deleted from Slack', 'success')
+      setSlackPostStatus({ posted: false })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to delete'
+      toast(msg, 'warn')
+    } finally {
+      setDeletingPost(false)
+      setShowDeletePostConfirm(false)
     }
   }
 
@@ -1078,9 +1045,19 @@ export function DayTrackPage() {
   }
 
   async function copyStandup() {
-    // Use • for Slack compatibility (- renders as literal text in Slack)
-    const text = buildStandup().replace(/^- /gm, '• ')
-    navigator.clipboard.writeText(text).then(() => toast('DayTrack report copied!'))
+    // Copies the exact same text the "Post to Slack" button sends. Uses the already-loaded
+    // slackPreviewText (kept in sync by the effect above on every entries/planned/date change)
+    // instead of refetching on click, so the click feels instant rather than waiting on a
+    // network round trip.
+    if (!slackPreviewText) { toast('Nothing to copy for this day yet', 'warn'); return }
+    try {
+      await navigator.clipboard.writeText(slackPreviewText)
+      toast('DayTrack report copied!')
+      setCopyFlash(true)
+      setTimeout(() => setCopyFlash(false), 1600)
+    } catch {
+      toast('Failed to copy report', 'warn')
+    }
   }
 
   // Parse AI output into a map of entryId → rephrased name, matched positionally
@@ -1135,6 +1112,10 @@ export function DayTrackPage() {
       doneBlock += `*${catHeading(cat)}:*\n`
       items.forEach(e => {
         doneBlock += `• ${getName(e)}${e.duration_mins != null ? ` (${minsLabel(e.duration_mins)})` : ''}\n`
+        const subs = subtaskMap.get(e.id) ?? []
+        subs.forEach(s => {
+          doneBlock += `  ◦ ${nameMap.get(s.id) ?? s.name}${s.duration_mins != null ? ` (${minsLabel(s.duration_mins)})` : ''}\n`
+        })
       })
       doneBlock += '\n'
     })
@@ -1349,23 +1330,14 @@ ${aiSummaryBlock}
     finally { setExportCopyLoading(false) }
   }
 
-  function exportCSV() {
-    const rows = [['Task','Category','Start','End','Duration (min)','Status','Notes','Date']]
-    entries.forEach(e => rows.push([
-      e.name, e.category, e.start_time, e.end_time,
-      String(e.duration_mins ?? ''), e.status, e.notes, e.entry_date
-    ]))
-    const csv = rows.map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-    a.download = `daytrack-${date}.csv`; a.click()
-  }
-
   // ── Computed stats ────────────────────────────────────────────────────────────
 
   const totalMins = entries.reduce((a, e) => a + (e.duration_mins ?? 0), 0)
   const completedCount = entries.filter(e => e.status === 'done').length
-  const pendingCount = planned.filter(p => p.when_type === 'today').length
+  // Pending = still-open work: in-progress entries already in Today's Log, plus
+  // anything planned for today that hasn't been started yet.
+  const pendingCount = entries.filter(e => e.status === 'active').length
+    + planned.filter(p => p.when_type === 'today').length
   const focusMins = entries
     .filter(e => !['Meetings','Breaks'].includes(e.category))
     .reduce((a, e) => a + (e.duration_mins ?? 0), 0)
@@ -1384,6 +1356,10 @@ ${aiSummaryBlock}
 
   // Subtask grouping
   const parentEntries = entries.filter(e => !e.parent_entry_id)
+  // Sign In / Sign Off / Breaks are excluded from the Slack report (see daytracBuildSlackSections
+  // on the backend) — shown in their own group below a divider so it's clear they won't be sent.
+  const reportableEntries = parentEntries.filter(e => !REPORT_EXCLUDED_CATS.has(e.category.toLowerCase()))
+  const excludedEntries = parentEntries.filter(e => REPORT_EXCLUDED_CATS.has(e.category.toLowerCase()))
   const subtaskMap = new Map<string, DayTrackEntry[]>()
   entries.filter(e => e.parent_entry_id).forEach(e => {
     const list = subtaskMap.get(e.parent_entry_id!) ?? []
@@ -1391,68 +1367,6 @@ ${aiSummaryBlock}
     subtaskMap.set(e.parent_entry_id!, list)
   })
 
-  function buildStandup(): string {
-    const today = fmtDate(new Date(date))
-    const parents = entries.filter(e => !e.parent_entry_id)
-
-    const catHeading = (cat: string): string => {
-      const map: Record<string, string> = {
-        'Tickets':            'Tickets Created',
-        'Testing':            'Testing',
-        'Project Management': 'Project Management',
-        'Meetings':           'Meetings',
-        'Breaks':             'Breaks',
-        'Sign In':            'Sign In',
-        'Sign Off':           'Sign Off',
-      }
-      return map[cat] ?? cat
-    }
-
-    const isDoneInReport = (e: DayTrackEntry) =>
-      e.status === 'done' || (e.status === 'active' && !e.start_time && !e.end_time)
-
-    // Separate tickets-tested entries (yt-tested-*) from the rest
-    const testedEntries = parents.filter(e => e.external_ref?.startsWith('yt-tested-'))
-    const testedIDs = new Set(testedEntries.map(e => e.id))
-
-    // Group done entries by category, preserving insertion order (exclude tested entries — shown separately)
-    const doneByCategory = new Map<string, DayTrackEntry[]>()
-    parents.filter(e => isDoneInReport(e) && !testedIDs.has(e.id)).forEach(e => {
-      const list = doneByCategory.get(e.category) ?? []
-      list.push(e)
-      doneByCategory.set(e.category, list)
-    })
-
-    let doneBlock = ''
-    doneByCategory.forEach((items, cat) => {
-      doneBlock += `*${catHeading(cat)}:*\n`
-      items.forEach(e => {
-        doneBlock += `- ${e.name}${e.duration_mins != null ? ` (${minsLabel(e.duration_mins)})` : ''}\n`
-      })
-      doneBlock += '\n'
-    })
-
-    const activeList = parents
-      .filter(e => e.status === 'active' && (e.start_time || e.end_time))
-      .map(e => `- ${e.name} (${e.category})`)
-      .join('\n')
-    const planList = planned.filter(p => p.when_type === 'today')
-      .map(p => `- ${p.name} (${p.category})`)
-      .join('\n')
-
-    const testedBlock = testedEntries.length > 0
-      ? testedEntries.map(e => `- ${e.name}`).join('\n') + '\n'
-      : '- (none)\n'
-
-    let text = `📋 DayTrack Report – ${today}\n`
-    text += `⏱ Total: ${totalMins ? minsLabel(totalMins) : '—'} | Focus Rate: ${focusRate != null ? focusRate + '%' : '—'}\n\n`
-    text += `✅ *Done Today:*\n\n${doneBlock || '- (none)\n\n'}`
-    text += `🧪 *Tickets Tested:*\n${testedBlock}\n`
-    if (activeList) text += `🔄 In Progress:\n${activeList}\n\n`
-    text += `📌 Planned / Upcoming:\n${planList || '- (none)'}\n\n`
-    text += `🚧 Blockers:\n- None`
-    return text
-  }
 
   // ── Category pill renderer ────────────────────────────────────────────────────
 
@@ -1476,7 +1390,7 @@ ${aiSummaryBlock}
           </div>
           <div>
             <div className="dt-header-title">DayTrack</div>
-            <div className="dt-header-sub">Daily Time Recording Sheet</div>
+            <div className="dt-header-sub">Daily Time Log</div>
           </div>
         </div>
 
@@ -1559,11 +1473,56 @@ ${aiSummaryBlock}
           <button className="dt-header-settings-btn" title="Sync YouTrack tickets created today"
             onClick={scanYouTrackTickets} disabled={ytScanning}
             style={{ marginRight: 4 }}>
-            {ytScanning
-              ? <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-              : <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-            }
+            <YouTrackSyncIcon size={18} scanning={ytScanning} />
           </button>
+          <div
+            className="dt-autosend-chip"
+            ref={autoSendChipRef}
+            onMouseEnter={() => {
+              if (autoSendHoverTimer.current) clearTimeout(autoSendHoverTimer.current)
+              autoSendHoverTimer.current = setTimeout(() => {
+                if (autoSendChipRef.current) {
+                  const r = autoSendChipRef.current.getBoundingClientRect()
+                  setAutoSendHoverPos({ top: r.bottom + 6, left: r.left })
+                }
+              }, 150)
+            }}
+            onMouseLeave={() => {
+              if (autoSendHoverTimer.current) clearTimeout(autoSendHoverTimer.current)
+              setAutoSendHoverPos(null)
+            }}
+          >
+            <SmoothToggle
+              checked={!!slackCfg?.auto_send_enabled}
+              disabled={!slackCfg || !slackCfg.dest_channel_id}
+              onChange={toggleAutoSend}
+            />
+            <span className="dt-autosend-chip-label">Auto Send</span>
+          </div>
+          {autoSendHoverPos && createPortal(
+            <div className="hc-card hc-card--below" style={{ position: 'fixed', top: autoSendHoverPos.top, left: autoSendHoverPos.left, maxWidth: 300, zIndex: 10000 }}>
+              <ul className="hc-bullet-list">
+                {autoSendTooltipLines().map((line, i) => <li key={i}>{line}</li>)}
+              </ul>
+            </div>,
+            document.body
+          )}
+          {slackPostStatus?.posted && slackPostStatus.updated_at && (
+            <button
+              className="dt-slack-posted-delete"
+              key={slackPostStatus.updated_at}
+              title={`Posted ${dtRelativeTime(slackPostStatus.updated_at)}, click to delete this Slack message`}
+              disabled={deletingPost}
+              onClick={() => setShowDeletePostConfirm(true)}>
+              <span className="dt-slack-posted-dot" />
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                <line x1="10" y1="11" x2="10" y2="17"/>
+                <line x1="14" y1="11" x2="14" y2="17"/>
+              </svg>
+            </button>
+          )}
           <button
             className="dt-post-slack-btn"
             style={{ marginRight: 6, padding: '5px 11px', fontSize: 12 }}
@@ -1578,14 +1537,22 @@ ${aiSummaryBlock}
               postToSlack()
             }}
             disabled={posting}
-            title={slackCfg?.dest_channel_id ? `Post today's updates to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}` : 'Configure destination channel in settings'}
+            title={slackCfg?.dest_channel_id ? (slackPostStatus?.posted ? `Update today's Slack post in #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}` : `Post today's updates to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}`) : 'Configure destination channel in settings'}
           >
             {posting ? (
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: 'spin 1s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
             ) : (
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             )}
-            {posting ? 'Posting…' : slackCfg?.dest_channel_id ? `Post to #${slackCfg.dest_channel_name || slackCfg.dest_channel_id}` : 'Post to Slack'}
+            {posting
+              ? 'Posting…'
+              : slackPostStatus?.posted
+              ? slackCfg?.dest_channel_id
+                ? `Update in #${truncateChannel(slackCfg.dest_channel_name || slackCfg.dest_channel_id)}`
+                : 'Update in Slack'
+              : slackCfg?.dest_channel_id
+              ? `Post to #${truncateChannel(slackCfg.dest_channel_name || slackCfg.dest_channel_id)}`
+              : 'Post to Slack'}
           </button>
           <button className="dt-header-settings-btn" title="Slack auto-log settings"
             onClick={() => {
@@ -1601,6 +1568,7 @@ ${aiSummaryBlock}
       </div>
 
       {/* Main Grid */}
+      <DndContext sensors={dndSensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="dt-grid">
 
         {/* LEFT COLUMN */}
@@ -1629,16 +1597,39 @@ ${aiSummaryBlock}
                 <label className="form-label">Task Name *</label>
                 <div className="dt-input-with-mic">
                   <TaskNameInput value={mName} onChange={setMName} suggestions={suggestions}
-                    placeholder="What did you work on?" onEnter={addManualEntry} />
+                    placeholder="What did you work on?" onEnter={addManualEntry}
+                    onPaste={manualPasteSplit.handlePaste} />
                   <MicButton
                     onResult={text => { setMName(text); const c = detectCategory(text, categories); if (c) setMCat(c) }}
                     onError={msg => toast(msg, 'warn')}
                   />
                 </div>
+                {manualPasteSplit.pasteSplitPending && (
+                  <PasteSplitPrompt
+                    anchorRect={manualPasteSplit.pasteSplitPending.anchorRect}
+                    count={manualPasteSplit.pasteSplitPending.lines.length}
+                    busy={manualPasteSplit.busy}
+                    onSplit={() => manualPasteSplit.runSplit(addManualEntriesSplit)}
+                    onKeepOne={() => {
+                      setMName(manualPasteSplit.pasteSplitPending!.joinedValue)
+                      manualPasteSplit.dismiss()
+                    }}
+                  />
+                )}
               </div>
+              <Checkbox
+                checked={mInProgress}
+                onChange={v => {
+                  setMInProgress(v)
+                  if (v && NOT_IN_PROGRESS_CATS.has(mCat)) {
+                    setMCat(nearestAllowedCategory(categories, categories.indexOf(mCat), NOT_IN_PROGRESS_CATS))
+                  }
+                }}
+                label="Still in progress, not done yet"
+              />
               <div className="form-group">
                 <label className="form-label">Category</label>
-                <CategoryChips value={mCat} onChange={setMCat} categories={categories} />
+                <CategoryChips value={mCat} onChange={setMCat} categories={categories} disabledOptions={mInProgress ? NOT_IN_PROGRESS_CATS : undefined} />
               </div>
               <div className="dt-row2">
                 <div className="form-group">
@@ -1651,8 +1642,8 @@ ${aiSummaryBlock}
                 <div className="form-group">
                   <label className="form-label">End Time</label>
                   <div className="dt-time-wrap">
-                    <input className="form-input" type="time" value={to24h(mEnd)} onChange={e => setMEnd(to12h(e.target.value))} />
-                    <button className="dt-now-btn" onClick={() => setMEnd(nowHHMM())}>Now</button>
+                    <input className="form-input" type="time" value={to24h(mEnd)} onChange={e => setMEnd(to12h(e.target.value))} disabled={mInProgress} />
+                    <button className="dt-now-btn" onClick={() => setMEnd(nowHHMM())} disabled={mInProgress}>Now</button>
                   </div>
                 </div>
               </div>
@@ -1758,10 +1749,38 @@ ${aiSummaryBlock}
               </div>
               <div className="form-group">
                 <label className="form-label">Schedule For</label>
-                <select className="form-input" value={pWhen} onChange={e => setPWhen(e.target.value as 'today'|'tomorrow')}>
-                  <option value="today">Today</option>
-                  <option value="tomorrow">Tomorrow (Carry Over)</option>
-                </select>
+                <div className="pm-custom-dropdown" style={{ width: '100%' }}>
+                  <button
+                    ref={pWhenRef}
+                    type="button"
+                    className="pm-custom-dropdown-trigger"
+                    style={{ width: '100%', justifyContent: 'space-between' }}
+                    onClick={() => {
+                      if (pWhenOpen) { setPWhenOpen(false); return }
+                      const r = pWhenRef.current?.getBoundingClientRect()
+                      if (r) setPWhenPos({ top: r.bottom + 4, left: r.left, width: r.width })
+                      setPWhenOpen(true)
+                    }}
+                  >
+                    <span>{pWhen === 'today' ? 'Today' : 'Tomorrow (Carry Over)'}</span>
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                  </button>
+                </div>
+                {pWhenOpen && pWhenPos && createPortal(
+                  <div
+                    className="pm-custom-dropdown-menu"
+                    style={{ position: 'fixed', top: pWhenPos.top, left: pWhenPos.left, minWidth: pWhenPos.width, zIndex: 9999 }}
+                    onMouseDown={e => e.stopPropagation()}
+                  >
+                    {(['today', 'tomorrow'] as const).map(opt => (
+                      <button key={opt} className={`pm-dropdown-item${pWhen === opt ? ' active' : ''}`}
+                        onClick={() => { setPWhen(opt); setPWhenOpen(false) }}>
+                        {opt === 'today' ? 'Today' : 'Tomorrow (Carry Over)'}
+                      </button>
+                    ))}
+                  </div>,
+                  document.body
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Notes</label>
@@ -1802,6 +1821,7 @@ ${aiSummaryBlock}
                     const isDefault = DEFAULT_CATS.includes(c)
                     return (
                       <span key={c} className="dt-cat-tag" style={{ background: col + '20', color: col }}>
+                        <span className="dt-chip-emoji">{categoryEmoji(c, customCategoryIcons)}</span>
                         {c}
                         {!isDefault && (
                           <button className="dt-cat-tag-remove" onClick={() => removeCategory(c)} title="Remove">
@@ -1815,10 +1835,11 @@ ${aiSummaryBlock}
                   })}
                 </div>
                 <div className="dt-add-cat-row">
+                  <EmojiPicker emojis={allowedEmojis} value={newCatIcon} onChange={setNewCatIcon} placeholder="Category icon" />
                   <input className="form-input" value={newCat} onChange={e => setNewCat(e.target.value)}
                     placeholder="Add custom category…" autoComplete="off"
                     onKeyDown={e => e.key === 'Enter' && addCategory()} />
-                  <button className="dt-btn dt-btn-primary dt-btn-sm" onClick={addCategory}>
+                  <button className="dt-btn dt-btn-primary dt-btn-sm" onClick={addCategory} disabled={!newCatIcon || !newCat.trim()}>
                     <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
                     Add
                   </button>
@@ -1845,7 +1866,9 @@ ${aiSummaryBlock}
             </div>
 
             {loading ? (
-              <div className="dt-empty">Loading…</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'48px 0' }}>
+                <SprintScanLoader size={48} />
+              </div>
             ) : (
               <div className="dt-table-wrap">
                 <table className="dt-table">
@@ -1855,24 +1878,36 @@ ${aiSummaryBlock}
                       <th>Duration</th><th>Status</th><th>Actions</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <DroppableTBody id="today-zone" dropEnabled={isDesktopDrag}>
                     {parentEntries.length === 0 ? (
                       <tr><td colSpan={7}>
                         <div className="dt-empty">
+                          <div style={{ display:'flex', justifyContent:'center', marginBottom:'16px' }}>
+                            <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                          </div>
                           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/>
                             <path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>
                           </svg>
                           No tasks recorded yet. Add your first entry!
                         </div>
                       </td></tr>
-                    ) : parentEntries.map(e => {
+                    ) : [...reportableEntries, ...(excludedEntries.length > 0 ? [{ __divider: true } as any] : []), ...excludedEntries].map(e => {
+                      if (e.__divider) {
+                        return (
+                          <tr key="__report-divider" className="dt-report-divider">
+                            <td colSpan={7}>
+                              <span className="dt-report-divider-label">Not included in Slack report</span>
+                            </td>
+                          </tr>
+                        )
+                      }
                       const subs = subtaskMap.get(e.id) ?? []
                       const isExpanded = expandedEntries.has(e.id)
                       const subDurTotal = subs.reduce((a, s) => a + (s.duration_mins ?? 0), 0)
                       const displayDur = subs.length > 0 && subDurTotal > 0 ? subDurTotal : e.duration_mins
                       return (
                         <>
-                          <tr key={e.id}>
+                          <DraggableRow key={e.id} id={`entry-${e.id}`} dragEnabled={isDesktopDrag} className={[e.status === 'active' ? 'dt-row-inprogress' : '', rollbackIds.has(e.id) ? 'dt-row-rollback' : '', e.id.startsWith('temp-') ? 'dt-row-syncing' : ''].filter(Boolean).join(' ') || undefined}>
                             <td className="dt-td-name">
                               <div className="dt-td-name-row">
                                 <button
@@ -1908,7 +1943,10 @@ ${aiSummaryBlock}
                               : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                             </td>
                             <td>
-                              <span className={`dt-status dt-status--${e.status}`}>{e.status}</span>
+                              <span className={`dt-status dt-status--${e.status}`}>
+                                {e.status === 'active' && <span className="dt-status-pulse" />}
+                                {statusLabel(e.status)}
+                              </span>
                             </td>
                             <td>
                               <div className="dt-td-actions">
@@ -1928,9 +1966,58 @@ ${aiSummaryBlock}
                                 </button>
                               </div>
                             </td>
-                          </tr>
+                          </DraggableRow>
+                          {subtaskParent?.id === e.id && (
+                            <tr className="dt-subtask-row dt-subtask-inline-row">
+                              <td className="dt-td-name" colSpan={2}>
+                                <div className="dt-subtask-indent dt-subtask-inline-input">
+                                  ↳
+                                  <div className="dt-input-with-mic dt-input-with-mic--sm">
+                                    <input className="form-input" autoFocus value={stName}
+                                      onChange={e => setStName(e.target.value)}
+                                      placeholder="What's the subtask?" autoComplete="off"
+                                      onKeyDown={e => { if (e.key === 'Enter') saveSubtask(); if (e.key === 'Escape') setSubtaskParent(null) }}
+                                      onPaste={subtaskPasteSplit.handlePaste} />
+                                    <MicButton
+                                      onResult={text => { setStName(text); const c = detectCategory(text, categories); if (c) setStCat(c) }}
+                                      onError={msg => toast(msg, 'warn')} />
+                                  </div>
+                                  {subtaskPasteSplit.pasteSplitPending && (
+                                    <PasteSplitPrompt
+                                      anchorRect={subtaskPasteSplit.pasteSplitPending.anchorRect}
+                                      count={subtaskPasteSplit.pasteSplitPending.lines.length}
+                                      busy={subtaskPasteSplit.busy}
+                                      onSplit={() => subtaskPasteSplit.runSplit(addSubtasksSplit)}
+                                      onKeepOne={() => {
+                                        setStName(subtaskPasteSplit.pasteSplitPending!.joinedValue)
+                                        subtaskPasteSplit.dismiss()
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              </td>
+                              <td colSpan={2}>
+                                <div className="dt-time-wrap dt-time-wrap--inline">
+                                  <input className="form-input" type="time" value={to24h(stStart)}
+                                    onChange={e => setStStart(to12h(e.target.value))} />
+                                  <button className="dt-now-btn" onClick={() => setStStart(nowHHMM())}>Now</button>
+                                </div>
+                              </td>
+                              <td colSpan={2}></td>
+                              <td>
+                                <div className="dt-td-actions">
+                                  <button className="dt-icon-btn dt-icon-btn-edit" onClick={saveSubtask} title="Save subtask" disabled={subtaskPasteSplit.busy}>
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                  </button>
+                                  <button className="dt-icon-btn dt-icon-btn-del" onClick={() => setSubtaskParent(null)} title="Cancel" disabled={subtaskPasteSplit.busy}>
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                           {isExpanded && subs.map(s => (
-                            <tr key={s.id} className="dt-subtask-row">
+                            <tr key={s.id} className={`dt-subtask-row${s.status === 'active' ? ' dt-row-inprogress' : ''}`}>
                               <td className="dt-td-name">
                                 <div className="dt-subtask-indent">
                                   ↳ {s.name}
@@ -1945,7 +2032,10 @@ ${aiSummaryBlock}
                                 : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                               </td>
                               <td>
-                                <span className={`dt-status dt-status--${s.status}`}>{s.status}</span>
+                                <span className={`dt-status dt-status--${s.status}`}>
+                                  {s.status === 'active' && <span className="dt-status-pulse" />}
+                                  {statusLabel(s.status)}
+                                </span>
                               </td>
                               <td>
                                 <div className="dt-td-actions">
@@ -1964,7 +2054,7 @@ ${aiSummaryBlock}
                         </>
                       )
                     })}
-                  </tbody>
+                  </DroppableTBody>
                 </table>
               </div>
             )}
@@ -1992,10 +2082,13 @@ ${aiSummaryBlock}
                     <th>Task</th><th>Category</th><th>Scheduled</th><th>For</th><th>Status</th><th>Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <DroppableTBody id="planned-zone" dropEnabled={isDesktopDrag}>
                   {planned.length === 0 ? (
                     <tr><td colSpan={6}>
                       <div className="dt-empty">
+                        <div style={{ display:'flex', justifyContent:'center', marginBottom:'16px' }}>
+                          <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                        </div>
                         <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/>
                           <path d="M16 2v4M8 2v4M3 10h18"/>
                         </svg>
@@ -2006,7 +2099,7 @@ ${aiSummaryBlock}
                     const whenColor = p.when_type === 'tomorrow' ? 'var(--color-warning)' : 'var(--color-primary-light)'
                     const whenLabel = p.when_type === 'tomorrow' ? 'Tomorrow' : 'Today'
                     return (
-                      <tr key={p.id}>
+                      <DraggableRow key={p.id} id={`planned-${p.id}`} dragEnabled={isDesktopDrag} className={[rollbackIds.has(p.id) ? 'dt-row-rollback' : '', p.id.startsWith('temp-') ? 'dt-row-syncing' : ''].filter(Boolean).join(' ') || undefined}>
                         <td className="dt-td-name">
                           {p.name}
                           {p.notes && <span className="dt-td-note">{p.notes}</span>}
@@ -2018,7 +2111,7 @@ ${aiSummaryBlock}
                             {whenLabel}
                           </span>
                         </td>
-                        <td><span className="dt-status dt-status--planned">{p.status}</span></td>
+                        <td><span className="dt-status dt-status--planned">{plannedStatusLabel(p.status)}</span></td>
                         <td>
                           <div className="dt-td-actions">
                             <button className="dt-icon-btn dt-icon-btn-start" onClick={() => startPlanned(p)} title="Start this task now">
@@ -2032,10 +2125,10 @@ ${aiSummaryBlock}
                             </button>
                           </div>
                         </td>
-                      </tr>
+                      </DraggableRow>
                     )
                   })}
-                </tbody>
+                </DroppableTBody>
               </table>
             </div>
           </div>
@@ -2088,7 +2181,16 @@ ${aiSummaryBlock}
 
             <div className="dt-standup-box">
               <h4>DayTrack Summary</h4>
-              <pre>{buildStandup()}</pre>
+              <div className="dt-standup-preview">
+                {slackPreviewText
+                  ? slackPreviewText.split('\n').map((line, i) => (
+                    <div key={i} className="dt-standup-line">
+                      {line ? <MrkdwnText text={line} /> : ' '}
+                    </div>
+                  ))
+                  : 'Nothing tracked yet for this day.'}
+              </div>
+              <p className="dt-standup-hint">This is the exact message "Post to Slack" sends.</p>
             </div>
 
             <div className="dt-summary-actions">
@@ -2096,23 +2198,61 @@ ${aiSummaryBlock}
                 <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                 Export Report
               </button>
-              <button className="dt-btn dt-btn-primary dt-btn-sm" onClick={copyStandup}>
-                <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-                Copy DayTrack
-              </button>
-              <button className="dt-btn dt-btn-ghost dt-btn-sm" onClick={exportCSV}>
-                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-                Export CSV
+              <button
+                className={`dt-btn dt-btn-primary dt-btn-sm dt-copy-btn${copyFlash ? ' dt-copy-btn--flash' : ''}`}
+                onClick={copyStandup}
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  {copyFlash ? (
+                    <motion.span
+                      key="copied"
+                      className="dt-copy-btn-face"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                      Copied!
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key="default"
+                      className="dt-copy-btn-face"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                    >
+                      <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
+                      Copy DayTrack
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </button>
             </div>
           </div>
 
         </div>
       </div>
+      <DragOverlay>
+        {draggedLabel ? <div className="dt-drag-overlay-chip">{draggedLabel}</div> : null}
+      </DragOverlay>
+      </DndContext>
+
+      {showDeletePostConfirm && (
+        <ConfirmModal
+          title="Delete Slack message?"
+          message="This removes today's Day Track update from Slack. This cannot be undone."
+          detail="Posting again afterward sends a brand new message."
+          confirmLabel={deletingPost ? 'Deleting…' : 'Delete'}
+          variant="danger"
+          onConfirm={deleteSlackPost}
+          onCancel={() => setShowDeletePostConfirm(false)}
+        />
+      )}
 
       {/* Settings Modal — Slack Auto-Log */}
       {settingsOpen && (
@@ -2131,7 +2271,9 @@ ${aiSummaryBlock}
             </div>
 
             {slackCfgLoading ? (
-              <div className="dt-empty">Loading config…</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'48px 0' }}>
+                <SprintScanLoader size={40} />
+              </div>
             ) : slackCfg ? (
               <>
                 <div className="dt-settings-section-label">Slack Auto-Log</div>
@@ -2341,61 +2483,6 @@ ${aiSummaryBlock}
         </div>
       )}
 
-      {/* Add Subtask Modal */}
-      {subtaskParent && (
-        <div className="dt-modal-overlay open" onClick={e => { if (e.target === e.currentTarget) setSubtaskParent(null) }}>
-          <div className="dt-modal">
-            <h3>Add Subtask</h3>
-            <div className="dt-subtask-parent-label">
-              Parent: <strong>{subtaskParent.name}</strong>
-              {subtaskParent.start_time && <span className="dt-subtask-parent-time"> · starts {subtaskParent.start_time}</span>}
-            </div>
-            <div className="form-group">
-              <label className="form-label">Subtask Name *</label>
-              <div className="dt-input-with-mic">
-                <input className="form-input" value={stName} onChange={e => setStName(e.target.value)}
-                  placeholder="What's the subtask?" autoComplete="off"
-                  onKeyDown={e => e.key === 'Enter' && saveSubtask()} />
-                <MicButton onResult={text => { setStName(text); const c = detectCategory(text, categories); if (c) setStCat(c) }} onError={msg => toast(msg, 'warn')} />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Category</label>
-              <CategoryChips value={stCat} onChange={setStCat} categories={categories} />
-            </div>
-            <div className="dt-row2">
-              <div className="form-group">
-                <label className="form-label">
-                  Start Time
-                  {subtaskParent.start_time && <span className="dt-subtask-time-hint"> (min: {subtaskParent.start_time})</span>}
-                </label>
-                <div className="dt-time-wrap">
-                  <input className="form-input" type="time" value={to24h(stStart)} onChange={e => setStStart(to12h(e.target.value))} />
-                  <button className="dt-now-btn" onClick={() => setStStart(nowHHMM())}>Now</button>
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">End Time</label>
-                <div className="dt-time-wrap">
-                  <input className="form-input" type="time" value={to24h(stEnd)} onChange={e => setStEnd(to12h(e.target.value))} />
-                  <button className="dt-now-btn" onClick={() => setStEnd(nowHHMM())}>Now</button>
-                </div>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <div className="dt-input-with-mic dt-input-with-mic--textarea">
-                <textarea className="form-input" value={stNotes} onChange={e => setStNotes(e.target.value)} rows={2} />
-                <MicButton onResult={text => setStNotes(prev => prev ? prev + ' ' + text : text)} onError={msg => toast(msg, 'warn')} />
-              </div>
-            </div>
-            <div className="dt-modal-footer">
-              <button className="dt-btn dt-btn-ghost" onClick={() => setSubtaskParent(null)}>Cancel</button>
-              <button className="dt-btn dt-btn-primary" onClick={saveSubtask}>Add Subtask</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Export Modal */}
       {exportOpen && (
@@ -2425,14 +2512,16 @@ ${aiSummaryBlock}
 
             {/* Export options */}
             <div className="dt-export-options">
-              <label className="dt-export-toggle">
-                <input type="checkbox" checked={exportBreaks} onChange={e => { setExportBreaks(e.target.checked); setExportAISummary(null) }} />
-                <span>Include Breaks</span>
-              </label>
-              <label className="dt-export-toggle">
-                <input type="checkbox" checked={exportSummarise} onChange={e => { setExportSummarise(e.target.checked); setExportAISummary(null) }} />
-                <span>Summarise with AI <span className="dt-export-toggle-hint">(Groq · skips tickets)</span></span>
-              </label>
+              <Checkbox
+                checked={exportBreaks}
+                onChange={v => { setExportBreaks(v); setExportAISummary(null) }}
+                label="Include Breaks"
+              />
+              <Checkbox
+                checked={exportSummarise}
+                onChange={v => { setExportSummarise(v); setExportAISummary(null) }}
+                label={<>Summarise with AI <span className="dt-export-toggle-hint">(Groq · skips tickets)</span></>}
+              />
             </div>
 
             {/* AI summary preview — shown after first generation, reused by all buttons */}

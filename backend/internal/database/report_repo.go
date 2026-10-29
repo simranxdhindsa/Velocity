@@ -805,6 +805,7 @@ type IssueTimeline struct {
 	IssueSummary       string       `json:"issue_summary"`
 	Assignee           string       `json:"assignee"`
 	Priority           string       `json:"priority"`
+	IssueType          string       `json:"issue_type"` // YouTrack Type field (e.g. "Hotfix", "Regression", "Bug")
 	Pinned             bool         `json:"pinned"`
 	TotalStints        int          `json:"total_stints"`        // how many times entered In Progress
 	TotalHours         float64      `json:"total_hours"`         // sum of all completed stints + live elapsed
@@ -886,11 +887,16 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 			COALESCE(priority,'') AS priority,
 			transitioned_at,
 			duration_in_prev_state_hours,
-			COALESCE(comment,'') AS comment
+			COALESCE(comment,'') AS comment,
+			COALESCE(issue_type,'') AS issue_type
 		FROM issue_state_log
 		WHERE issue_id IN (
 			SELECT DISTINCT issue_id FROM issue_state_log
-			WHERE LOWER(to_state) = 'in progress'%s
+			WHERE (
+				LOWER(to_state) = 'in progress'
+				OR LOWER(to_state) IN ('dev','stage','prod','mobile done','deployed','verified','done','closed')
+			)%s
+			LIMIT 300
 		)
 		ORDER BY issue_id, transitioned_at ASC
 	`, sprintFilter), args...)
@@ -911,6 +917,7 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 		at          time.Time
 		durationHrs *float64
 		comment     string
+		issueType   string
 	}
 
 	byIssue := map[string][]rawRow{}
@@ -921,7 +928,7 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 		if err := rows.Scan(
 			&rr.issueID, &rr.summary, &rr.assignee, &rr.movedBy,
 			&rr.fromState, &rr.toState, &rr.priority,
-			&rr.at, &rr.durationHrs, &rr.comment,
+			&rr.at, &rr.durationHrs, &rr.comment, &rr.issueType,
 		); err != nil {
 			return nil, err
 		}
@@ -942,8 +949,8 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 	for _, issueID := range issueOrder {
 		rrows := byIssue[issueID]
 
-		// Use the most recent non-empty summary/assignee/priority
-		var summary, assignee, priority string
+		// Use the most recent non-empty summary/assignee/priority/issueType
+		var summary, assignee, priority, issueType string
 		for _, rr := range rrows {
 			if rr.summary != "" {
 				summary = rr.summary
@@ -953,6 +960,9 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 			}
 			if rr.priority != "" {
 				priority = rr.priority
+			}
+			if rr.issueType != "" {
+				issueType = rr.issueType
 			}
 		}
 
@@ -1045,6 +1055,7 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 			IssueSummary:   summary,
 			Assignee:       assignee,
 			Priority:       priority,
+			IssueType:      issueType,
 			Pinned:         pinnedSet[issueID],
 			TotalStints:    stintNum,
 			TotalHours:     totalHours,
@@ -1072,6 +1083,114 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 	})
 
 	return timelines, nil
+}
+
+// ─── Sprint Radar ─────────────────────────────────────────────────────────────
+
+// RadarIssue is a flattened per-issue record for the Sprint Pulse dashboard.
+type RadarIssue struct {
+	IssueID       string    `json:"issue_id"`
+	IssueSummary  string    `json:"issue_summary"`
+	Assignee      string    `json:"assignee"`
+	Priority      string    `json:"priority"`
+	IssueType     string    `json:"issue_type"`
+	CurrentState  string    `json:"current_state"`
+	StateEnteredAt time.Time `json:"state_entered_at"`
+	HoursInState  float64   `json:"hours_in_state"`
+	IsDone        bool      `json:"is_done"`
+	Tier          int       `json:"tier"` // 1=Critical 2=Urgent 3=Scheduled 4=Normal 0=Regression
+}
+
+// GetSprintRadarIssues returns all issues seen within the sprint window with
+// their current state and time-in-state, classified by tier.
+// since/until may be nil (returns all data).
+func (r *ReportRepository) GetSprintRadarIssues(ctx context.Context, since, until *time.Time) ([]RadarIssue, error) {
+	pool := GetPool()
+
+	args := []any{}
+	filter := ""
+	if since != nil {
+		args = append(args, *since)
+		filter += fmt.Sprintf(" AND transitioned_at >= $%d", len(args))
+	}
+	if until != nil {
+		args = append(args, *until)
+		filter += fmt.Sprintf(" AND transitioned_at <= $%d", len(args))
+	}
+
+	// For each issue, get the most recent transition (= current state).
+	// DISTINCT ON + ORDER BY guarantees one row per issue, the latest one.
+	query := fmt.Sprintf(`
+		SELECT
+			issue_id,
+			COALESCE(issue_summary,'') AS issue_summary,
+			COALESCE(assignee,'') AS assignee,
+			COALESCE(priority,'') AS priority,
+			COALESCE(issue_type,'') AS issue_type,
+			to_state AS current_state,
+			transitioned_at AS state_entered_at
+		FROM (
+			SELECT DISTINCT ON (issue_id)
+				issue_id, issue_summary, assignee, priority, issue_type,
+				to_state, transitioned_at
+			FROM issue_state_log
+			WHERE issue_id IN (
+				SELECT DISTINCT issue_id FROM issue_state_log WHERE TRUE%s
+			)
+			ORDER BY issue_id, transitioned_at DESC
+		) latest
+		ORDER BY issue_id
+	`, filter)
+
+	rows, err := pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("GetSprintRadarIssues query failed: %w", err)
+	}
+	defer rows.Close()
+
+	doneLower := map[string]bool{
+		"dev": true, "done": true, "mobile done": true,
+		"deployed": true, "closed": true, "ready for prod": true,
+		"ready for stage": true, "stage": true, "prod": true,
+	}
+
+	now := time.Now()
+	var issues []RadarIssue
+	for rows.Next() {
+		var ri RadarIssue
+		if err := rows.Scan(
+			&ri.IssueID, &ri.IssueSummary, &ri.Assignee,
+			&ri.Priority, &ri.IssueType, &ri.CurrentState, &ri.StateEnteredAt,
+		); err != nil {
+			return nil, err
+		}
+		ri.HoursInState = now.Sub(ri.StateEnteredAt).Hours()
+		ri.IsDone = doneLower[strings.ToLower(ri.CurrentState)]
+		ri.Tier = classifyRadarTier(ri.Priority, ri.IssueType)
+		issues = append(issues, ri)
+	}
+	return issues, nil
+}
+
+// classifyRadarTier maps priority + issue_type to a display tier.
+func classifyRadarTier(priority, issueType string) int {
+	t := strings.ToLower(strings.TrimSpace(issueType))
+	if t == "hotfix" {
+		return 1
+	}
+	p := strings.ToLower(strings.TrimSpace(priority))
+	switch p {
+	case "p0", "a0", "critical":
+		return 1
+	case "p1", "a1", "major":
+		return 2
+	case "p2", "a2":
+		return 3
+	}
+	if t == "regression" {
+		return 0 // special regression track
+	}
+	return 4
 }
 
 // GetDelayedIssues returns issues that are currently In Progress AND overdue

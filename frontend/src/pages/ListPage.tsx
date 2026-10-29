@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { Task, TaskStatus, TaskPriority } from '../types'
 import api from '../services/api'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 
 type SortField = 'title' | 'status' | 'priority' | 'due_date' | 'created_at'
 type SortDirection = 'asc' | 'desc'
@@ -104,7 +105,7 @@ export function ListPage() {
     return (
       <div className="list-page">
         <div className="loading-screen">
-          <div className="loading-spinner"></div>
+          <SprintScanLoader size={48} />
           <p>Loading tasks...</p>
         </div>
       </div>

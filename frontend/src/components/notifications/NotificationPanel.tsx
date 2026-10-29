@@ -1,5 +1,7 @@
 import { NotificationItem } from './NotificationItem'
 import type { Notification } from '../../services/api'
+import { QuantumOrbitLoader } from '../brand/VelocityLoaders'
+import { VelocityLogo } from '../brand/VelocityLogo'
 
 interface NotificationPanelProps {
   notifications: Notification[]
@@ -35,7 +37,7 @@ export function NotificationPanel({
       <div className="notification-panel-content">
         {loading ? (
           <div className="notification-loading">
-            <div className="loading-spinner" />
+            <QuantumOrbitLoader size={40} />
             <p>Loading notifications...</p>
           </div>
         ) : notifications.length > 0 ? (
@@ -50,17 +52,9 @@ export function NotificationPanel({
           </div>
         ) : (
           <div className="notification-empty">
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-            </svg>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+              <VelocityLogo variant="icon" size="md" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+            </div>
             <p>No notifications</p>
           </div>
         )}

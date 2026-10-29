@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
 import type { IssueTimeline, IssueStint, SprintBoardIssue } from '../services/api'
+import { CountUp } from './CountUp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -241,7 +242,7 @@ function KPIBar({ timelines, right }: { timelines: IssueTimeline[]; right?: Reac
     <div className="pm-tt-kpi-bar">
       {chips.map((c, i) => (
         <div key={i} className="pm-tt-kpi-chip" style={{ animationDelay: `${i * 60}ms` }}>
-          <span className={`pm-tt-kpi-value ${c.cls}`}>{c.val}</span>
+          <span className={`pm-tt-kpi-value ${c.cls}`}><CountUp value={c.val} /></span>
           <span className="pm-tt-kpi-label">{c.label}</span>
         </div>
       ))}
@@ -622,7 +623,7 @@ function BDevCard({
           Bounce
         </span>
         <span className="pm-tt-b-legend-item">
-          <span className="pm-tt-b-legend-swatch" style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.2)' }} />
+          <span className="pm-tt-b-legend-swatch" style={{ width: 1, height: 12, background: 'rgba(var(--overlay-rgb),0.2)' }} />
           SLA limit
         </span>
       </div>
@@ -709,7 +710,7 @@ function packLanes(tickets: IssueTimeline[], sprintStart: Date): IssueTimeline[]
 }
 
 function ganttColor(t: IssueTimeline): { bg: string; glow: string } {
-  if (t.is_live)    return { bg: 'var(--color-primary)',   glow: 'rgba(99,102,241,0.5)' }
+  if (t.is_live)    return { bg: 'var(--color-primary)',   glow: 'rgba(var(--color-primary-rgb),0.5)' }
   if (t.is_overdue) return { bg: 'var(--color-danger)',    glow: 'rgba(239,68,68,0.4)' }
   const ratio = t.total_hours / t.threshold_hours
   if (ratio >= 0.8) return { bg: 'var(--color-warning)',   glow: 'rgba(245,158,11,0.4)' }

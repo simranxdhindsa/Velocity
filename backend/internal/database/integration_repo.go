@@ -168,6 +168,32 @@ func (r *IntegrationRepository) GetSlackIntegration(ctx context.Context, userID 
 	return &integration, nil
 }
 
+// GetSlackIntegrationByTeamID returns any one connected Slack integration for a
+// workspace (team_id). Velocity's Slack integration is stored per-Velocity-user,
+// but everyone in the same workspace pastes the same bot token, so any connected
+// row is usable as "the" bot credential for workspace-wide inbound events (e.g.
+// the Slack Events webhook), which arrive with a team_id but no Velocity user
+// context of their own.
+func (r *IntegrationRepository) GetSlackIntegrationByTeamID(ctx context.Context, teamID string) (*models.SlackIntegration, error) {
+	pool := GetPool()
+
+	var integration models.SlackIntegration
+	err := pool.QueryRow(ctx, `
+		SELECT id, user_id, bot_token, team_id, team_name, channel_id, channel_name,
+		       monitor_channel_id, monitor_channel_name, connected, created_at, updated_at
+		FROM slack_integrations WHERE team_id = $1 AND connected = true
+		ORDER BY updated_at DESC LIMIT 1
+	`, teamID).Scan(&integration.ID, &integration.UserID, &integration.BotToken, &integration.TeamID,
+		&integration.TeamName, &integration.ChannelID, &integration.ChannelName,
+		&integration.MonitorChannelID, &integration.MonitorChannelName,
+		&integration.Connected, &integration.CreatedAt, &integration.UpdatedAt)
+
+	if err != nil {
+		return nil, err
+	}
+	return &integration, nil
+}
+
 // UpdateSlackMonitorChannel updates the monitoring channel (for @mention scanning)
 func (r *IntegrationRepository) UpdateSlackMonitorChannel(ctx context.Context, userID, channelID, channelName string) error {
 	pool := GetPool()

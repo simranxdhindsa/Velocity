@@ -1,0 +1,123 @@
+/* ColorWheelPicker (components/ColorWheelPicker.tsx) */
+.cwp-wrap {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cwp-rim,
+.cwp-solid {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+.cwp-rim { z-index: 0; }
+/* Inner disc matches the card it sits on, leaving a thin rainbow (or picked colour) rim */
+.cwp-solid { z-index: 1; background: linear-gradient(var(--bg-card), var(--bg-card)), var(--bg-base); }
+
+.cwp-field {
+  position: relative;
+  width: calc(100% - 5px);
+  height: calc(100% - 5px);
+  border-radius: 50%;
+  z-index: 2;
+}
+
+.cwp-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  translate: -50% -50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+.cwp-dot:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.cwp-dot-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+.cwp-dot--on .cwp-dot-ring { mix-blend-mode: normal; box-shadow: 0 0 0 2px var(--text-primary); }
+
+.cwp-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  translate: -50% -50%;
+  pointer-events: none;
+  mix-blend-mode: color-burn;
+}
+
+/* Classic / Wheel switch in each Theme card header */
+.tsp-card-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tsp-picker-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), 0.06);
+  border: 1px solid var(--border-color);
+}
+.tsp-picker-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.tsp-picker-switch-btn:hover { color: var(--text-primary); }
+.tsp-picker-switch-btn.active { background: var(--color-primary); color: #fff; }
+.tsp-picker-switch-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+
+.tsp-wheel-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 4px;
+}
+.tsp-wheel-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.tsp-wheel-hint { font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
+
+/* Very narrow screens: stack the details under the wheel */
+@media (max-width: 400px) {
+  .tsp-wheel-row { flex-direction: column; align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tsp-picker-switch-btn { transition: none; }
+}

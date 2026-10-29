@@ -1,0 +1,52 @@
+/* ── Paste Split Prompt ────────────────────────────────────────────────────── */
+
+.paste-split-prompt {
+  position: fixed;
+  z-index: 9500;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 10px);
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.4));
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.paste-split-prompt-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.paste-split-prompt-text svg { color: var(--color-primary); flex-shrink: 0; }
+
+.paste-split-prompt-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.paste-split-btn {
+  flex: 1;
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
+}
+.paste-split-btn:hover { background: var(--bg-base); }
+
+.paste-split-btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+.paste-split-btn--primary:hover { background: var(--color-primary-hover); }

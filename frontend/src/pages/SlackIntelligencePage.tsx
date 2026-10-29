@@ -1,52 +1,94 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
-  RefreshCw, CheckCircle, Clock, X, MessageSquare, Search, Zap,
+  RefreshCw, CheckCircle, Clock, X, MessageSquare, Search, Zap, Settings as SettingsIcon, Bell,
 } from 'lucide-react'
+import { TerminalLoader, SprintScanLoader, SvgTerminalLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import api from '../services/api'
-import type { SlackMention, SlackThread, ReminderItem } from '../services/api'
+import type { SlackMention, SlackThread, ReminderItem, ChannelRef, SlackWorkspaceUser } from '../services/api'
 import { SlackIcon, MentionCard, ThreadCard, isSnoozed, cleanSlackText, timeAgo } from './SlackCards'
-import { SprintPulseTab, SavedItemsTab, SettingsTabContent, RemindersTabContent, getPresetDate } from './SlackTabs'
+import { SettingsTabContent, RemindersTabContent, getPresetDate } from './SlackTabs'
 import type { Preset } from './SlackTabs'
+import { SlackMessagesHub } from './SlackMessagesHub'
+import { BotConversationsView } from '@/components/SlackBotConversations'
+import { McpActivityView } from '@/components/McpActivityView'
+import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
+import { useAuth } from '@/contexts/AuthContext'
 import '../styles/pages/slack.css'
+import { CountUp } from '../components/CountUp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Tab = 'inbox' | 'threads' | 'reminders' | 'pulse' | 'saved' | 'settings'
+type Tab = 'inbox' | 'messages' | 'mcp-activity'
+type InboxView = 'mentions' | 'threads'
 type InboxFilter = 'Needs Action' | 'Pinned' | 'All' | 'Snoozed' | 'Resolved'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface SlackIntelligencePageProps {
   initialTab?: Tab
   onTabChange?: (tab: Tab) => void
-  onOpenPMAssistant?: () => void
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export function SlackIntelligencePage({
-  initialTab = 'inbox',
+  initialTab = 'messages',
   onTabChange,
-  onOpenPMAssistant,
 }: SlackIntelligencePageProps) {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [tab, setTab] = useState<Tab>(initialTab)
+  // MCP Activity tab: Velocity Slack bot chats, or (admins) Claude's
+  // connector actions. ?view=claude comes from the old /mcp-activity URL.
+  const [activityView, setActivityView] = usePersistedState<'bot' | 'claude'>(
+    PERSIST.SLACK_ACTIVITY_VIEW, 'bot', { validate: ['bot', 'claude'] },
+  )
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('view') === 'claude') setActivityView('claude')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const showClaudeActions = isAdmin && activityView === 'claude'
+  const [inboxView, setInboxView] = useState<InboxView>('mentions')
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>('Needs Action')
   const [search, setSearch] = useState('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [remindersOpen, setRemindersOpen] = useState(false)
 
   useEffect(() => { setTab(initialTab) }, [initialTab])
   const handleTabChange = (t: Tab) => { setTab(t); onTabChange?.(t) }
+  const goToInbox = (view: InboxView, filter?: InboxFilter) => {
+    handleTabChange('inbox')
+    setInboxView(view)
+    if (filter) setInboxFilter(filter)
+  }
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [mentions, setMentions] = useState<SlackMention[]>([])
+  // Full, unbounded pinned-mentions list — `mentions` above is capped to the
+  // 50 most recent, so an older pin would silently vanish from the Pinned
+  // filter if we filtered `mentions` alone. Fetched lazily the first time the
+  // Pinned filter is selected.
+  const [pinnedMentions, setPinnedMentions] = useState<SlackMention[]>([])
+  const [pinnedLoaded, setPinnedLoaded] = useState(false)
   const [threads, setThreads] = useState<SlackThread[]>([])
   const [remindersAll, setRemindersAll] = useState<ReminderItem[]>([])
   const [savedTemplates, setSavedTemplates] = useState<Array<{ id: string; body: string }>>([])
   const [loading, setLoading] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [slackChannels, setSlackChannels] = useState<ChannelRef[]>([])
+  const [workspaceUsers, setWorkspaceUsers] = useState<SlackWorkspaceUser[]>([])
+  // Resolves <@USERID> mention tokens to real display names — same map shape
+  // used in Messages, so a mentioned user's name renders identically (and
+  // highlighted, not a raw ID) everywhere Slack text is shown.
+  const userMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const u of workspaceUsers) m.set(u.id, u.profile.display_name || u.real_name || u.name)
+    return m
+  }, [workspaceUsers])
 
   // ── Settings state ────────────────────────────────────────────────────────
   const [slackTeamId, setSlackTeamId] = useState('T03Q9638YJJ')
   const [monitorChannelId, setMonitorChannelId] = useState('')
   const [monitorChannelName, setMonitorChannelName] = useState('')
   const [resolvedMonitorChannelName, setResolvedMonitorChannelName] = useState('')
-  const [ytBaseUrl, setYtBaseUrl] = useState('')
 
   // ── Scan state ────────────────────────────────────────────────────────────
   const [scanning, setScanning] = useState(false)
@@ -71,6 +113,12 @@ export function SlackIntelligencePage({
     catch { setFetchError('Could not load threads.') }
   }, [])
 
+  const fetchPinnedMentions = useCallback(async () => {
+    try { const res = await api.getSlackPinnedMentions(); setPinnedMentions(res.mentions ?? []) }
+    catch {}
+    finally { setPinnedLoaded(true) }
+  }, [])
+
   const fetchReminders = useCallback(async () => {
     try { const res = await api.getReminders(); if (res.success && res.data) setRemindersAll(res.data) }
     catch {}
@@ -93,15 +141,24 @@ export function SlackIntelligencePage({
     api.getSlackStatus().then((res: any) => {
       if (res.team_id) setSlackTeamId(res.team_id)
       if (res.monitor_channel_id) setMonitorChannelId(res.monitor_channel_id)
-      if (res.monitor_channel_name) {
-        setMonitorChannelName(res.monitor_channel_name)
-        setResolvedMonitorChannelName(res.monitor_channel_name)
+      const resolvedName = res.monitor_channel_name || res.channel_name || ''
+      if (resolvedName) {
+        setMonitorChannelName(resolvedName)
+        setResolvedMonitorChannelName(resolvedName)
       }
     }).catch(() => {})
-    api.getYouTrackStatus().then(res => {
-      if (res.base_url) setYtBaseUrl(res.base_url.replace(/\/$/, ''))
+    api.getSlackChannels().then(res => {
+      if (Array.isArray(res)) setSlackChannels(res.map((c: any) => ({ id: c.id, name: c.name })))
     }).catch(() => {})
+    api.getWorkspaceUsers().then(res => setWorkspaceUsers((res as unknown as SlackWorkspaceUser[]) ?? [])).catch(() => {})
   }, [fetchAll])
+
+  // Refetch the full pinned list each time the Pinned filter is opened, since
+  // pin/unpin toggles happen inside MentionCard and don't update this page's
+  // `mentions` array directly.
+  useEffect(() => {
+    if (tab === 'inbox' && inboxView === 'mentions' && inboxFilter === 'Pinned') fetchPinnedMentions()
+  }, [tab, inboxView, inboxFilter, fetchPinnedMentions])
 
   // Auto-scan every 15 min
   useEffect(() => {
@@ -140,6 +197,11 @@ export function SlackIntelligencePage({
   const handleDismiss = async (messageTS: string) => {
     await api.dismissSlackMention(messageTS).catch(() => {})
     setMentions(prev => prev.map(m => m.message_ts === messageTS ? { ...m, replied: true } : m))
+  }
+
+  const handleDismissThread = async (threadTS: string) => {
+    await api.dismissSlackThread(threadTS).catch(() => {})
+    setThreads(prev => prev.map(t => t.thread_ts === threadTS ? { ...t, dismissed: true } : t))
   }
 
   const handleSnooze = async (type: 'mention' | 'thread', ts: string, until: '2h' | 'tomorrow') => {
@@ -199,18 +261,17 @@ export function SlackIntelligencePage({
 
   // ── Derived state ─────────────────────────────────────────────────────────
   const needsActionCount = mentions.filter(m => !m.replied && !isSnoozed(m.snoozed_until)).length
-    + threads.filter(t => !t.has_reply && !isSnoozed(t.snoozed_until)).length
+    + threads.filter(t => !t.has_reply && !t.dismissed && !isSnoozed(t.snoozed_until)).length
 
   const upcomingReminders = remindersAll.filter(r => r.status === 'pending' && r.type === 'custom')
 
   const visibleMentions = (() => {
-    let list = mentions
+    let list = inboxFilter === 'Pinned' ? pinnedMentions : mentions
     if (inboxFilter === 'Needs Action') list = list.filter(m => !m.replied && !isSnoozed(m.snoozed_until))
-    else if (inboxFilter === 'Pinned') list = list.filter(m => m.pinned)
     else if (inboxFilter === 'Snoozed') list = list.filter(m => isSnoozed(m.snoozed_until))
     else if (inboxFilter === 'Resolved') list = list.filter(m => m.replied)
     if (search.trim()) list = list.filter(m =>
-      cleanSlackText(m.message_text).toLowerCase().includes(search.toLowerCase()) ||
+      cleanSlackText(m.message_text, userMap).toLowerCase().includes(search.toLowerCase()) ||
       m.sender_name.toLowerCase().includes(search.toLowerCase())
     )
     return [...list].sort((a, b) => {
@@ -222,25 +283,23 @@ export function SlackIntelligencePage({
 
   const visibleThreads = (() => {
     let list = threads
-    if (inboxFilter === 'Needs Action') list = list.filter(t => !t.has_reply && !isSnoozed(t.snoozed_until))
+    if (inboxFilter === 'Needs Action') list = list.filter(t => !t.has_reply && !t.dismissed && !isSnoozed(t.snoozed_until))
     else if (inboxFilter === 'Snoozed') list = list.filter(t => isSnoozed(t.snoozed_until))
-    if (search.trim()) list = list.filter(t => cleanSlackText(t.message_text).toLowerCase().includes(search.toLowerCase()))
+    else if (inboxFilter === 'Resolved') list = list.filter(t => t.has_reply || t.dismissed)
+    if (search.trim()) list = list.filter(t => cleanSlackText(t.message_text, userMap).toLowerCase().includes(search.toLowerCase()))
     return list
   })()
 
   const lastScanLabel = lastScan ? `Last scan ${timeAgo(lastScan.toISOString())}` : 'Last scan 4m ago'
 
   const TABS: Array<{ id: Tab; label: string; badge?: number | 'dot' }> = [
-    { id: 'inbox',    label: 'Priority Inbox', badge: needsActionCount > 0 ? needsActionCount : undefined },
-    { id: 'threads',  label: 'My Threads',     badge: threads.filter(t => !t.has_reply && !isSnoozed(t.snoozed_until)).length || undefined },
-    { id: 'reminders',label: 'Reminders',      badge: upcomingReminders.length || undefined },
-    { id: 'pulse',    label: 'Sprint Pulse',   badge: 'dot' },
-    { id: 'saved',    label: 'Saved' },
-    { id: 'settings', label: 'Settings' },
+    { id: 'messages', label: 'Messages' },
+    { id: 'inbox',    label: 'Inbox', badge: needsActionCount > 0 ? needsActionCount : undefined },
+    { id: 'mcp-activity', label: 'MCP Activity' },
   ]
 
   const INBOX_FILTERS: InboxFilter[] = ['Needs Action', 'Pinned', 'All', 'Snoozed', 'Resolved']
-  const THREAD_FILTERS: InboxFilter[] = ['Needs Action', 'All', 'Snoozed']
+  const THREAD_FILTERS: InboxFilter[] = ['Needs Action', 'All', 'Snoozed', 'Resolved']
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -259,6 +318,13 @@ export function SlackIntelligencePage({
             <RefreshCw size={13} className={scanning ? 'spin' : ''} />
             {scanning ? 'Scanning…' : 'Scan Now'}
           </button>
+          <button className="si2-icon-btn" onClick={() => setRemindersOpen(true)} title="Reminders" aria-label="Reminders">
+            <Bell size={15} />
+            {upcomingReminders.length > 0 && <span className="si2-icon-btn-dot" />}
+          </button>
+          <button className="si2-icon-btn" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">
+            <SettingsIcon size={15} />
+          </button>
         </div>
       </div>
 
@@ -276,23 +342,20 @@ export function SlackIntelligencePage({
       {/* KPI row */}
       <div className="si2-kpi-row">
         {[
-          { label: 'TOTAL MENTIONS',  value: mentions.length,                                  color: '#93c5fd', glow: '#3b82f6', sub: 'unreplied @mentions', tabTarget: 'inbox' as Tab,    filterTarget: 'All' as InboxFilter },
-          { label: 'NEEDS ACTION',    value: needsActionCount,                                  color: '#f87171', glow: '#ef4444', sub: 'follow up needed',    tabTarget: 'inbox' as Tab,    filterTarget: 'Needs Action' as InboxFilter },
-          { label: 'SNOOZED',         value: mentions.filter(m => isSnoozed(m.snoozed_until)).length, color: '#fcd34d', glow: '#f59e0b', sub: 'check later',  tabTarget: 'inbox' as Tab,    filterTarget: 'Snoozed' as InboxFilter },
-          { label: 'MY THREADS',      value: threads.length,                                    color: '#c4b5fd', glow: '#8b5cf6', sub: 'unanswered threads',  tabTarget: 'threads' as Tab,  filterTarget: null },
+          { label: 'TOTAL MENTIONS',  value: mentions.length,                                  color: '#93c5fd', glow: '#3b82f6', sub: 'unreplied @mentions', view: 'mentions' as InboxView, filterTarget: 'All' as InboxFilter },
+          { label: 'NEEDS ACTION',    value: needsActionCount,                                  color: '#f87171', glow: '#ef4444', sub: 'follow up needed',    view: 'mentions' as InboxView, filterTarget: 'Needs Action' as InboxFilter },
+          { label: 'SNOOZED',         value: mentions.filter(m => isSnoozed(m.snoozed_until)).length, color: '#fcd34d', glow: '#f59e0b', sub: 'check later',  view: 'mentions' as InboxView, filterTarget: 'Snoozed' as InboxFilter },
+          { label: 'MY THREADS',      value: threads.length,                                    color: '#c4b5fd', glow: '#8b5cf6', sub: 'unanswered threads',  view: 'threads' as InboxView,  filterTarget: undefined },
         ].map((k, i) => (
           <div
             key={k.label}
             className="si2-kpi-card"
             style={{ animationDelay: `${i * 60}ms`, cursor: 'pointer' }}
-            onClick={() => {
-              handleTabChange(k.tabTarget)
-              if (k.filterTarget) setInboxFilter(k.filterTarget)
-            }}
+            onClick={() => goToInbox(k.view, k.filterTarget)}
           >
             <div className="si2-kpi-glow" style={{ background: `radial-gradient(circle, ${k.glow} 0%, transparent 70%)` }} />
             <div className="si2-kpi-label">{k.label}</div>
-            <div className="si2-kpi-value" style={{ color: k.color }}>{k.value}</div>
+            <div className="si2-kpi-value" style={{ color: k.color }}><CountUp value={k.value} /></div>
             <div className="si2-kpi-sub">{k.sub}</div>
           </div>
         ))}
@@ -311,9 +374,17 @@ export function SlackIntelligencePage({
         ))}
       </div>
 
-      {/* Search + filter row (inbox / threads only) */}
-      {(tab === 'inbox' || tab === 'threads') && (
+      {/* Mentions/Threads toggle + search + filter row (inbox only) */}
+      {tab === 'inbox' && (
         <div className="si2-controls">
+          <div className="si2-view-toggle">
+            <button className={`si2-view-toggle-btn${inboxView === 'mentions' ? ' active' : ''}`} onClick={() => setInboxView('mentions')}>
+              Mentions
+            </button>
+            <button className={`si2-view-toggle-btn${inboxView === 'threads' ? ' active' : ''}`} onClick={() => setInboxView('threads')}>
+              Threads
+            </button>
+          </div>
           <div className="si2-search-wrap">
             <Search size={13} className="si2-search-icon" />
             <input
@@ -324,7 +395,7 @@ export function SlackIntelligencePage({
             />
           </div>
           <div className="si2-filters">
-            {(tab === 'inbox' ? INBOX_FILTERS : THREAD_FILTERS).map(f => (
+            {(inboxView === 'mentions' ? INBOX_FILTERS : THREAD_FILTERS).map(f => (
               <button
                 key={f}
                 className={`si2-filter-btn${inboxFilter === f ? ' active' : ''}`}
@@ -340,14 +411,21 @@ export function SlackIntelligencePage({
       {/* Tab content */}
       <div className="si2-content">
 
-        {tab === 'inbox' && (
-          loading
-            ? <div className="si2-empty"><RefreshCw size={20} className="spin" /><p>Loading…</p></div>
+        {tab === 'inbox' && inboxView === 'mentions' && (
+          (loading || (inboxFilter === 'Pinned' && !pinnedLoaded))
+            ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0' }}>
+                <SvgTerminalLoader size={128} />
+              </div>
             : visibleMentions.length === 0
               ? <div className="si2-empty">
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                    <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                  </div>
                   <CheckCircle size={36} />
-                  <p>Inbox zero — no unread @mentions</p>
-                  <p className="si2-empty-sub">Click Scan Now to check for new mentions.</p>
+                  <p>{inboxFilter === 'Pinned' ? 'No pinned messages' : 'Inbox zero — no unread @mentions'}</p>
+                  <p className="si2-empty-sub">
+                    {inboxFilter === 'Pinned' ? 'Pin any mention using the star icon on the card — it shows up here.' : 'Click Scan Now to check for new mentions.'}
+                  </p>
                 </div>
               : <div className="si2-card-list">
                   {visibleMentions.map(m => (
@@ -360,16 +438,25 @@ export function SlackIntelligencePage({
                       onDismiss={handleDismiss}
                       onSnooze={(ts, until) => handleSnooze('mention', ts, until)}
                       onRemind={m => setReminderModal({ mention: m })}
+                      userMap={userMap}
                     />
                   ))}
                 </div>
         )}
 
-        {tab === 'threads' && (
+        {tab === 'inbox' && inboxView === 'threads' && (
           loading
-            ? <div className="si2-empty"><RefreshCw size={20} className="spin" /><p>Loading…</p></div>
+            ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0' }}>
+                <SvgTerminalLoader size={128} />
+              </div>
             : visibleThreads.length === 0
-              ? <div className="si2-empty"><MessageSquare size={36} /><p>No unanswered threads</p></div>
+              ? <div className="si2-empty">
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                    <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+                  </div>
+                  <MessageSquare size={36} />
+                  <p>{inboxFilter === 'Resolved' ? 'No resolved threads' : 'No unanswered threads'}</p>
+                </div>
               : <div className="si2-card-list">
                   {visibleThreads.map(t => (
                     <ThreadCard
@@ -378,39 +465,30 @@ export function SlackIntelligencePage({
                       slackTeamId={slackTeamId}
                       channelName={resolvedMonitorChannelName}
                       savedTemplates={savedTemplates.map(t => t.body)}
+                      onDismiss={handleDismissThread}
                       onSnooze={(ts, until) => handleSnooze('thread', ts, until)}
                       onRemind={t => setReminderModal({ thread: t })}
+                      userMap={userMap}
                     />
                   ))}
                 </div>
         )}
 
-        {tab === 'reminders' && (
-          <RemindersTabContent
-            remindersAll={remindersAll}
-            savedTemplates={savedTemplates}
-            onAddTemplate={handleAddTemplate}
-            onDeleteTemplate={handleDeleteTemplate}
-            onDismiss={async id => { await api.dismissReminder(id).catch(() => {}); setRemindersAll(prev => prev.filter(r => r.id !== id)) }}
-            onDelete={async id => { await api.deleteReminder(id).catch(() => {}); setRemindersAll(prev => prev.filter(r => r.id !== id)) }}
-            onQuickAdd={handleQuickAdd}
-          />
+        {tab === 'messages' && <SlackMessagesHub />}
+
+        {tab === 'mcp-activity' && isAdmin && (
+          <div className="si2-controls">
+            <div className="si2-view-toggle">
+              <button className={`si2-view-toggle-btn${!showClaudeActions ? ' active' : ''}`} onClick={() => setActivityView('bot')}>
+                Bot conversations
+              </button>
+              <button className={`si2-view-toggle-btn${showClaudeActions ? ' active' : ''}`} onClick={() => setActivityView('claude')}>
+                Claude actions
+              </button>
+            </div>
+          </div>
         )}
-
-        {tab === 'pulse' && <SprintPulseTab onOpenPMAssistant={onOpenPMAssistant} ytBaseUrl={ytBaseUrl} />}
-
-        {tab === 'saved' && <SavedItemsTab slackTeamId={slackTeamId} />}
-
-        {tab === 'settings' && (
-          <SettingsTabContent
-            monitorChannelId={monitorChannelId}
-            monitorChannelName={monitorChannelName}
-            lastScan={lastScan}
-            onSaveChannel={handleSaveChannel}
-            onChannelIdChange={setMonitorChannelId}
-            onChannelNameChange={setMonitorChannelName}
-          />
-        )}
+        {tab === 'mcp-activity' && (showClaudeActions ? <McpActivityView /> : <BotConversationsView isAdmin={isAdmin} />)}
       </div>
 
       {/* Reminder modal */}
@@ -425,7 +503,8 @@ export function SlackIntelligencePage({
             <div className="si2-modal-body">
               <p className="si2-modal-preview">
                 {cleanSlackText(
-                  (reminderModal.mention?.message_text ?? reminderModal.thread?.message_text ?? '').slice(0, 100)
+                  (reminderModal.mention?.message_text ?? reminderModal.thread?.message_text ?? '').slice(0, 100),
+                  userMap
                 )}
               </p>
               <label className="si2-modal-label">Remind me on</label>
@@ -439,6 +518,59 @@ export function SlackIntelligencePage({
                 {savingReminder ? 'Saving…' : 'Save Reminder'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings popover */}
+      {settingsOpen && (
+        <div className="si2-modal-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="si2-modal" onClick={e => e.stopPropagation()}>
+            <div className="si2-modal-header">
+              <SettingsIcon size={16} />
+              <h3>Settings</h3>
+              <button className="si2-modal-close" onClick={() => setSettingsOpen(false)}><X size={14} /></button>
+            </div>
+            {loading
+              ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0' }}>
+                  <SprintScanLoader size={48} />
+                </div>
+              : <SettingsTabContent
+                  monitorChannelId={monitorChannelId}
+                  monitorChannelName={monitorChannelName}
+                  lastScan={lastScan}
+                  onSaveChannel={handleSaveChannel}
+                  onChannelIdChange={setMonitorChannelId}
+                  onChannelNameChange={setMonitorChannelName}
+                />
+            }
+          </div>
+        </div>
+      )}
+
+      {/* Reminders panel */}
+      {remindersOpen && (
+        <div className="si2-modal-overlay" onClick={() => setRemindersOpen(false)}>
+          <div className="si2-modal si2-modal--lg" onClick={e => e.stopPropagation()}>
+            <div className="si2-modal-header">
+              <Bell size={16} />
+              <h3>Reminders</h3>
+              <button className="si2-modal-close" onClick={() => setRemindersOpen(false)}><X size={14} /></button>
+            </div>
+            {loading
+              ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0' }}>
+                  <SprintScanLoader size={48} />
+                </div>
+              : <RemindersTabContent
+                  remindersAll={remindersAll}
+                  savedTemplates={savedTemplates}
+                  onAddTemplate={handleAddTemplate}
+                  onDeleteTemplate={handleDeleteTemplate}
+                  onDismiss={async id => { await api.dismissReminder(id).catch(() => {}); setRemindersAll(prev => prev.filter(r => r.id !== id)) }}
+                  onDelete={async id => { await api.deleteReminder(id).catch(() => {}); setRemindersAll(prev => prev.filter(r => r.id !== id)) }}
+                  onQuickAdd={handleQuickAdd}
+                />
+            }
           </div>
         </div>
       )}

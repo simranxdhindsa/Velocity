@@ -1,4 +1,6 @@
 import type { ActivityItem } from '../../services/api'
+import { SprintScanLoader } from '../brand/VelocityLoaders'
+import { VelocityLogo } from '../brand/VelocityLogo'
 
 interface ActivityFeedProps {
   items: ActivityItem[]
@@ -133,8 +135,9 @@ export function ActivityFeed({ items, loading, onLoadMore, hasMore }: ActivityFe
   if (loading && items.length === 0) {
     return (
       <div className="activity-loading">
-        <div className="loading-spinner" />
-        <p>Loading activity...</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <SprintScanLoader size={40} />
+        </div>
       </div>
     )
   }
@@ -142,9 +145,9 @@ export function ActivityFeed({ items, loading, onLoadMore, hasMore }: ActivityFe
   if (!loading && items.length === 0) {
     return (
       <div className="activity-empty">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-        </svg>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+          <VelocityLogo variant="icon" size="md" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+        </div>
         <p>No activity yet</p>
         <span>Actions like task updates, Slack scans, and AI analyses will appear here</span>
       </div>

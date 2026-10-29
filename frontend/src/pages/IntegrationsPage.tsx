@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createPortal } from 'react-dom'
+import { SprintScanLoader, SvgSprintScanLoader } from '@/components/brand/VelocityLoaders'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import api from '../services/api'
 import type { WorkflowConfig, PriorityTag, ColumnState, HotfixRules, ReportConfig, DeveloperSubsystemConfig, YouTrackUser } from '../services/api'
 import { getActiveSource, loadActiveSourceFromDB, setActiveSource } from '../services/pmDataService'
@@ -17,6 +21,7 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { SlackMessageText } from '@/components/SlackMessageText'
 
 interface SlackStatus {
   connected: boolean
@@ -278,6 +283,12 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
   const [showYtForm, setShowYtForm] = useState(false)
   const [ytBoards, setYtBoards] = useState<Array<{ id: string; name: string }>>([])
   const [ytBoardsLoading, setYtBoardsLoading] = useState(false)
+  // Progressive setup state
+  const [ytProjects, setYtProjects] = useState<Array<{ id: string; name: string }>>([])
+  const [ytProbing, setYtProbing] = useState(false)
+  const [ytProbeError, setYtProbeError] = useState<string | null>(null)
+  const [ytProbed, setYtProbed] = useState(false)
+  const ytProbeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Asana ────────────────────────────────────────────────────────────────────
   const [asanaConnected, setAsanaConnected] = useState(false)
@@ -311,6 +322,8 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
   const [showSlackInstructions, setShowSlackInstructions] = useState(false)
   const [slackError, setSlackError] = useState<string | null>(null)
   const [slackSuccess, setSlackSuccess] = useState<string | null>(null)
+  const [slackChecking, setSlackChecking] = useState(false)
+  const [showSlackForm, setShowSlackForm] = useState(false)
 
   // ── YT metadata ─────────────────────────────────────────────────────────────
   const [ytPriorities, setYtPriorities] = useState<string[]>([])
@@ -374,10 +387,10 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
       .finally(() => setLoading(false))
   }, [])
 
-  // Fetch boards whenever the form is shown (so dropdown is populated)
+  // Fetch boards on mount (to resolve board name) and when form opens
   useEffect(() => {
-    if (showYtForm && ytConnected) fetchYtBoards()
-  }, [showYtForm]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (ytConnected) fetchYtBoards()
+  }, [ytConnected]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (ytMappingOpen === null) return
@@ -441,6 +454,57 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
     finally { setYtBoardsLoading(false) }
   }
 
+  // Auto-probe: called whenever base URL or token changes (debounced 600ms)
+  const triggerProbe = (url: string, token: string) => {
+    if (ytProbeTimerRef.current) clearTimeout(ytProbeTimerRef.current)
+    setYtProbed(false)
+    setYtProbeError(null)
+    setYtProjects([])
+    setYtBoards([])
+    setYtProjectID('')
+    setYtBoardID('')
+    if (!url.trim() || !token.trim()) return
+    ytProbeTimerRef.current = setTimeout(async () => {
+      setYtProbing(true)
+      setYtProbeError(null)
+      try {
+        const res = await api.probeYouTrack(url.trim(), token.trim())
+        if ((res as any)?.success === false) {
+          setYtProbeError((res as any)?.message ?? 'Cannot connect — check URL and token')
+          return
+        }
+        const raw: Array<{ id: string; name: string; shortName: string }> = (res as any)?.data ?? []
+        // Use shortName as the value — YQL queries need `project: {shortName}` not internal IDs
+        const mapped = raw.filter(p => p.shortName).map(p => ({
+          id: p.shortName,
+          name: `${p.name} (${p.shortName})`,
+        }))
+        setYtProjects(Array.isArray(mapped) ? mapped : [])
+        setYtProbed(true)
+      } catch {
+        setYtProbeError('Cannot connect — check URL and token')
+      } finally {
+        setYtProbing(false)
+      }
+    }, 600)
+  }
+
+  // Auto-fetch boards when project is selected (using temp credentials)
+  const handleProjectSelect = async (projectId: string) => {
+    setYtProjectID(projectId)
+    setYtBoardID('')
+    setYtBoards([])
+    if (!projectId) return
+    setYtBoardsLoading(true)
+    try {
+      const res = await api.probeYouTrackBoards(ytBaseURL.trim(), ytToken.trim(), projectId)
+      if ((res as any)?.success === false) return // silent — boards optional
+      const boards = (res as any)?.data ?? []
+      setYtBoards(Array.isArray(boards) ? boards : [])
+    } catch { /* boards optional */ }
+    finally { setYtBoardsLoading(false) }
+  }
+
   const handleSaveYt = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!ytBaseURL.trim() || !ytProjectID.trim() || (!ytToken.trim() && !ytConfigured)) {
@@ -484,11 +548,23 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
 
   const handleRecheckYt = async () => {
     setYtChecking(true)
+    setYtError(null)
+    setYtSuccess(null)
     try {
       const res = await api.getYouTrackStatus()
-      setYtStatus(res as unknown as YouTrackStatus)
+      const status = res as unknown as YouTrackStatus
+      setYtStatus(status)
+      if (status.connected) {
+        setYtSuccess('YouTrack is reachable')
+        setTimeout(() => setYtSuccess(null), 3000)
+      } else {
+        setYtError(status.error ?? 'Cannot reach YouTrack — check your URL and token')
+        setTimeout(() => setYtError(null), 5000)
+      }
     } catch {
       setYtStatus({ connected: false, configured: false })
+      setYtError('Re-check failed — server did not respond')
+      setTimeout(() => setYtError(null), 5000)
     } finally { setYtChecking(false) }
   }
 
@@ -629,10 +705,33 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
       setSlackSuccess('Slack disconnected')
       setSlackStatus({ connected: false })
       setSlackChannels([])
+      setShowSlackForm(false)
       setTimeout(() => setSlackSuccess(null), 3000)
     } catch (err) {
       setSlackError(err instanceof Error ? err.message : 'Failed to disconnect Slack')
     }
+  }
+
+  const handleRecheckSlack = async () => {
+    setSlackChecking(true)
+    setSlackError(null)
+    setSlackSuccess(null)
+    try {
+      const res = await api.getSlackStatus()
+      const status = res as unknown as SlackStatus
+      setSlackStatus(status)
+      if (status.connected) {
+        setSlackSuccess('Slack is reachable')
+        fetchSlackChannels()
+        setTimeout(() => setSlackSuccess(null), 3000)
+      } else {
+        setSlackError('Cannot reach Slack — check your bot token')
+        setTimeout(() => setSlackError(null), 5000)
+      }
+    } catch {
+      setSlackError('Re-check failed — server did not respond')
+      setTimeout(() => setSlackError(null), 5000)
+    } finally { setSlackChecking(false) }
   }
 
   const handleSetChannel = async () => {
@@ -830,7 +929,9 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
 
   if (loading) return (
     <div className="int-page">
-      <div className="int-loading"><div className="loading-spinner" /><p>Loading…</p></div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'40px 0' }}>
+        <SprintScanLoader size={48} />
+      </div>
     </div>
   )
 
@@ -853,13 +954,11 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
           YouTrack
           {ytStatus?.connected && <span className="int-tab-dot int-tab-dot-green" />}
         </button>
-        {!isMember && (
-          <button className={`int-tab ${mainTab === 'slack' ? 'int-tab-active' : ''}`} onClick={() => { setMainTab('slack'); onTabChange?.('slack') }}>
-            <MessageSquare size={14} />
-            Slack
-            {slackStatus?.connected && <span className="int-tab-dot int-tab-dot-green" />}
-          </button>
-        )}
+        <button className={`int-tab ${mainTab === 'slack' ? 'int-tab-active' : ''}`} onClick={() => { setMainTab('slack'); onTabChange?.('slack') }}>
+          <MessageSquare size={14} />
+          Slack
+          {slackStatus?.connected && <span className="int-tab-dot int-tab-dot-green" />}
+        </button>
         {!isMember && (
           <button className={`int-tab ${mainTab === 'workflow' ? 'int-tab-active' : ''}`} onClick={() => { setMainTab('workflow'); onTabChange?.('workflow') }}>
             <Sliders size={14} />
@@ -888,13 +987,43 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
               <h2>YouTrack</h2>
               <p>Primary issue tracker — boards, reports, PM assistant</p>
             </div>
-            <div>
-              {ytStatus?.connected
-                ? <span className="int-badge int-badge-green"><CheckCircle size={12} /> Connected</span>
-                : ytConfigured
-                  ? <span className="int-badge int-badge-yellow"><AlertCircle size={12} /> Saved, not reachable</span>
-                  : <span className="int-badge int-badge-gray">Not configured</span>
-              }
+            <div style={{ position: 'relative' }}>
+              <AnimatePresence mode="wait">
+                {ytStatus?.connected ? (
+                  <motion.span
+                    key="connected"
+                    className="int-badge int-badge-green"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <CheckCircle size={12} /> Connected
+                  </motion.span>
+                ) : ytConfigured ? (
+                  <motion.span
+                    key="unreachable"
+                    className="int-badge int-badge-yellow"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <AlertCircle size={12} /> Unreachable
+                  </motion.span>
+                ) : (
+                  <motion.span
+                    key="not-configured"
+                    className="int-badge int-badge-gray"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    Not configured
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -908,94 +1037,272 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
             <div className="int-alert int-alert-success"><CheckCircle size={14} /><span>{ytSuccess}</span></div>
           )}
 
-          {/* Show saved config details when connected */}
-          {ytConfigured && !showYtForm && (
-            <>
-              <div className="int-details-grid">
-                <div className="int-detail-card">
-                  <span className="int-detail-label">Base URL</span>
-                  <span className="int-detail-value">{ytBaseURL}</span>
-                </div>
-                <div className="int-detail-card">
-                  <span className="int-detail-label">Project ID</span>
-                  <span className="int-detail-value">{ytProjectID}</span>
-                </div>
-                {ytBoardID && (
-                  <div className="int-detail-card">
-                    <span className="int-detail-label">Board ID</span>
-                    <span className="int-detail-value">{ytBoardID}</span>
+          {/* ── Connected state — redesigned ── */}
+          {ytConfigured && !showYtForm && (() => {
+            const boardName = ytBoards.find(b => b.id === ytBoardID)?.name
+            const rowVariants = {
+              hidden: { opacity: 0, x: -10 },
+              visible: (i: number) => ({ opacity: 1, x: 0, transition: { delay: i * 0.06, duration: 0.22, ease: 'easeOut' } }),
+            }
+
+            const configRows: Array<{ icon: React.ReactNode; label: string; value: React.ReactNode } | null> = [
+              {
+                icon: <ExternalLink size={13} />,
+                label: 'Base URL',
+                value: (
+                  <a href={ytBaseURL} target="_blank" rel="noopener noreferrer" className="int-config-link">
+                    {ytBaseURL}
+                    <ExternalLink size={11} />
+                  </a>
+                ),
+              },
+              {
+                icon: (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                  </svg>
+                ),
+                label: 'Project',
+                value: <span className="int-config-chip int-config-chip-accent">{ytProjectID}</span>,
+              },
+              ytBoardID ? {
+                icon: (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/>
+                  </svg>
+                ),
+                label: 'Board',
+                value: boardName
+                  ? <>{boardName} <span className="int-config-sub">{ytBoardID}</span></>
+                  : <span className="int-config-chip">{ytBoardID}</span>,
+              } : null,
+            ]
+
+            return (
+              <motion.div
+                className="int-config-panel"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, ease: 'easeOut' }}
+              >
+                {ytStatus && !ytStatus.connected && (
+                  <div className="int-section-box int-section-box-warn" style={{ marginBottom: '1rem' }}>
+                    <div className="int-section-box-header"><AlertCircle size={15} className="int-icon-warn" /><span>Connection failed</span></div>
+                    {ytStatus.error && <p className="int-help-text int-text-warn">{ytStatus.error}</p>}
+                    <p className="int-help-text">Credentials saved but YouTrack is not reachable. Check your URL and token.</p>
                   </div>
                 )}
-                <div className="int-detail-card">
-                  <span className="int-detail-label">Credentials source</span>
-                  <span className="int-detail-value">
-                    {ytStatus?.source === 'user_db' ? 'Your profile (DB)' : ytStatus?.source === 'global_db' ? 'Org-wide (DB)' : 'Environment variables'}
-                  </span>
+
+                <div className="int-config-rows">
+                  {configRows.filter(Boolean).map((row, i) => (
+                    <motion.div
+                      key={row!.label}
+                      className="int-config-row"
+                      variants={rowVariants}
+                      initial="hidden"
+                      animate="visible"
+                      custom={i}
+                    >
+                      <span className="int-config-row-icon">{row!.icon}</span>
+                      <span className="int-config-row-label">{row!.label}</span>
+                      <span className="int-config-row-value">{row!.value}</span>
+                    </motion.div>
+                  ))}
                 </div>
-              </div>
 
-              {ytStatus && !ytStatus.connected && (
-                <div className="int-section-box int-section-box-warn">
-                  <div className="int-section-box-header"><AlertCircle size={15} className="int-icon-warn" /><span>Connection failed</span></div>
-                  {ytStatus.error && <p className="int-help-text int-text-warn">{ytStatus.error}</p>}
-                  <p className="int-help-text">The credentials are saved but YouTrack is not reachable. Check your base URL and token.</p>
+                <div className="int-row-actions">
+                  <button className="int-btn int-btn-ghost int-btn-sm" onClick={handleRecheckYt} disabled={ytChecking}>
+                    <RefreshCw size={13} className={ytChecking ? 'spin' : ''} /> {ytChecking ? 'Checking…' : 'Re-check'}
+                  </button>
+                  <button className="int-btn int-btn-ghost int-btn-sm" onClick={() => setShowYtForm(true)}>
+                    <Settings size={13} /> Update Credentials
+                  </button>
+                  <button className="int-btn int-btn-danger-ghost int-btn-sm" onClick={handleDisconnectYt}>
+                    <Unlink size={13} /> Disconnect
+                  </button>
                 </div>
-              )}
+              </motion.div>
+            )
+          })()}
 
-              <div className="int-row-actions">
-                <button className="int-btn int-btn-ghost int-btn-sm" onClick={handleRecheckYt} disabled={ytChecking}>
-                  <RefreshCw size={13} className={ytChecking ? 'spin' : ''} /> {ytChecking ? 'Checking…' : 'Re-check'}
-                </button>
-                <button className="int-btn int-btn-ghost int-btn-sm" onClick={() => setShowYtForm(true)}>
-                  <Settings size={13} /> Update Credentials
-                </button>
-                <button className="int-btn int-btn-danger-ghost int-btn-sm" onClick={handleDisconnectYt}>
-                  <Unlink size={13} /> Disconnect
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* Connect / Edit form */}
+          {/* Connect / Edit form — progressive disclosure with Framer Motion */}
+          <AnimatePresence>
           {(!ytConfigured || showYtForm) && (
-            <form onSubmit={handleSaveYt} className="int-form">
+            <motion.form
+              onSubmit={handleSaveYt}
+              className="int-form"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               {!ytConfigured && (
                 <p className="int-help-text">
-                  Enter your YouTrack credentials. They are stored securely in the database and never exposed to other users.
+                  Enter your YouTrack URL and token — projects will load automatically.
                 </p>
               )}
+
+              {/* Step 1: credentials */}
               <div className="int-field">
                 <label>Base URL</label>
-                <input type="url" value={ytBaseURL} onChange={e => setYtBaseURL(e.target.value)} placeholder="https://yourteam.youtrack.cloud" className="int-input" autoComplete="off" required />
+                <input
+                  type="url"
+                  value={ytBaseURL}
+                  onChange={e => { setYtBaseURL(e.target.value); triggerProbe(e.target.value, ytToken) }}
+                  placeholder="https://yourteam.youtrack.cloud"
+                  className="int-input"
+                  autoComplete="off"
+                  required
+                />
               </div>
               <div className="int-field">
                 <label>Permanent Token</label>
-                <input type="password" value={ytToken} onChange={e => setYtToken(e.target.value)} placeholder={ytConfigured ? 'Enter new token to update' : 'perm:...'} className="int-input int-mono" autoComplete="new-password" required={!ytConfigured} />
+                <div className="int-input-row">
+                  <input
+                    type="password"
+                    value={ytToken}
+                    onChange={e => { setYtToken(e.target.value); triggerProbe(ytBaseURL, e.target.value) }}
+                    placeholder={ytConfigured ? 'Enter new token to update' : 'perm:...'}
+                    className="int-input int-mono"
+                    autoComplete="new-password"
+                    required={!ytConfigured}
+                  />
+                  {/* Probe status icon — crossfades between states */}
+                  <AnimatePresence mode="wait">
+                    {ytProbing && (
+                      <motion.span
+                        key="probing"
+                        className="int-probe-spinner"
+                        initial={{ opacity: 0, scale: 0.6 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.6 }}
+                        transition={{ duration: 0.15 }}
+                      />
+                    )}
+                    {ytProbed && !ytProbing && (
+                      <motion.span
+                        key="ok"
+                        className="int-probe-ok"
+                        title="Connected"
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.5 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                      >
+                        <CheckCircle size={15} />
+                      </motion.span>
+                    )}
+                    {ytProbeError && !ytProbing && (
+                      <motion.span
+                        key="err"
+                        className="int-probe-err"
+                        title={ytProbeError}
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.5 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                      >
+                        <AlertCircle size={15} />
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </div>
+                <AnimatePresence>
+                  {ytProbeError && (
+                    <motion.p
+                      className="int-field-error"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      {ytProbeError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
               </div>
-              <div className="int-field">
-                <label>Project ID <span className="int-label-hint">short ID, e.g. PM</span></label>
-                <input type="text" value={ytProjectID} onChange={e => setYtProjectID(e.target.value)} placeholder="PM" className="int-input" autoComplete="off" required />
-              </div>
-              <div className="int-field">
-                <label>Board <span className="int-label-hint">optional — for sprint tracking</span></label>
-                <WcObjDropdown
-                  value={ytBoardID}
-                  placeholder={ytBoardsLoading ? 'Loading boards…' : ytBoards.length === 0 ? 'No boards found' : '— Select a board —'}
-                  options={ytBoards}
-                  onChange={setYtBoardID}
-                  disabled={ytBoardsLoading}
-                />
-              </div>
+
+              {/* Step 2: project — slides in after probe succeeds */}
+              <AnimatePresence>
+                {(ytProbed || (ytConfigured && !ytToken)) && (
+                  <motion.div
+                    className="int-field"
+                    key="yt-project-step"
+                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                    animate={{ opacity: 1, height: 'auto', marginTop: 0 }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <motion.div
+                      initial={{ y: 8 }}
+                      animate={{ y: 0 }}
+                      transition={{ duration: 0.2, delay: 0.08 }}
+                    >
+                      <label>Project</label>
+                      {ytProjects.length > 0 ? (
+                        <WcObjDropdown
+                          value={ytProjectID}
+                          placeholder="— Select a project —"
+                          options={ytProjects}
+                          onChange={handleProjectSelect}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={ytProjectID}
+                          onChange={e => setYtProjectID(e.target.value)}
+                          placeholder="Project short ID, e.g. PM"
+                          className="int-input"
+                          autoComplete="off"
+                        />
+                      )}
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Step 3: board — slides in after project selected */}
+              <AnimatePresence>
+                {ytProjectID && (ytProbed || (ytConfigured && !ytToken)) && (
+                  <motion.div
+                    className="int-field"
+                    key="yt-board-step"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <motion.div
+                      initial={{ y: 8 }}
+                      animate={{ y: 0 }}
+                      transition={{ duration: 0.2, delay: 0.08 }}
+                    >
+                      <label>Board <span className="int-label-hint">optional — for sprint tracking</span></label>
+                      <WcObjDropdown
+                        value={ytBoardID}
+                        placeholder={ytBoardsLoading ? 'Loading boards…' : ytBoards.length === 0 ? 'No boards for this project' : '— Select a board —'}
+                        options={ytBoards}
+                        onChange={setYtBoardID}
+                        disabled={ytBoardsLoading}
+                      />
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="int-form-actions">
                 {showYtForm && (
-                  <button type="button" className="int-btn int-btn-ghost" onClick={() => { setShowYtForm(false); setYtError(null) }}>Cancel</button>
+                  <button type="button" className="int-btn int-btn-ghost" onClick={() => { setShowYtForm(false); setYtError(null); setYtProbed(false); setYtProbeError(null) }}>Cancel</button>
                 )}
-                <button type="submit" className="int-btn int-btn-primary" disabled={ytSaving}>
+                <button type="submit" className="int-btn int-btn-primary" disabled={ytSaving || ytProbing}>
                   {ytSaving ? 'Connecting…' : <><Link2 size={14} /> {ytConfigured ? 'Update' : 'Connect YouTrack'}</>}
                 </button>
               </div>
-            </form>
+            </motion.form>
           )}
+          </AnimatePresence>
         </div>
       )}
 
@@ -1129,10 +1436,32 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
               <h2>Slack</h2>
               <p>Monitor channels, pull messages, and track mentions</p>
             </div>
-            <div>
-              {slackStatus?.connected
-                ? <span className="int-badge int-badge-green"><CheckCircle size={12} /> Connected</span>
-                : <span className="int-badge int-badge-gray">Not connected</span>}
+            <div style={{ position: 'relative' }}>
+              <AnimatePresence mode="wait">
+                {slackStatus?.connected ? (
+                  <motion.span
+                    key="slack-connected"
+                    className="int-badge int-badge-green"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <CheckCircle size={12} /> Connected
+                  </motion.span>
+                ) : (
+                  <motion.span
+                    key="slack-not-connected"
+                    className="int-badge int-badge-gray"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    Not connected
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -1146,31 +1475,75 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
             <div className="int-alert int-alert-success"><CheckCircle size={14} /><span>{slackSuccess}</span></div>
           )}
 
+          <AnimatePresence mode="wait">
           {slackStatus?.connected ? (
-            <>
-              {/* Connection details */}
-              <div className="int-details-grid">
-                {slackStatus.team_name && (
-                  <div className="int-detail-card">
-                    <span className="int-detail-label">Workspace</span>
-                    <span className="int-detail-value">{slackStatus.team_name}</span>
-                  </div>
-                )}
-                {slackStatus.channel_name && (
-                  <div className="int-detail-card">
-                    <span className="int-detail-label">Digest Channel</span>
-                    <span className="int-detail-value">#{slackStatus.channel_name}</span>
-                  </div>
-                )}
-                {slackStatus.monitor_channel_name && (
-                  <div className="int-detail-card">
-                    <span className="int-detail-label">Monitor Channel</span>
-                    <span className="int-detail-value">#{slackStatus.monitor_channel_name}</span>
-                  </div>
-                )}
-              </div>
+            <motion.div
+              key="slack-connected-panel"
+              className="int-config-panel"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
+              {/* Config rows */}
+              {(() => {
+                const rowVariants = {
+                  hidden: { opacity: 0, x: -10 },
+                  visible: (i: number) => ({ opacity: 1, x: 0, transition: { delay: i * 0.06, duration: 0.22, ease: 'easeOut' } }),
+                }
 
-              {/* Channel select */}
+                const slackRows: Array<{ icon: React.ReactNode; label: string; value: React.ReactNode } | null> = [
+                  slackStatus.team_name ? {
+                    icon: (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+                      </svg>
+                    ),
+                    label: 'Workspace',
+                    value: <span style={{ fontWeight: 600 }}>{slackStatus.team_name}</span>,
+                  } : null,
+                  slackStatus.channel_name ? {
+                    icon: (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/>
+                        <line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>
+                      </svg>
+                    ),
+                    label: 'Post Channel',
+                    value: <span className="int-config-chip int-config-chip-accent">#{slackStatus.channel_name}</span>,
+                  } : null,
+                  slackStatus.monitor_channel_name ? {
+                    icon: (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    ),
+                    label: 'Monitor',
+                    value: <span className="int-config-chip">#{slackStatus.monitor_channel_name}</span>,
+                  } : null,
+                ]
+
+                return (
+                  <div className="int-config-rows">
+                    {slackRows.filter(Boolean).map((row, i) => (
+                      <motion.div
+                        key={row!.label}
+                        className="int-config-row"
+                        variants={rowVariants}
+                        initial="hidden"
+                        animate="visible"
+                        custom={i}
+                      >
+                        <span className="int-config-row-icon">{row!.icon}</span>
+                        <span className="int-config-row-label">{row!.label}</span>
+                        <span className="int-config-row-value">{row!.value}</span>
+                      </motion.div>
+                    ))}
+                  </div>
+                )
+              })()}
+
+              {/* Channel settings */}
               <div className="int-section-box">
                 <div className="int-section-box-header"><Settings size={15} /><span>Channel Settings</span></div>
                 <div className="int-field">
@@ -1217,12 +1590,17 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                 </div>
               </div>
 
-              {/* Fetch messages */}
-              <div className="int-section-box">
-                <div className="int-section-box-header"><Download size={15} /><span>Fetch Messages</span></div>
-                {slackStatus.channel_name && (
-                  <p className="int-help-text">Pull messages from #{slackStatus.channel_name} for a date range.</p>
-                )}
+              {/* Test connection */}
+              <div className="int-section-box int-section-box--test">
+                <div className="int-section-box-header">
+                  <Download size={15} />
+                  <span>Test Connection</span>
+                  <span className="int-test-badge">Preview only</span>
+                </div>
+                <p className="int-help-text">
+                  Verify your bot can read messages. Pick a date range and fetch — if messages appear, your token and channel are set up correctly.
+                  {slackStatus.channel_name && <> Fetching from <strong>#{slackStatus.channel_name}</strong>.</>}
+                </p>
                 <div className="int-date-row">
                   <div className="int-field">
                     <label>From</label>
@@ -1232,11 +1610,15 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                     <label>To</label>
                     <input type="date" value={msgDateTo} onChange={e => setMsgDateTo(e.target.value)} className="int-input" />
                   </div>
-                  <button className="int-btn int-btn-primary int-date-btn" onClick={handleFetchMessages} disabled={fetchingMessages}>
+                  <button
+                    className="int-btn int-btn-primary int-date-btn"
+                    onClick={handleFetchMessages}
+                    disabled={fetchingMessages || !slackStatus.channel_id}
+                    title={!slackStatus.channel_id ? 'Configure a channel first' : undefined}
+                  >
                     {fetchingMessages ? <><RefreshCw size={13} className="spin" /> Fetching…</> : <><Download size={13} /> Fetch</>}
                   </button>
                 </div>
-
                 {slackMessages.length > 0 && (
                   <div className="int-msg-list">
                     <div className="int-msg-count">{slackMessages.length} messages</div>
@@ -1247,7 +1629,7 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                             <span className="int-msg-user"><User size={11} /> {msg.user_name}</span>
                             <span className="int-msg-time"><Clock size={11} /> {new Date(msg.timestamp).toLocaleString()}</span>
                           </div>
-                          <div className="int-msg-text">{msg.text}</div>
+                          <SlackMessageText className="int-msg-text" text={msg.text} />
                         </div>
                       ))}
                     </div>
@@ -1255,14 +1637,72 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                 )}
               </div>
 
+              {/* Inline token update form */}
+              <AnimatePresence>
+                {showSlackForm && (
+                  <motion.form
+                    onSubmit={async e => {
+                      e.preventDefault()
+                      try {
+                        setConnectingSlack(true); setSlackError(null)
+                        await api.connectSlack(slackBotToken, selectedChannel)
+                        setSlackSuccess('Token updated!')
+                        setSlackBotToken('')
+                        setShowSlackForm(false)
+                        await fetchSlackStatus()
+                        setTimeout(() => setSlackSuccess(null), 3000)
+                      } catch (err) {
+                        setSlackError(err instanceof Error ? err.message : 'Failed to update token')
+                      } finally { setConnectingSlack(false) }
+                    }}
+                    className="int-form"
+                    style={{ marginTop: 0 }}
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.22, ease: 'easeOut' }}
+                  >
+                    <div className="int-field">
+                      <label>New Bot Token</label>
+                      <input
+                        type="password"
+                        value={slackBotToken}
+                        onChange={e => setSlackBotToken(e.target.value)}
+                        placeholder="xoxb-your-bot-token"
+                        className="int-input int-mono"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="int-form-actions">
+                      <button type="button" className="int-btn int-btn-ghost" onClick={() => { setShowSlackForm(false); setSlackBotToken('') }}>Cancel</button>
+                      <button type="submit" className="int-btn int-btn-primary" disabled={connectingSlack || !slackBotToken.trim()}>
+                        {connectingSlack ? 'Updating…' : <><Save size={14} /> Update Token</>}
+                      </button>
+                    </div>
+                  </motion.form>
+                )}
+              </AnimatePresence>
+
               <div className="int-row-actions">
-                <button className="int-btn int-btn-danger-ghost" onClick={handleDisconnectSlack}>
+                <button className="int-btn int-btn-ghost int-btn-sm" onClick={handleRecheckSlack} disabled={slackChecking}>
+                  <RefreshCw size={13} className={slackChecking ? 'spin' : ''} /> {slackChecking ? 'Checking…' : 'Re-check'}
+                </button>
+                <button className="int-btn int-btn-ghost int-btn-sm" onClick={() => setShowSlackForm(f => !f)}>
+                  <Settings size={13} /> Update Token
+                </button>
+                <button className="int-btn int-btn-danger-ghost int-btn-sm" onClick={handleDisconnectSlack}>
                   <Unlink size={13} /> Disconnect
                 </button>
               </div>
-            </>
+            </motion.div>
           ) : (
-            <>
+            <motion.div
+              key="slack-connect-form"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
               <form onSubmit={handleConnectSlack} className="int-form int-connect-form">
                 <p className="int-help-text">
                   Enter your Slack Bot Token to connect. Required scopes:{' '}
@@ -1302,8 +1742,9 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                   </div>
                 )}
               </div>
-            </>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
       )}
 
@@ -1324,6 +1765,12 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
                 : <span className="int-badge int-badge-gray">Loading…</span>}
             </div>
           </div>
+
+          {!workflowConfig && (
+            <div style={{ display:'flex', justifyContent:'center', marginBottom:'16px' }}>
+              <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+            </div>
+          )}
 
           {workflowConfig && (
             <>
@@ -1741,14 +2188,32 @@ export function IntegrationsPage({ initialTab = 'youtrack', onTabChange, userRol
 
 // ─── Developers Tab ──────────────────────────────────────────────────────────
 
+const pillVariants = {
+  initial: { opacity: 0, scale: 0.7 },
+  animate: { opacity: 1, scale: 1, transition: { type: 'spring' as const, stiffness: 400, damping: 22 } },
+  exit:    { opacity: 0, scale: 0.6, transition: { duration: 0.12 } },
+}
+
+const dropdownVariants = {
+  initial: { opacity: 0, y: -6, scale: 0.97 },
+  animate: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.14, ease: 'easeOut' } },
+  exit:    { opacity: 0, y: -4, scale: 0.97, transition: { duration: 0.1 } },
+}
+
 function DevelopersTab() {
-  const [users, setUsers] = useState<YouTrackUser[]>([])
-  const [subsystems, setSubsystems] = useState<string[]>([])
-  const [configs, setConfigs] = useState<DeveloperSubsystemConfig[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+
+  const [users,        setUsers]        = useState<YouTrackUser[]>([])
+  const [subsystems,   setSubsystems]   = useState<string[]>([])
+  const [configs,      setConfigs]      = useState<DeveloperSubsystemConfig[]>([])
+  const [search,       setSearch]       = useState('')
+  const [loading,      setLoading]      = useState(true)
+  const [saving,       setSaving]       = useState(false)
+  const [savedOk,      setSavedOk]      = useState(false)
+  const [error,        setError]        = useState<string | null>(null)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     Promise.all([
@@ -1757,10 +2222,10 @@ function DevelopersTab() {
     ]).then(([metaRes, configRes]) => {
       if (metaRes.success && metaRes.data) {
         setUsers(metaRes.data.users)
-        setSubsystems(metaRes.data.subsystems.map(s => s.name))
-        const saved = configRes.success && configRes.data ? configRes.data as DeveloperSubsystemConfig[] : []
-        const savedMap = new Map(saved.map((c: DeveloperSubsystemConfig) => [c.developer_login, c]))
-        setConfigs(metaRes.data.users.map(u => ({
+        setSubsystems(metaRes.data.subsystems.map((s: any) => s.name))
+        const savedList = configRes.success && configRes.data ? configRes.data as DeveloperSubsystemConfig[] : []
+        const savedMap = new Map(savedList.map((c: DeveloperSubsystemConfig) => [c.developer_login, c]))
+        setConfigs(metaRes.data.users.map((u: YouTrackUser) => ({
           developer_login: u.login,
           developer_name:  u.fullName || u.login,
           subsystems:      savedMap.get(u.login)?.subsystems ?? [],
@@ -1770,100 +2235,226 @@ function DevelopersTab() {
     }).catch(() => setError('Failed to load developers')).finally(() => setLoading(false))
   }, [])
 
-  const toggle = (login: string, subsystem: string) => {
-    setConfigs(prev => prev.map(c => {
-      if (c.developer_login !== login) return c
-      const has = c.subsystems.includes(subsystem)
-      return { ...c, subsystems: has ? c.subsystems.filter(s => s !== subsystem) : [...c.subsystems, subsystem] }
-    }))
-    setSaved(false)
+  useEffect(() => {
+    if (!openDropdown) return
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node))
+        setOpenDropdown(null)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [openDropdown])
+
+  const addSubsystem = (login: string, sub: string) => {
+    setConfigs(prev => prev.map(c =>
+      c.developer_login === login && !c.subsystems.includes(sub)
+        ? { ...c, subsystems: [...c.subsystems, sub] } : c
+    ))
+    setSavedOk(false)
+    setOpenDropdown(null)
+  }
+
+  const removeSubsystem = (login: string, sub: string) => {
+    setConfigs(prev => prev.map(c =>
+      c.developer_login === login ? { ...c, subsystems: c.subsystems.filter(s => s !== sub) } : c
+    ))
+    setSavedOk(false)
   }
 
   const toggleQA = (login: string) => {
     setConfigs(prev => prev.map(c =>
-      c.developer_login === login ? { ...c, is_qa: !c.is_qa } : c
+      c.developer_login === login ? { ...c, is_qa: !c.is_qa, subsystems: c.is_qa ? c.subsystems : [] } : c
     ))
-    setSaved(false)
+    setSavedOk(false)
   }
 
   const handleSave = async () => {
-    setSaving(true)
-    setError(null)
+    setSaving(true); setError(null)
     try {
       await api.saveDeveloperConfigs(configs)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    } catch {
-      setError('Failed to save')
-    } finally {
-      setSaving(false)
-    }
+      setSavedOk(true)
+      setTimeout(() => setSavedOk(false), 2200)
+    } catch { setError('Failed to save') }
+    finally { setSaving(false) }
   }
 
-  if (loading) return <div className="int-content"><div className="int-loading">Loading developers…</div></div>
+  const visible = configs.filter(c =>
+    !search.trim() ||
+    (c.developer_name || c.developer_login).toLowerCase().includes(search.toLowerCase())
+  )
+
+  if (loading) return (
+    <div className="int-content">
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'40px 0' }}>
+        <SprintScanLoader size={48} />
+      </div>
+    </div>
+  )
 
   return (
     <div className="int-content">
+      {/* Header */}
       <div className="int-service-header">
-        <div>
+        <div style={{ flex: 1 }}>
           <div className="int-service-name">Developer Subsystem Config</div>
           <div className="int-service-desc">
-            Map each developer to the subsystems they own. AI Fill uses this to auto-assign tickets to the right person based on the ticket subsystem.
+            Map each developer to their subsystems. AI Fill uses this for auto-assignment.
+            {!isAdmin && <span className="dev-v2-readonly-note"> · View-only — admin can edit.</span>}
           </div>
         </div>
-        <button className={`int-btn int-btn-primary${saving ? ' int-btn-loading' : ''}`} onClick={handleSave} disabled={saving}>
-          {saved ? '✓ Saved' : saving ? 'Saving…' : 'Save'}
-        </button>
+        {isAdmin && (
+          <motion.button
+            className={`int-btn int-btn-primary${saving ? ' int-btn-loading' : ''}`}
+            onClick={handleSave}
+            disabled={saving}
+            whileTap={{ scale: 0.95 }}
+            animate={savedOk ? { scale: [1, 1.06, 1] } : {}}
+            transition={{ duration: 0.25 }}
+          >
+            {savedOk
+              ? <><CheckCircle size={13} /> Saved</>
+              : saving ? 'Saving…'
+              : <><Save size={13} /> Save Changes</>
+            }
+          </motion.button>
+        )}
       </div>
 
       {error && <div className="int-error-banner">{error}</div>}
 
       {subsystems.length === 0 ? (
-        <div className="dev-cfg-empty">No subsystems found — connect YouTrack first.</div>
+        <div className="dev-cfg-empty">
+          <div style={{ display:'flex', justifyContent:'center', marginBottom:'16px' }}>
+            <VelocityLogo variant="icon" size="lg" mark="chevron" showStatusDot={false} style={{ opacity: 0.25 }} />
+          </div>
+          No subsystems found — connect YouTrack first.
+        </div>
       ) : (
-        <div className="dev-cfg-wrap">
-          <div className="dev-cfg-table">
-            <div className="dev-cfg-header">
-              <div className="dev-cfg-col-dev">Developer</div>
-              {subsystems.map(s => (
-                <div key={s} className="dev-cfg-col-sub" title={s}>{s}</div>
-              ))}
-              <div className="dev-cfg-col-qa" title="Mark as QA — excluded from AI auto-assign">QA</div>
-            </div>
-            {configs.map(cfg => {
-              const user = users.find(u => u.login === cfg.developer_login)
+        <>
+          {/* Search */}
+          <div className="dev-v2-search-wrap">
+            <input
+              className="dev-v2-search"
+              placeholder="Search developer…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              aria-label="Search developers"
+            />
+            {search && (
+              <button className="dev-v2-search-clear" onClick={() => setSearch('')} aria-label="Clear search">×</button>
+            )}
+            <span className="dev-v2-count">{visible.length} / {configs.length}</span>
+          </div>
+
+          {/* Developer list — CSS stagger (no motion.div per row — 20+ items) */}
+          <div className="dev-v2-list">
+            {visible.map((cfg, idx) => {
+              const ytUser   = users.find(u => u.login === cfg.developer_login)
+              const available = subsystems.filter(s => !cfg.subsystems.includes(s))
+              const dropKey  = cfg.developer_login
+              const initials = (cfg.developer_name || cfg.developer_login).charAt(0).toUpperCase()
+
               return (
-                <div key={cfg.developer_login} className={`dev-cfg-row${cfg.is_qa ? ' dev-cfg-row--qa' : ''}`}>
-                  <div className="dev-cfg-col-dev">
-                    {user?.avatarUrl
-                      ? <img src={user.avatarUrl} alt="" className="dev-cfg-avatar" />
-                      : <span className="dev-cfg-avatar-init">{(cfg.developer_name || cfg.developer_login).charAt(0).toUpperCase()}</span>
+                <div
+                  key={cfg.developer_login}
+                  className={`dev-v2-row${cfg.is_qa ? ' dev-v2-row--qa' : ''}`}
+                  style={{ animationDelay: `${Math.min(idx * 18, 200)}ms` }}
+                >
+                  {/* Identity */}
+                  <div className="dev-v2-identity">
+                    {ytUser?.avatarUrl
+                      ? <img src={ytUser.avatarUrl} alt={cfg.developer_name} className="dev-v2-avatar" />
+                      : <span className="dev-v2-init">{initials}</span>
                     }
-                    <span className="dev-cfg-name">{cfg.developer_name || cfg.developer_login}</span>
-                    {cfg.is_qa && <span className="dev-cfg-qa-badge">QA</span>}
-                  </div>
-                  {subsystems.map(s => (
-                    <div key={s} className="dev-cfg-col-sub">
-                      <button
-                        className={`dev-cfg-check${cfg.subsystems.includes(s) && !cfg.is_qa ? ' dev-cfg-check--on' : ''}`}
-                        onClick={() => !cfg.is_qa && toggle(cfg.developer_login, s)}
-                        disabled={cfg.is_qa}
-                        title={cfg.is_qa ? 'QA — not assigned to subsystems' : cfg.subsystems.includes(s) ? `Remove ${s}` : `Add ${s}`}
-                      />
+                    <div className="dev-v2-name-wrap">
+                      <span className="dev-v2-name">{cfg.developer_name || cfg.developer_login}</span>
+                      {cfg.subsystems.length > 0 && !cfg.is_qa && (
+                        <span className="dev-v2-sub-count">{cfg.subsystems.length} subsystem{cfg.subsystems.length !== 1 ? 's' : ''}</span>
+                      )}
                     </div>
-                  ))}
-                  <div className="dev-cfg-col-qa">
-                    <button
-                      className={`dev-cfg-check dev-cfg-check--qa${cfg.is_qa ? ' dev-cfg-check--on' : ''}`}
-                      onClick={() => toggleQA(cfg.developer_login)}
-                      title={cfg.is_qa ? 'Remove QA flag' : 'Mark as QA team (excluded from auto-assign)'}
-                    />
                   </div>
+
+                  {/* Pills */}
+                  <div className="dev-v2-pills">
+                    <AnimatePresence mode="popLayout">
+                      {cfg.is_qa ? (
+                        <motion.span key="qa-label" className="dev-v2-qa-label" {...pillVariants}>
+                          QA — no subsystem assignment
+                        </motion.span>
+                      ) : cfg.subsystems.length === 0 ? (
+                        <motion.span key="none" className="dev-v2-none" {...pillVariants}>
+                          No subsystems assigned
+                        </motion.span>
+                      ) : (
+                        cfg.subsystems.map(s => (
+                          <motion.span key={s} className="dev-v2-pill" {...pillVariants} layout>
+                            <span className="dev-v2-pill-name">{s}</span>
+                            {isAdmin && (
+                              <button
+                                className="dev-v2-pill-rm"
+                                onClick={() => removeSubsystem(cfg.developer_login, s)}
+                                aria-label={`Remove ${s}`}
+                              >×</button>
+                            )}
+                          </motion.span>
+                        ))
+                      )}
+                    </AnimatePresence>
+
+                    {/* Add dropdown — admin only */}
+                    {isAdmin && !cfg.is_qa && available.length > 0 && (
+                      <div className="dev-v2-add-wrap" ref={openDropdown === dropKey ? dropdownRef : undefined}>
+                        <motion.button
+                          className="dev-v2-add"
+                          onClick={() => setOpenDropdown(openDropdown === dropKey ? null : dropKey)}
+                          whileHover={{ scale: 1.04 }}
+                          whileTap={{ scale: 0.96 }}
+                          aria-label="Add subsystem"
+                          aria-expanded={openDropdown === dropKey}
+                        >
+                          <Plus size={10} /> Add
+                        </motion.button>
+                        <AnimatePresence>
+                          {openDropdown === dropKey && (
+                            <motion.div
+                              className="pm-custom-dropdown-menu dev-v2-add-menu"
+                              variants={dropdownVariants}
+                              initial="initial"
+                              animate="animate"
+                              exit="exit"
+                            >
+                              {available.map(s => (
+                                <div key={s} className="pm-custom-dropdown-item" onClick={() => addSubsystem(cfg.developer_login, s)}>{s}</div>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* QA toggle */}
+                  {isAdmin ? (
+                    <motion.button
+                      className={`dev-v2-qa-btn${cfg.is_qa ? ' dev-v2-qa-btn--on' : ''}`}
+                      onClick={() => toggleQA(cfg.developer_login)}
+                      whileTap={{ scale: 0.88 }}
+                      title={cfg.is_qa ? 'Remove QA flag' : 'Mark as QA (excluded from auto-assign)'}
+                    >
+                      QA
+                    </motion.button>
+                  ) : cfg.is_qa ? (
+                    <span className="dev-v2-qa-badge-ro">QA</span>
+                  ) : null}
                 </div>
               )
             })}
+
+            {visible.length === 0 && search && (
+              <div className="dev-v2-no-results">No developers match "{search}"</div>
+            )}
           </div>
-        </div>
+        </>
       )}
     </div>
   )

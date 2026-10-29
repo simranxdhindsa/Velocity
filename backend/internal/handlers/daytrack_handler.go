@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -99,11 +102,15 @@ func (h *DayTrackHandler) GetSlackConfig(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		// Not found — return defaults
 		dtJSON(w, map[string]interface{}{
-			"channel_id":    "",
-			"channel_name":  "",
-			"slack_user_id": "",
-			"enabled":       true,
-			"keyword_rules": DefaultKeywordRules(),
+			"channel_id":        "",
+			"channel_name":      "",
+			"slack_user_id":     "",
+			"enabled":           true,
+			"keyword_rules":     DefaultKeywordRules(),
+			"dest_channel_id":   "",
+			"dest_channel_name": "",
+			"timezone":          "Asia/Kolkata",
+			"auto_send_enabled": false,
 		})
 		return
 	}
@@ -218,11 +225,94 @@ func timeToMins(t string) int {
 }
 
 type DayTrackHandler struct {
-	repo *database.DayTrackRepository
+	repo      *database.DayTrackRepository
+	userRepo  *database.UserRepository
+	ytHandler *YouTrackHandler
 }
 
-func NewDayTrackHandler() *DayTrackHandler {
-	return &DayTrackHandler{repo: database.NewDayTrackRepository()}
+func NewDayTrackHandler(ytHandler *YouTrackHandler) *DayTrackHandler {
+	return &DayTrackHandler{
+		repo:      database.NewDayTrackRepository(),
+		userRepo:  database.NewUserRepository(),
+		ytHandler: ytHandler,
+	}
+}
+
+// istToday returns today's date ("2006-01-02") in Asia/Kolkata, DayTrack's default timezone.
+func istToday() string {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		return time.Now().Format("2006-01-02")
+	}
+	return time.Now().In(loc).Format("2006-01-02")
+}
+
+// pruneDeletedYouTrackEntries checks every distinct YouTrack issue ID referenced by today's
+// entries against YouTrack and deletes (both the DayTrack entry and its issue_state_log
+// history) any whose ticket was confirmed deleted (404). Deliberately conservative: any
+// other outcome — YouTrack not configured, a transient/auth/network error — leaves the
+// entry alone rather than risk deleting real data on an ambiguous signal.
+//
+// Scoped to today only, and skipped entirely once today's update has already been posted
+// to Slack — an entry that's part of a sent record must not silently disappear. Past dates
+// are never touched (deleting historical entries retroactively is out of scope).
+func (h *DayTrackHandler) pruneDeletedYouTrackEntries(ctx context.Context, userID string, entries []database.DayTrackEntry) []database.DayTrackEntry {
+	if h.ytHandler == nil {
+		return entries
+	}
+	client, err := h.ytHandler.getYouTrackClient(ctx)
+	if err != nil || client == nil {
+		return entries
+	}
+
+	today := istToday()
+	alreadyPosted := false
+	if post, postErr := h.repo.GetDailyPost(ctx, userID, today); postErr == nil && post != nil {
+		alreadyPosted = true
+	}
+
+	checked := make(map[string]bool) // issueID -> exists
+	deleted := make(map[string]bool)
+	for _, e := range entries {
+		if e.EntrySource != "youtrack" || e.YoutrackIssueID == nil || *e.YoutrackIssueID == "" {
+			continue
+		}
+		if e.EntryDate != today || alreadyPosted {
+			continue
+		}
+		issueID := *e.YoutrackIssueID
+		if _, done := checked[issueID]; done {
+			continue
+		}
+		_, err := client.GetIssue(ctx, issueID)
+		if err == nil {
+			checked[issueID] = true
+			continue
+		}
+		if err.Error() == "YouTrack resource not found" {
+			checked[issueID] = false
+			deleted[issueID] = true
+			if pruneErr := h.repo.PruneEntriesForDeletedIssue(ctx, issueID); pruneErr != nil {
+				log.Printf("[DayTrack Webhook] ✗ %s confirmed deleted on YouTrack (page load check) but failed to prune: %v", issueID, pruneErr)
+			} else {
+				log.Printf("[DayTrack Webhook] ✓ %s deleted on YouTrack → removed its DayTrack entries (page load check)", issueID)
+			}
+		} else {
+			// Ambiguous failure (network/auth/rate-limit) — keep the entry, don't guess.
+			checked[issueID] = true
+		}
+	}
+	if len(deleted) == 0 {
+		return entries
+	}
+	out := entries[:0]
+	for _, e := range entries {
+		if e.YoutrackIssueID != nil && deleted[*e.YoutrackIssueID] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func dtJSON(w http.ResponseWriter, v interface{}) {
@@ -355,9 +445,13 @@ func callGroqChat(ctx context.Context, apiKey, model, system, user string, maxTo
 	raw, _ := io.ReadAll(resp.Body)
 	var res struct {
 		Choices []struct {
-			Message struct{ Content string `json:"content"` } `json:"message"`
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
 		} `json:"choices"`
-		Error *struct{ Message string `json:"message"` } `json:"error"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return "", err
@@ -385,21 +479,25 @@ func (h *DayTrackHandler) GetEntries(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	entries = h.pruneDeletedYouTrackEntries(r.Context(), userID, entries)
 	dtJSON(w, entries)
 }
 
 func (h *DayTrackHandler) CreateEntry(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var body struct {
-		Date          string  `json:"entry_date"`
-		Name          string  `json:"name"`
-		Category      string  `json:"category"`
-		StartTime     string  `json:"start_time"`
-		EndTime       string  `json:"end_time"`
-		DurationMins  *int    `json:"duration_mins"`
-		Notes         string  `json:"notes"`
-		Status        string  `json:"status"`
-		ParentEntryID *string `json:"parent_entry_id"`
+		Date            string  `json:"entry_date"`
+		Name            string  `json:"name"`
+		Category        string  `json:"category"`
+		StartTime       string  `json:"start_time"`
+		EndTime         string  `json:"end_time"`
+		DurationMins    *int    `json:"duration_mins"`
+		Notes           string  `json:"notes"`
+		Status          string  `json:"status"`
+		ParentEntryID   *string `json:"parent_entry_id"`
+		EntrySource     string  `json:"entry_source"`
+		ExternalRef     string  `json:"external_ref"`
+		YoutrackIssueID *string `json:"youtrack_issue_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -425,10 +523,21 @@ func (h *DayTrackHandler) CreateEntry(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	entry, err := h.repo.CreateEntry(r.Context(), userID, body.Date, body.Name, body.Category, body.StartTime, body.EndTime, body.DurationMins, body.Notes, body.Status, body.ParentEntryID)
+	// Preserves YouTrack lineage when a planned/carried item is resumed (started) back
+	// into Today's Log, so a second carry-forward still recognizes it as YouTrack-sourced.
+	entry, err := h.repo.CreateEntrySourced(r.Context(), userID, body.Date, body.Name, body.Category,
+		body.StartTime, body.EndTime, body.DurationMins, body.Notes, body.Status, body.ParentEntryID,
+		body.EntrySource, body.ExternalRef)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if entry != nil && body.YoutrackIssueID != nil && *body.YoutrackIssueID != "" {
+		if err := h.repo.SetYoutrackIssueID(r.Context(), entry.ID, *body.YoutrackIssueID); err != nil {
+			log.Printf("[DayTrack] failed to stamp youtrack_issue_id on resumed entry: %v", err)
+		} else {
+			entry.YoutrackIssueID = body.YoutrackIssueID
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -482,6 +591,7 @@ func (h *DayTrackHandler) GetEntriesRange(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	entries = h.pruneDeletedYouTrackEntries(r.Context(), userID, entries)
 	dtJSON(w, entries)
 }
 
@@ -505,15 +615,18 @@ func (h *DayTrackHandler) GetPlanned(w http.ResponseWriter, r *http.Request) {
 func (h *DayTrackHandler) CreatePlanned(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var body struct {
-		Date          string `json:"entry_date"`
-		Name          string `json:"name"`
-		Category      string `json:"category"`
-		ScheduledTime string `json:"scheduled_time"`
-		StartTime     string `json:"start_time"`
-		EndTime       string `json:"end_time"`
-		WhenType      string `json:"when_type"`
-		Notes         string `json:"notes"`
-		Status        string `json:"status"`
+		Date            string  `json:"entry_date"`
+		Name            string  `json:"name"`
+		Category        string  `json:"category"`
+		ScheduledTime   string  `json:"scheduled_time"`
+		StartTime       string  `json:"start_time"`
+		EndTime         string  `json:"end_time"`
+		WhenType        string  `json:"when_type"`
+		Notes           string  `json:"notes"`
+		Status          string  `json:"status"`
+		EntrySource     string  `json:"entry_source"`
+		ExternalRef     string  `json:"external_ref"`
+		YoutrackIssueID *string `json:"youtrack_issue_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -532,7 +645,7 @@ func (h *DayTrackHandler) CreatePlanned(w http.ResponseWriter, r *http.Request) 
 	if body.Status == "" {
 		body.Status = "planned"
 	}
-	item, err := h.repo.CreatePlanned(r.Context(), userID, body.Date, body.Name, body.Category, body.ScheduledTime, body.StartTime, body.EndTime, body.WhenType, body.Notes, body.Status)
+	item, err := h.repo.CreatePlanned(r.Context(), userID, body.Date, body.Name, body.Category, body.ScheduledTime, body.StartTime, body.EndTime, body.WhenType, body.Notes, body.Status, body.EntrySource, body.ExternalRef, body.YoutrackIssueID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -599,7 +712,7 @@ func (h *DayTrackHandler) GetCategories(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if cats == nil {
-		cats = []string{}
+		cats = []database.DayTrackCategory{}
 	}
 	dtJSON(w, cats)
 }
@@ -608,23 +721,29 @@ func (h *DayTrackHandler) AddCategory(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	var body struct {
 		Name string `json:"name"`
+		Icon string `json:"icon"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	name := strings.TrimSpace(body.Name)
+	icon := strings.TrimSpace(body.Icon)
 	if name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
-	if err := h.repo.AddCategory(r.Context(), userID, name); err != nil {
+	if icon == "" || !isAllowedCategoryEmoji(icon) {
+		http.Error(w, "a valid icon is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.AddCategory(r.Context(), userID, name, icon); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"name": name})
+	json.NewEncoder(w).Encode(database.DayTrackCategory{Name: name, Icon: icon})
 }
 
 func (h *DayTrackHandler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
@@ -639,12 +758,22 @@ func (h *DayTrackHandler) DeleteCategory(w http.ResponseWriter, r *http.Request)
 
 // daytracBuildSlackSections builds structured sections from DayTrack entries for Slack posting.
 // Uses original category names as-is and correctly separates yt-tested entries into "Tickets Tested".
-func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName string) PersonUpdate {
+// Subtasks are rendered as indented nested bullets (◦) under their parent. customIcons maps a
+// custom category's lowercased name to its user-chosen emoji, so every section header carries an
+// icon — the built-in categories the same way regardless of who's viewing (defaultCategoryEmoji).
+func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName string, customIcons map[string]string) PersonUpdate {
 	skipCat := map[string]bool{
 		"sign in": true, "sign off": true, "signing in": true, "signing off": true,
 		"time on": true, "time off": true, "time on/off": true,
 		"break": true, "breaks": true,
-		"meeting": true, "meetings": true,
+	}
+
+	// Build parent → subtasks lookup first
+	subtaskMap := map[string][]database.DayTrackEntry{}
+	for _, e := range entries {
+		if e.ParentEntryID != nil && *e.ParentEntryID != "" {
+			subtaskMap[*e.ParentEntryID] = append(subtaskMap[*e.ParentEntryID], e)
+		}
 	}
 
 	sectionMap := map[string][]string{}
@@ -652,16 +781,22 @@ func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName str
 
 	for _, e := range entries {
 		if e.ParentEntryID != nil && *e.ParentEntryID != "" {
-			continue
+			continue // rendered under parent below
 		}
 		cat := strings.ToLower(strings.TrimSpace(e.Category))
 		if skipCat[cat] {
 			continue
 		}
 
-		// yt-tested entries live in Testing category in DB; separate them here
+		// Grouped by status, not category: an unfinished (active) item belongs in
+		// "In Progress" regardless of what category it's tagged with, and it moves
+		// itself into that category's normal section the moment it's actually marked
+		// done — no manual re-tagging needed, and carrying it to another day doesn't
+		// leave it stuck looking like a permanent "In Progress" category.
 		sec := e.Category
-		if strings.HasPrefix(e.ExternalRef, "yt-tested-") {
+		if e.Status == "active" {
+			sec = "In Progress"
+		} else if strings.HasPrefix(e.ExternalRef, "yt-tested-") {
 			sec = "Tickets Tested"
 		} else if sec == "Tickets" {
 			sec = "Tickets Created" // legacy category name from older YouTrack sync
@@ -670,9 +805,18 @@ func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName str
 		if _, seen := sectionMap[sec]; !seen {
 			order = append(order, sec)
 		}
+
 		item := e.Name
 		if e.Notes != "" {
 			item += " — " + e.Notes
+		}
+		// Append subtasks as indented nested bullets
+		for _, sub := range subtaskMap[e.ID] {
+			subLine := "\n    ◦ " + sub.Name
+			if sub.Notes != "" {
+				subLine += " — " + sub.Notes
+			}
+			item += subLine
 		}
 		sectionMap[sec] = append(sectionMap[sec], item)
 	}
@@ -680,10 +824,111 @@ func daytracBuildSlackSections(entries []database.DayTrackEntry, displayName str
 	var sections []UpdateSection
 	for _, label := range order {
 		if len(sectionMap[label]) > 0 {
-			sections = append(sections, UpdateSection{Label: label, Items: sectionMap[label]})
+			icon := categoryEmoji(label, customIcons)
+			sections = append(sections, UpdateSection{Label: icon + " " + label, Items: sectionMap[label]})
 		}
 	}
 	return PersonUpdate{DisplayName: displayName, Sections: sections}
+}
+
+// errDayTrackNoEntries means there's nothing reportable for that user+date — not a failure,
+// just nothing to send (e.g. the auto-send job hits a day with no entries yet).
+var errDayTrackNoEntries = errors.New("no entries for date")
+
+// buildDayTrackReportText assembles the exact text that gets posted to Slack for userID+date —
+// used both by postDayTrackUpdate (the real send) and the read-only preview endpoint, so the two
+// can never drift: whatever the preview/copy button shows is guaranteed to be what gets sent.
+func (h *DayTrackHandler) buildDayTrackReportText(ctx context.Context, userID, date, displayName string) (string, error) {
+	entries, err := h.repo.GetEntries(ctx, userID, date)
+	if err != nil {
+		return "", err
+	}
+	entries = h.pruneDeletedYouTrackEntries(ctx, userID, entries)
+
+	customIcons := map[string]string{}
+	if cats, cErr := h.repo.GetCategories(ctx, userID); cErr == nil {
+		for _, c := range cats {
+			customIcons[strings.ToLower(strings.TrimSpace(c.Name))] = c.Icon
+		}
+	}
+
+	ownerUpdate := daytracBuildSlackSections(entries, "", customIcons)
+
+	// In-progress work (manual, via the "still in progress" checkbox, or auto-pulled
+	// from YouTrack) lives in Planned & Carry Over, not Today's Log — Today's Log only
+	// ever holds finished work. It still belongs in the report's In Progress section
+	// so open work isn't silently missing just because nobody's marked it done yet.
+	// Plain "planned"/"carry" items (not yet started) are intentionally excluded.
+	if planned, plErr := h.repo.GetPlanned(ctx, userID, date); plErr == nil {
+		var inProgressItems []string
+		for _, p := range planned {
+			if p.Status != "in_progress" {
+				continue
+			}
+			item := p.Name
+			if p.Notes != "" {
+				item += " — " + p.Notes
+			}
+			inProgressItems = append(inProgressItems, item)
+		}
+		if len(inProgressItems) > 0 {
+			inProgressLabel := categoryEmoji("in progress", customIcons) + " In Progress"
+			merged := false
+			for i, sec := range ownerUpdate.Sections {
+				if sec.Label == inProgressLabel {
+					ownerUpdate.Sections[i].Items = append(ownerUpdate.Sections[i].Items, inProgressItems...)
+					merged = true
+					break
+				}
+			}
+			if !merged {
+				ownerUpdate.Sections = append([]UpdateSection{{Label: inProgressLabel, Items: inProgressItems}}, ownerUpdate.Sections...)
+			}
+		}
+	}
+
+	ownerUpdate.IsOwner = true
+	if len(ownerUpdate.Sections) == 0 {
+		return "", errDayTrackNoEntries
+	}
+
+	dateParsed, _ := time.Parse("2006-01-02", date)
+	header := fmt.Sprintf("*%s*\n%s\n\n", displayName, dateParsed.Format("Mon, Jan 2"))
+	return header + standupFormatMrkdwn([]PersonUpdate{ownerUpdate}), nil
+}
+
+// postDayTrackUpdate builds the Slack report for userID+date and posts it — or edits the
+// existing post for that date in place. Shared by the manual "Post to Slack" button and the
+// daily auto-send scheduler so both paths always send the exact same thing.
+func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, destChannelID, displayName string) (updated bool, err error) {
+	text, err := h.buildDayTrackReportText(ctx, userID, date, displayName)
+	if err != nil {
+		return false, err
+	}
+	slackSvc := slacksvc.NewService()
+
+	// Post once per (user, date); every later send for the same date edits that same
+	// message in place instead of spamming a new one, so the channel always reflects
+	// this day's latest entries under a single message.
+	existing, _ := h.repo.GetDailyPost(ctx, userID, date)
+	if existing != nil && existing.ChannelID == destChannelID {
+		if err := slackSvc.UpdateMessage(ctx, userID, destChannelID, existing.SlackTS, text); err != nil {
+			return false, err
+		}
+		if err := h.repo.UpsertDailyPost(ctx, userID, date, destChannelID, existing.SlackTS); err != nil {
+			log.Printf("[DayTrack] failed to bump daily post updated_at: %v", err)
+		}
+		return true, nil
+	}
+
+	ts, err := slackSvc.PostMessage(ctx, userID, destChannelID, "daytrack", text)
+	if err != nil {
+		return false, err
+	}
+	if err := h.repo.UpsertDailyPost(ctx, userID, date, destChannelID, ts); err != nil {
+		log.Printf("[DayTrack] failed to record daily post: %v", err)
+	}
+	return false, nil
 }
 
 // PostToSlack formats DayTrack entries for a given date and posts to the configured destination channel.
@@ -706,22 +951,204 @@ func (h *DayTrackHandler) PostToSlack(w http.ResponseWriter, r *http.Request) {
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-	entries, err := h.repo.GetEntries(r.Context(), user.ID, date)
-	if err != nil || len(entries) == 0 {
-		http.Error(w, "no entries for "+date, http.StatusBadRequest)
-		return
+	displayName := user.Name
+	if dbUser, err2 := h.userRepo.GetByID(r.Context(), user.ID); err2 == nil && dbUser.Name != "" {
+		displayName = dbUser.Name
 	}
-	ownerUpdate := daytracBuildSlackSections(entries, "")
-	ownerUpdate.IsOwner = true
-	if len(ownerUpdate.Sections) == 0 {
-		http.Error(w, "no entries for "+date, http.StatusBadRequest)
-		return
-	}
-	text := standupFormatMrkdwn([]PersonUpdate{ownerUpdate})
-	slackSvc := slacksvc.NewService()
-	if err := slackSvc.PostMessage(r.Context(), user.ID, cfg.DestChannelID, text); err != nil {
+
+	updated, err := h.postDayTrackUpdate(r.Context(), user.ID, date, cfg.DestChannelID, displayName)
+	if err != nil {
+		if errors.Is(err, errDayTrackNoEntries) {
+			http.Error(w, "no entries for "+date, http.StatusBadRequest)
+			return
+		}
 		http.Error(w, "failed to post: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	dtJSON(w, map[string]interface{}{"ok": true, "updated": updated})
+}
+
+// GetSlackPreview returns the exact text that "Post to Slack" would send for a given date,
+// without posting it — the single source of truth the frontend uses for the Copy DayTrack
+// button and the on-screen summary, so what's shown/copied always matches what's actually sent.
+func (h *DayTrackHandler) GetSlackPreview(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	date := strings.TrimSpace(r.URL.Query().Get("date"))
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	displayName := user.Name
+	if dbUser, err2 := h.userRepo.GetByID(r.Context(), user.ID); err2 == nil && dbUser.Name != "" {
+		displayName = dbUser.Name
+	}
+
+	text, err := h.buildDayTrackReportText(r.Context(), user.ID, date, displayName)
+	if err != nil {
+		if errors.Is(err, errDayTrackNoEntries) {
+			dtJSON(w, map[string]interface{}{"text": "", "empty": true})
+			return
+		}
+		http.Error(w, "failed to build preview: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dtJSON(w, map[string]interface{}{"text": text, "empty": false})
+}
+
+// GetAllowedCategoryEmoji returns the curated emoji allow-list for custom categories, so the
+// frontend picker and the backend validation are always driven by the same single list.
+func (h *DayTrackHandler) GetAllowedCategoryEmoji(w http.ResponseWriter, r *http.Request) {
+	icons := make([]string, 0, len(allowedCustomCategoryEmoji))
+	for icon := range allowedCustomCategoryEmoji {
+		icons = append(icons, icon)
+	}
+	sort.Strings(icons)
+	dtJSON(w, icons)
+}
+
+// GetSlackPostStatus reports whether today's (or the given date's) DayTrack update has
+// already been posted to Slack, so the frontend can show "Posted" vs "Post to Slack" and
+// swap the button to an edit-in-place action.
+func (h *DayTrackHandler) GetSlackPostStatus(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	date := strings.TrimSpace(r.URL.Query().Get("date"))
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	post, err := h.repo.GetDailyPost(r.Context(), user.ID, date)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if post == nil {
+		dtJSON(w, map[string]interface{}{"posted": false})
+		return
+	}
+	dtJSON(w, map[string]interface{}{
+		"posted":     true,
+		"posted_at":  post.PostedAt,
+		"updated_at": post.UpdatedAt,
+	})
+}
+
+// DeleteSlackPost deletes the Slack message posted for a given date (manually or via
+// auto-send) and clears the daily-post record, so a mistaken send can be undone and the
+// next "Post to Slack" starts a fresh message instead of trying to edit the deleted one.
+func (h *DayTrackHandler) DeleteSlackPost(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	date := strings.TrimSpace(r.URL.Query().Get("date"))
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	post, err := h.repo.GetDailyPost(r.Context(), user.ID, date)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if post == nil {
+		http.Error(w, "no post found for "+date, http.StatusBadRequest)
+		return
+	}
+	slackSvc := slacksvc.NewService()
+	if err := slackSvc.DeleteMessage(r.Context(), user.ID, post.ChannelID, post.SlackTS); err != nil {
+		// If the message is already gone from Slack (deleted manually, or too old to
+		// delete), our own record is just stale — clear it instead of leaving the user
+		// stuck with a permanently-failing delete button.
+		if !strings.Contains(err.Error(), "message_not_found") {
+			http.Error(w, "failed to delete from Slack: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("[DayTrack] Slack message already gone for user %s date %s, clearing local record", user.ID, date)
+	}
+	if err := h.repo.DeleteDailyPost(r.Context(), user.ID, date); err != nil {
+		log.Printf("[DayTrack] failed to clear daily post record: %v", err)
+	}
 	dtJSON(w, map[string]bool{"ok": true})
+}
+
+// ── Daily auto-send scheduler ─────────────────────────────────────────────────
+
+// autoSendHour/autoSendMinute are hardcoded (11:50 PM IST) and deliberately not
+// user-configurable — only whether auto-send is on is exposed on the frontend.
+const (
+	autoSendHour   = 23
+	autoSendMinute = 50
+)
+
+// RunDayTrackAutoSendScheduler starts a background goroutine that, once a day at the fixed
+// IST time above, posts each opted-in user's DayTrack update for today (IST) to their
+// configured Slack channel — refreshed against YouTrack first (same prune the page does on
+// load) so the auto-sent update matches what a manual click would send, and always scoped
+// to today's date only, never a leftover previous day or a future one.
+func RunDayTrackAutoSendScheduler(h *DayTrackHandler) {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		lastSentDate := ""
+		for range ticker.C {
+			loc, err := time.LoadLocation("Asia/Kolkata")
+			if err != nil {
+				loc = time.UTC
+			}
+			now := time.Now().In(loc)
+			if now.Hour() != autoSendHour || now.Minute() != autoSendMinute {
+				continue
+			}
+			today := now.Format("2006-01-02")
+			if today == lastSentDate {
+				continue // already ran for this date this minute-window
+			}
+			lastSentDate = today
+			runDayTrackAutoSend(h, today)
+		}
+	}()
+}
+
+func runDayTrackAutoSend(h *DayTrackHandler, date string) {
+	listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	configs, err := h.repo.GetAllAutoSendConfigs(listCtx)
+	listCancel()
+	if err != nil {
+		log.Printf("[DayTrack AutoSend] failed to load configs: %v", err)
+		return
+	}
+
+	for _, cfg := range configs {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		displayName := ""
+		if dbUser, err := h.userRepo.GetByID(ctx, cfg.UserID); err == nil {
+			displayName = dbUser.Name
+		}
+
+		// Pull in newly created / tested / dev-moved / currently-in-progress tickets first —
+		// the same YouTrack sync the manual sync-icon button runs — so the auto-sent update
+		// includes today's latest ticket activity, not just whatever was already logged.
+		if h.ytHandler != nil {
+			if added, _, tested, dev, inProgress, err := h.ytHandler.scanYouTrackTicketsForUser(ctx, cfg.UserID, date); err != nil {
+				log.Printf("[DayTrack AutoSend] YouTrack sync failed for user %s: %v", cfg.UserID, err)
+			} else if added+tested+dev+inProgress > 0 {
+				log.Printf("[DayTrack AutoSend] YouTrack sync for user %s: +%d created, +%d tested, +%d dev, +%d in progress", cfg.UserID, added, tested, dev, inProgress)
+			}
+		}
+
+		if _, err := h.postDayTrackUpdate(ctx, cfg.UserID, date, cfg.DestChannelID, displayName); err != nil {
+			if !errors.Is(err, errDayTrackNoEntries) {
+				log.Printf("[DayTrack AutoSend] failed for user %s: %v", cfg.UserID, err)
+			}
+		} else {
+			log.Printf("[DayTrack AutoSend] posted %s update for user %s", date, cfg.UserID)
+		}
+		cancel()
+	}
 }

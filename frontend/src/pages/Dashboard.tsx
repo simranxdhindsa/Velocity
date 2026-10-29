@@ -1,23 +1,12 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import {
-  DndContext,
-  DragOverlay,
-  closestCorners,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  useDroppable,
-  useDraggable,
-} from '@dnd-kit/core'
-import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import { useAuth } from '@/contexts/AuthContext'
 import { StatCarousel } from '@/components/StatCarousel'
+import WorldClock from '@/components/WorldClock'
 import { PERSIST } from '@/hooks/usePersistedState'
 import api from '@/services/api'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import CreateIssueModal from '@/components/CreateIssueModal'
-import { useYouTrackEvents } from '@/services/useYouTrackEvents'
 import {
   LayoutDashboard,
   KanbanSquare,
@@ -28,116 +17,57 @@ import {
   BarChart3,
   Settings,
   Users,
-  Search,
   Plus,
-  ChevronRight,
   LogOut,
   Link2,
   Brain,
   CheckCircle,
-  AlertCircle,
-  Clock,
-  Code2,
-  Archive,
-  RefreshCw,
-  User,
   AlertTriangle,
+  Clock,
   X,
   MessageSquare,
   Sparkles,
+  Megaphone,
   Maximize2,
   Minimize2,
   Activity,
   Zap,
   Palette,
+  BookOpen,
+  Menu,
 } from 'lucide-react'
-import { PMAssistantTab } from './PMReportsPage'
+import { VelocityLogo } from '@/components/brand/VelocityLogo'
+import { GlobalHoverCard } from '@/components/HoverCard'
+import { PMAssistant } from '../components/assistant/PMAssistant'
 import { SprintDashboardPage } from './SprintDashboardPage'
 import { IntegrationsPage } from './IntegrationsPage'
 import { SettingsPage } from './SettingsPage'
 import { BoardPage } from './BoardPage'
 import { DailyOpsPage } from './DailyOpsTab'
-import { DailyAnalysisViewPage } from './DailyAnalysisViewPage'
 import { BotConfigPage } from './BotConfigPage'
 import { AIAnalysisPage } from './AIAnalysisPage'
+import { DevActivityPage } from './DevActivityPage'
 import { PMReportsPage } from './PMReportsPage'
 import { ListViewPage } from './ListViewPage'
+import { SprintPulsePage } from './SprintPulsePage'
 import { SlackIntelligencePage } from './SlackIntelligencePage'
+import { UpdateRemindersTab } from './UpdateRemindersTab'
 import { ActivityPage } from './ActivityPage'
 import { DayTrackPage } from './DayTrackPage'
+import { GanttPage } from './GanttPage'
+import { KnowledgeBasePage } from './KnowledgeBasePage'
 import { JellySwitch } from '../components/JellySwitch'
 import { ThemeSettingsPage } from './ThemeSettingsPage'
 import { applyUserTheme } from '../utils/themeUtils'
 import { RightPanel } from '../components/notifications/RightPanel'
-import type { LocalNotification } from '../components/notifications/RightPanel'
+import { useNotifications } from '../services/useNotifications'
+import ChangelogPanel from '../components/changelog/ChangelogPanel'
+import type { ChangelogEntry } from '../services/api'
 
-type Page = 'dashboard' | 'board' | 'list' | 'daily-ops' | 'daily-analysis' | 'calendar' | 'reports' | 'ai-analysis' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme'
+type Page = 'dashboard' | 'board' | 'list' | 'sprint-pulse' | 'daily-ops' | 'calendar' | 'reports' | 'ai-analysis' | 'dev-activity' | 'pm-reports' | 'bots' | 'team' | 'settings' | 'integrations' | 'slack' | 'activity' | 'daytrack' | 'theme' | 'gantt' | 'update-reminders' | 'knowledge-base'
 
 // Pages accessible by members/viewers (limited access)
-const MEMBER_PAGES: Page[] = ['dashboard', 'board', 'list', 'daily-ops', 'activity', 'calendar', 'ai-analysis', 'daily-analysis', 'pm-reports', 'daytrack', 'integrations']
-
-// YouTrack issue with extracted fields
-interface YTIssue {
-  id: string
-  summary: string
-  description: string
-  status: string
-  priority: string
-  assignee?: { id: string; login: string; fullName: string; email?: string }
-}
-
-// Column config for the 3 dashboard columns
-const DASHBOARD_COLUMNS = [
-  { id: 'backlog', label: 'Backlog', ytState: 'Open' },
-  { id: 'in_progress', label: 'In Progress', ytState: 'In Progress' },
-  { id: 'dev', label: 'DEV', ytState: 'DEV' },
-] as const
-
-const COLUMN_ORDER: Record<string, number> = {
-  backlog: 0,
-  in_progress: 1,
-  dev: 2,
-}
-
-type DashboardNotification = LocalNotification
-
-// Droppable column wrapper
-function DroppableColumn({ id, children }: { id: string; children: React.ReactNode }) {
-  const { isOver, setNodeRef } = useDroppable({ id })
-  return (
-    <div
-      ref={setNodeRef}
-      className="kanban-column"
-      style={{
-        outline: isOver ? '2px solid #8250df' : 'none',
-        outlineOffset: '-2px',
-        borderRadius: '12px',
-        transition: 'outline 0.15s ease',
-      }}
-    >
-      {children}
-    </div>
-  )
-}
-
-// Draggable card wrapper
-function DraggableCard({ id, children }: { id: string; children: React.ReactNode }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id })
-  return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      style={{
-        opacity: isDragging ? 0.4 : 1,
-        cursor: 'grab',
-        touchAction: 'none',
-      }}
-    >
-      {children}
-    </div>
-  )
-}
+const MEMBER_PAGES: Page[] = ['dashboard', 'board', 'list', 'sprint-pulse', 'daily-ops', 'activity', 'calendar', 'ai-analysis', 'dev-activity', 'pm-reports', 'daytrack', 'integrations', 'gantt', 'slack', 'update-reminders', 'theme']
 
 // Map URL path segments to Page values
 const PATH_TO_PAGE: Record<string, Page> = {
@@ -145,11 +75,12 @@ const PATH_TO_PAGE: Record<string, Page> = {
   'dashboard': 'dashboard',
   'board': 'board',
   'list': 'list',
+  'sprint-pulse': 'sprint-pulse',
   'daily-ops': 'daily-ops',
-  'daily-analysis': 'daily-analysis',
   'calendar': 'calendar',
   'reports': 'reports',
   'ai-analysis': 'ai-analysis',
+  'dev-activity': 'dev-activity',
   'pm-reports': 'pm-reports',
   'bots': 'bots',
   'team': 'team',
@@ -159,13 +90,19 @@ const PATH_TO_PAGE: Record<string, Page> = {
   'activity': 'activity',
   'daytrack': 'daytrack',
   'theme': 'theme',
+  'gantt': 'gantt',
+  'update-reminders': 'update-reminders',
+  'knowledge-base': 'knowledge-base',
 }
 
-const PM_REPORTS_TABS = ['tracking', 'daily', 'assignees', 'dailyops', 'deployment'] as const
+const PM_REPORTS_TABS = ['tracking', 'daily', 'assignees', 'deployment'] as const
 type PMReportsTab = typeof PM_REPORTS_TABS[number]
 
-const SLACK_TABS = ['inbox', 'threads', 'reminders', 'settings'] as const
+const SLACK_TABS = ['messages', 'inbox', 'mcp-activity'] as const
 type SlackTab = typeof SLACK_TABS[number]
+
+const UPDATE_REMINDERS_TABS = ['claude-queue', 'rules'] as const
+type UpdateRemindersTab_Tab = typeof UPDATE_REMINDERS_TABS[number]
 
 const INTEGRATIONS_TABS = ['youtrack', 'slack', 'workflow', 'developers'] as const
 type IntegrationsTab = typeof INTEGRATIONS_TABS[number]
@@ -188,12 +125,17 @@ export default function Dashboard() {
   // Derived sub-tab for slack (with validation)
   const slackTab: SlackTab = (SLACK_TABS as readonly string[]).includes(subTab ?? '')
     ? (subTab as SlackTab)
-    : 'inbox'
+    : 'messages'
 
   // Derived sub-tab for integrations (with validation)
   const integrationsTab: IntegrationsTab = (INTEGRATIONS_TABS as readonly string[]).includes(subTab ?? '')
     ? (subTab as IntegrationsTab)
     : 'youtrack'
+
+  // Derived sub-tab for update-reminders (with validation)
+  const updateRemindersSubTab: UpdateRemindersTab_Tab = (UPDATE_REMINDERS_TABS as readonly string[]).includes(subTab ?? '')
+    ? (subTab as UpdateRemindersTab_Tab)
+    : 'claude-queue'
 
   // Navigate wrapper — updates URL and persists last page
   const setCurrentPage = (page: Page) => {
@@ -201,12 +143,19 @@ export default function Dashboard() {
     navigate(`/${page}`)
   }
 
+  // The standalone /mcp-activity page moved into Slack > MCP Activity
+  // (Claude actions view). Old links and bookmarks land there.
+  useEffect(() => {
+    if (pathSegments[0] === 'mcp-activity') navigate('/slack/mcp-activity?view=claude', { replace: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname])
+
   // On fresh load at root (/), restore the last visited page
   useEffect(() => {
     const path = location.pathname
     if (path === '/' || path === '') {
       const last = localStorage.getItem(PERSIST.LAST_PAGE) as Page | null
-      const valid: Page[] = ['board', 'list', 'daily-ops', 'pm-reports', 'slack', 'activity', 'daytrack', 'ai-analysis', 'daily-analysis', 'integrations', 'settings', 'bots', 'theme']
+      const valid: Page[] = ['board', 'list', 'sprint-pulse', 'daily-ops', 'pm-reports', 'slack', 'activity', 'daytrack', 'ai-analysis', 'dev-activity', 'integrations', 'settings', 'bots', 'knowledge-base', 'theme', 'gantt']
       if (last && valid.includes(last)) {
         navigate(`/${last}`, { replace: true })
       }
@@ -226,8 +175,69 @@ export default function Dashboard() {
     })
   }, [currentPage])
 
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Close sidebar on mobile whenever page changes (nav click)
+  useEffect(() => { setSidebarOpen(false) }, [currentPage])
+
+  // Lock body scroll when sidebar is open on mobile
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-open', sidebarOpen)
+    return () => { document.body.classList.remove('sidebar-open') }
+  }, [sidebarOpen])
+
+  // ── Update Reminders: unread queue indicator + browser notifications ─────────
+  const [unreadQueueCount, setUnreadQueueCount] = useState(0)
+  const notifiedQueueCountRef = useRef(0)
+
+  // Poll for new Claude queue messages every 30s
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const r = await api.listQueuedMessages()
+        const list: any[] = Array.isArray(r) ? r : Array.isArray((r as any)?.data) ? (r as any).data : []
+        const lastSeen = parseInt(localStorage.getItem('ur_queue_last_seen_ts') || '0', 10)
+        const newCount = list.filter((m: any) => m.status === 'pending' && new Date(m.created_at).getTime() > lastSeen).length
+        setUnreadQueueCount(newCount)
+        if (newCount > 0 && newCount > notifiedQueueCountRef.current && Notification.permission === 'granted') {
+          notifiedQueueCountRef.current = newCount
+          new Notification('Velocity — Claude Queue', {
+            body: newCount === 1 ? 'Claude queued a message for review' : `Claude queued ${newCount} messages for review`,
+            icon: '/favicon.ico',
+          })
+        }
+      } catch { /* ignore */ }
+    }
+    poll()
+    const id = setInterval(poll, 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Clear unread badge and request notification permission when visiting the page
+  useEffect(() => {
+    if (currentPage === 'update-reminders') {
+      setUnreadQueueCount(0)
+      notifiedQueueCountRef.current = 0
+      localStorage.setItem('ur_queue_last_seen_ts', Date.now().toString())
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        Notification.requestPermission()
+      }
+    }
+  }, [currentPage])
+
   const [showNotifications, setShowNotifications] = useState(false)
   const [notifAnchorRect, setNotifAnchorRect] = useState<DOMRect | null>(null)
+  const [showChangelog, setShowChangelog] = useState(false)
+  const [changelogAnchorRect, setChangelogAnchorRect] = useState<DOMRect | null>(null)
+  const [hasNewChangelog, setHasNewChangelog] = useState(false)
+  const [changelogEntries, setChangelogEntries] = useState<ChangelogEntry[]>([])
+
+  useEffect(() => {
+    api.getChangelogStatus().then(res => {
+      setHasNewChangelog(res.has_new)
+      setChangelogEntries(res.entries)
+    }).catch(() => {})
+  }, [])
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     return localStorage.getItem('theme') !== 'light'
   })
@@ -265,37 +275,28 @@ export default function Dashboard() {
   }, [user])
 
   useEffect(() => {
-    const PAGE_TITLES: Record<string, string> = {
-      'dashboard':      'Dashboard',
-      'board':          'Board View',
-      'list':           'List View',
-      'daily-ops':      'DailyOps',
-      'daily-analysis': 'Daily Analysis',
-      'calendar':       'Calendar',
-      'reports':        'Reports',
-      'ai-analysis':    'AI Analysis',
-      'pm-reports':     'PM Reports',
-      'bots':           'Bot Config',
-      'team':           'Team',
-      'settings':       'Settings',
-      'integrations':   'Integrations',
-      'reminders':      'Reminders',
-      'slack':          'Slack Intelligence',
-      'activity':       'Activity',
-      'daytrack':       'DayTrack',
-      'theme':          'Theme Customizer',
+    const titles: Record<string, string> = {
+      dashboard: 'Overview — Velocity',
+      board: 'Sprint Board — Velocity',
+      list: 'List View — Velocity',
+      'sprint-pulse': 'Sprint Pulse — Velocity',
+      'daily-ops': 'Daily Ops — Velocity',
+      daytrack: 'DayTrack — Velocity',
+      activity: 'Activity — Velocity',
+      calendar: 'Calendar — Velocity',
+      'ai-analysis': 'AI Analysis — Velocity',
+      'dev-activity': 'Dev Activity — Velocity',
+      'pm-reports': 'PM Reports — Velocity',
+      slack: 'Slack Intelligence — Velocity',
+      integrations: 'Integrations — Velocity',
+      team: 'Team — Velocity',
+      settings: 'Settings — Velocity',
+      bots: 'Bot Config — Velocity',
+      theme: 'Theme — Velocity',
     }
-    const title = PAGE_TITLES[currentPage] || 'Velocity'
-    document.title = currentPage === 'dashboard' ? 'Velocity' : `${title} | Velocity`
+    document.title = titles[currentPage] || 'Velocity'
   }, [currentPage])
 
-  // YouTrack state
-  const [ytIssues, setYtIssues] = useState<YTIssue[]>([])
-  const [ytLoading, setYtLoading] = useState(true)
-  const [ytConnected, setYtConnected] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const sseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [activeIssue, setActiveIssue] = useState<YTIssue | null>(null)
   const [dashboardView, setDashboardView] = useState<'board' | 'assignees'>('board')
 
   // New task modal state
@@ -305,20 +306,8 @@ export default function Dashboard() {
   // Role-based access
   const isFullAccess = user?.role === 'admin' || user?.role === 'project_manager'
 
-  // Search state
-  const [searchQuery, setSearchQuery] = useState('')
-
-  // Notification state — persist to sessionStorage
-  const [notifications, setNotifications] = useState<DashboardNotification[]>(() => {
-    try {
-      const saved = sessionStorage.getItem('pm_notifications')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        return parsed.map((n: DashboardNotification) => ({ ...n, timestamp: new Date(n.timestamp) }))
-      }
-    } catch { /* ignore */ }
-    return []
-  })
+  const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification } = useNotifications()
+  const [ytBaseUrl, setYtBaseUrl] = useState<string>('')
   const [toast, setToast] = useState<{ message: string; type: 'warning' | 'info' } | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatFullscreen, setChatFullscreen] = useState(false)
@@ -326,20 +315,11 @@ export default function Dashboard() {
   const notifRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    sessionStorage.setItem('pm_notifications', JSON.stringify(notifications))
-  }, [notifications])
-
-  // Close notification panel on outside click
-  useEffect(() => {
-    if (!showNotifications) return
-    const handler = (e: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setShowNotifications(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showNotifications])
+    api.getYouTrackStatus().then(res => {
+      const url = (res as any)?.base_url || (res as any)?.data?.base_url || ''
+      if (url) setYtBaseUrl(url)
+    }).catch(() => {})
+  }, [])
 
   // Guard: redirect members to allowed pages
   useEffect(() => {
@@ -347,149 +327,6 @@ export default function Dashboard() {
       navigate('/dashboard', { replace: true })
     }
   }, [currentPage, isFullAccess, navigate])
-
-  const unreadCount = notifications.filter(n => !n.read).length
-
-  const addNotification = (notif: Omit<DashboardNotification, 'id' | 'timestamp' | 'read'>) => {
-    setNotifications(prev => [{
-      ...notif,
-      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      timestamp: new Date(),
-      read: false,
-    }, ...prev])
-  }
-
-  const dismissNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id))
-  }
-
-  const handleMoveToBlocked = async (notif: DashboardNotification) => {
-    try {
-      await api.bulkUpdateYouTrackStates([{ issue_id: notif.issueId, new_state: 'Blocked' }])
-      setYtIssues(prev => prev.map(i =>
-        i.id === notif.issueId ? { ...i, status: 'Blocked' } : i
-      ))
-      dismissNotification(notif.id)
-      setToast({ message: `${notif.issueId} moved to Blocked`, type: 'info' })
-      setTimeout(() => setToast(null), 3000)
-    } catch {
-      setToast({ message: `Failed to move ${notif.issueId} to Blocked`, type: 'warning' })
-      setTimeout(() => setToast(null), 3000)
-    }
-  }
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
-  )
-
-  const handleDragStart = (event: DragStartEvent) => {
-    const issue = ytIssues.find(i => i.id === event.active.id)
-    if (issue) setActiveIssue(issue)
-  }
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    setActiveIssue(null)
-    const { active, over } = event
-    if (!over) return
-
-    const issueId = active.id as string
-    const targetColumnId = over.id as string
-
-    // Find which column the issue currently belongs to
-    const issue = ytIssues.find(i => i.id === issueId)
-    if (!issue) return
-
-    const currentCol = getColumnForIssue(issue)
-    if (currentCol === targetColumnId) return
-
-    // Find the target YouTrack state
-    const targetCol = DASHBOARD_COLUMNS.find(c => c.id === targetColumnId)
-    if (!targetCol) return
-
-    // Detect backward movement
-    const currentOrder = COLUMN_ORDER[currentCol] ?? 0
-    const targetOrder = COLUMN_ORDER[targetColumnId] ?? 0
-    const isBackward = targetOrder < currentOrder
-
-    if (isBackward) {
-      const fromLabel = DASHBOARD_COLUMNS.find(c => c.id === currentCol)?.label || currentCol
-      const toLabel = targetCol.label
-      addNotification({
-        type: 'backward_move',
-        issueId,
-        summary: issue.summary,
-        fromState: fromLabel,
-        toState: toLabel,
-      })
-      setToast({ message: `${issueId} moved backward: ${fromLabel} → ${toLabel}`, type: 'warning' })
-      setTimeout(() => setToast(null), 4000)
-    }
-
-    // Optimistic update: move the issue locally (even if backward)
-    setYtIssues(prev => prev.map(i =>
-      i.id === issueId ? { ...i, status: targetCol.ytState } : i
-    ))
-
-    // Call YouTrack API to update state
-    try {
-      await api.bulkUpdateYouTrackStates([{ issue_id: issueId, new_state: targetCol.ytState }])
-    } catch (err) {
-      console.error('Failed to update issue state:', err)
-      // Revert on failure
-      fetchYouTrackIssues()
-    }
-  }
-
-  const getColumnForIssue = (issue: YTIssue): string => {
-    const s = issue.status?.toLowerCase() || ''
-    if (s === 'in progress') return 'in_progress'
-    if (s === 'dev') return 'dev'
-    return 'backlog'
-  }
-
-  useEffect(() => {
-    fetchYouTrackIssues()
-  }, [])
-
-  const fetchYouTrackIssues = async () => {
-    try {
-      setYtLoading(true)
-      const status = await api.getYouTrackStatus()
-      if (status.configured) {
-        setYtConnected(true)
-        const response = await api.getYouTrackIssues()
-        if (response.success && response.data) {
-          setYtIssues(response.data as YTIssue[])
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch YouTrack issues:', err)
-    } finally {
-      setYtLoading(false)
-    }
-  }
-
-  // SSE: auto-refresh when YouTrack changes arrive via webhook.
-  // Debounced 3s to avoid a full re-fetch on every rapid field change.
-  useYouTrackEvents(useCallback((event) => {
-    setToast({
-      message: `YouTrack: ${event.issue_id} ${event.field} → ${event.new_value}`,
-      type: 'info',
-    })
-    setTimeout(() => setToast(null), 4000)
-
-    if (sseDebounceRef.current) clearTimeout(sseDebounceRef.current)
-    sseDebounceRef.current = setTimeout(() => {
-      fetchYouTrackIssues()
-    }, 3000)
-  }, []))
-
-  const handleSync = async () => {
-    setSyncing(true)
-    await fetchYouTrackIssues()
-    setSyncing(false)
-  }
-
 
   const handleLogout = async () => {
     await logout()
@@ -505,84 +342,15 @@ export default function Dashboard() {
       .slice(0, 2)
   }
 
-  const filteredIssues = searchQuery.trim()
-    ? ytIssues.filter(i =>
-        i.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        i.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        i.assignee?.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : ytIssues
-
-  // Group YouTrack issues by the 3 columns + Backlog
-  const inProgressIssues = filteredIssues.filter(i => i.status?.toLowerCase() === 'in progress')
-  const devIssues = filteredIssues.filter(i => i.status?.toLowerCase() === 'dev')
-  const backlogIssues = filteredIssues.filter(i => {
-    const s = i.status?.toLowerCase() || ''
-    return s !== 'in progress' && s !== 'dev' && s !== 'done' && s !== 'fixed'
-  })
-  const doneIssues = filteredIssues.filter(i => {
-    const s = i.status?.toLowerCase() || ''
-    return s === 'done' || s === 'fixed'
-  })
-
-  // Group issues by assignee for Assignee View
-  const assigneeGroups = useMemo(() => {
-    const groups: Record<string, YTIssue[]> = {}
-    const unassigned: YTIssue[] = []
-
-    const activeIssues = filteredIssues.filter(i => {
-      const s = i.status?.toLowerCase() || ''
-      return s !== 'done' && s !== 'fixed'
-    })
-
-    for (const issue of activeIssues) {
-      if (issue.assignee?.fullName) {
-        const name = issue.assignee.fullName
-        if (!groups[name]) groups[name] = []
-        groups[name].push(issue)
-      } else {
-        unassigned.push(issue)
-      }
-    }
-
-    const statusOrder = (s: string) => {
-      const lower = s?.toLowerCase() || ''
-      if (lower === 'in progress') return 0
-      if (lower === 'dev') return 2
-      return 1
-    }
-
-    for (const name of Object.keys(groups)) {
-      groups[name].sort((a, b) => statusOrder(a.status) - statusOrder(b.status))
-    }
-    unassigned.sort((a, b) => statusOrder(a.status) - statusOrder(b.status))
-
-    return { groups, unassigned }
-  }, [filteredIssues])
-
-  const getStatusBadge = (status: string) => {
-    const s = status?.toLowerCase() || ''
-    if (s === 'in progress') return { label: 'In Progress', bg: 'rgba(234, 179, 8, 0.15)', color: '#eab308' }
-    if (s === 'dev') return { label: 'DEV', bg: 'rgba(130, 80, 223, 0.15)', color: '#8250df' }
-    return { label: status || 'Backlog', bg: 'rgba(128, 128, 128, 0.15)', color: '#888' }
-  }
-
-  const getBadgeClass = (status: string) => {
-    const s = status?.toLowerCase() || ''
-    if (s === 'in progress') return 'badge-progress'
-    if (s === 'dev') return 'badge-review'
-    return 'badge-todo'
-  }
-
   return (
     <div className="app-container">
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+
       {/* Sidebar */}
-      <aside className="sidebar animate-slide-in-left">
+      <aside className={`sidebar animate-slide-in-left${sidebarOpen ? ' open' : ''}`}>
         <div className="sidebar-logo">
-          <div className="logo-icon">
-            <KanbanSquare size={24} />
-          </div>
-          <span className="logo-text text-gradient">Velocity</span>
+          <VelocityLogo variant="sidebar" size="sm" showStatusDot={true} mark="chevron" />
         </div>
 
         <nav className="sidebar-nav">
@@ -610,10 +378,17 @@ export default function Dashboard() {
               <span>List View</span>
             </button>
             <button
+              className={`sidebar-nav-item ${currentPage === 'sprint-pulse' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('sprint-pulse')}
+            >
+              <Zap size={20} />
+              <span>Sprint Pulse</span>
+            </button>
+            <button
               className={`sidebar-nav-item ${currentPage === 'daily-ops' ? 'active' : ''}`}
               onClick={() => setCurrentPage('daily-ops')}
             >
-              <Zap size={20} />
+              <Activity size={20} />
               <span>DailyOps</span>
             </button>
             <button
@@ -622,6 +397,13 @@ export default function Dashboard() {
             >
               <Clock size={20} />
               <span>DayTrack</span>
+            </button>
+            <button
+              className={`sidebar-nav-item ${currentPage === 'gantt' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('gantt')}
+            >
+              <BarChart3 size={20} />
+              <span>Gantt</span>
             </button>
 
             <button
@@ -650,11 +432,11 @@ export default function Dashboard() {
               <span>AI Analysis</span>
             </button>
             <button
-              className={`sidebar-nav-item ${currentPage === 'daily-analysis' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('daily-analysis')}
+              className={`sidebar-nav-item ${currentPage === 'dev-activity' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('dev-activity')}
             >
-              <CheckCircle size={20} />
-              <span>Daily Status</span>
+              <Activity size={20} />
+              <span>Dev Activity</span>
             </button>
             <button
               className={`sidebar-nav-item ${currentPage === 'pm-reports' ? 'active' : ''}`}
@@ -663,8 +445,17 @@ export default function Dashboard() {
               <MessageSquare size={20} />
               <span>PM Reports</span>
             </button>
-            {isFullAccess && (
-              <button
+            <button
+              className={`sidebar-nav-item ${currentPage === 'update-reminders' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('update-reminders')}
+            >
+              <span className="sidebar-nav-icon-rel">
+                <Bell size={20} />
+                {unreadQueueCount > 0 && <span className="sidebar-nav-badge-dot" />}
+              </span>
+              <span>Update Reminders</span>
+            </button>
+            <button
                 className={`sidebar-nav-item ${currentPage === 'slack' ? 'active' : ''}`}
                 onClick={() => setCurrentPage('slack')}
               >
@@ -680,7 +471,6 @@ export default function Dashboard() {
                 </svg>
                 <span>Slack</span>
               </button>
-            )}
           </div>
 
           <div className="nav-section">
@@ -701,6 +491,15 @@ export default function Dashboard() {
               >
                 <Bot size={20} />
                 <span>Bot Config</span>
+              </button>
+            )}
+            {user?.role === 'admin' && (
+              <button
+                className={`sidebar-nav-item ${currentPage === 'knowledge-base' ? 'active' : ''}`}
+                onClick={() => setCurrentPage('knowledge-base')}
+              >
+                <BookOpen size={20} />
+                <span>Knowledge Base</span>
               </button>
             )}
             <button
@@ -751,24 +550,32 @@ export default function Dashboard() {
       {/* Header */}
       <header className="header animate-fade-in-down">
         <div className="header-left">
+          <button className="hamburger-btn" onClick={() => setSidebarOpen(o => !o)} aria-label="Toggle menu">
+            <Menu size={20} />
+          </button>
           <h1 className="header-title">
             {currentPage === 'dashboard' && 'Dashboard'}
             {currentPage === 'board' && 'Board View'}
             {currentPage === 'list' && 'List View'}
+            {currentPage === 'sprint-pulse' && 'Sprint Pulse'}
             {currentPage === 'daily-ops' && 'DailyOps'}
             {currentPage === 'calendar' && 'Calendar'}
             {currentPage === 'ai-analysis' && 'AI Task Analysis'}
-            {currentPage === 'daily-analysis' && 'Daily Status'}
+            {currentPage === 'dev-activity' && 'Dev Activity'}
             {currentPage === 'pm-reports' && 'Reports'}
             {currentPage === 'team' && 'Team Management'}
             {currentPage === 'bots' && 'Bot Configuration'}
             {currentPage === 'settings' && 'Access Control'}
+            {currentPage === 'knowledge-base' && 'Knowledge Base'}
             {currentPage === 'integrations' && 'Integrations'}
             {currentPage === 'slack' && 'Slack Intelligence'}
+            {currentPage === 'update-reminders' && 'Update Reminders'}
             {currentPage === 'activity' && 'Activity'}
             {currentPage === 'daytrack' && 'DayTrack'}
+            {currentPage === 'gantt' && 'Gantt'}
             {currentPage === 'theme' && 'Theme'}
           </h1>
+          <WorldClock />
         </div>
         <div className="header-center">
           <StatCarousel onNavigate={(target) => {
@@ -784,6 +591,28 @@ export default function Dashboard() {
             onChange={setDarkMode}
             label="Dark Mode"
           />
+          <div className="changelog-btn-wrap">
+            <button
+              className="changelog-btn"
+              aria-label="What's New"
+              onClick={(e) => {
+                const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
+                setChangelogAnchorRect(rect)
+                setShowChangelog(o => !o)
+                if (hasNewChangelog) setHasNewChangelog(false)
+              }}
+            >
+              <Megaphone size={18} />
+              {hasNewChangelog && <span className="changelog-dot" />}
+            </button>
+            {showChangelog && changelogAnchorRect && (
+              <ChangelogPanel
+                anchorRect={changelogAnchorRect}
+                entries={changelogEntries}
+                onClose={() => setShowChangelog(false)}
+              />
+            )}
+          </div>
           <div className="notification-bell-container">
             <button
               data-np-bell
@@ -809,9 +638,11 @@ export default function Dashboard() {
               <RightPanel
                 anchorRect={notifAnchorRect}
                 onClose={() => setShowNotifications(false)}
-                localNotifications={notifications}
-                onMoveToBlocked={handleMoveToBlocked}
-                onDismissLocal={dismissNotification}
+                notifications={notifications}
+                onMarkRead={markAsRead}
+                onMarkAllRead={markAllAsRead}
+                onDelete={deleteNotification}
+                ytBaseUrl={ytBaseUrl}
               />
             )}
           </div>
@@ -843,6 +674,11 @@ export default function Dashboard() {
             <ListViewPage />
           </div>
         )}
+        {mountedTabs.has('sprint-pulse') && (
+          <div className={currentPage !== 'sprint-pulse' ? 'dash-tab-hidden' : undefined}>
+            <SprintPulsePage />
+          </div>
+        )}
         {mountedTabs.has('daily-ops') && (
           <div className={currentPage !== 'daily-ops' ? 'dash-tab-hidden' : undefined}>
             <DailyOpsPage />
@@ -851,6 +687,11 @@ export default function Dashboard() {
         {mountedTabs.has('daytrack') && (
           <div className={currentPage !== 'daytrack' ? 'dash-tab-hidden' : undefined}>
             <DayTrackPage />
+          </div>
+        )}
+        {mountedTabs.has('gantt') && (
+          <div className={currentPage !== 'gantt' ? 'dash-tab-hidden' : undefined} style={{ height: '100%' }}>
+            <GanttPage />
           </div>
         )}
         {mountedTabs.has('activity') && (
@@ -871,18 +712,25 @@ export default function Dashboard() {
             <SlackIntelligencePage
               initialTab={slackTab}
               onTabChange={(tab) => navigate(`/slack/${tab}`)}
-              onOpenPMAssistant={() => setChatOpen(true)}
+            />
+          </div>
+        )}
+        {mountedTabs.has('update-reminders') && (
+          <div className={currentPage !== 'update-reminders' ? 'dash-tab-hidden' : undefined}>
+            <UpdateRemindersTab
+              initialTab={updateRemindersSubTab}
+              onTabChange={(tab) => navigate(`/update-reminders/${tab}`)}
             />
           </div>
         )}
         {mountedTabs.has('ai-analysis') && (
           <div className={currentPage !== 'ai-analysis' ? 'dash-tab-hidden' : undefined}>
-            <AIAnalysisPage onNavigateToDailyAnalysis={() => setCurrentPage('daily-analysis')} />
+            <AIAnalysisPage onNavigateToDailyAnalysis={() => setCurrentPage('dev-activity')} />
           </div>
         )}
-        {mountedTabs.has('daily-analysis') && (
-          <div className={currentPage !== 'daily-analysis' ? 'dash-tab-hidden' : undefined}>
-            <DailyAnalysisViewPage />
+        {mountedTabs.has('dev-activity') && (
+          <div className={currentPage !== 'dev-activity' ? 'dash-tab-hidden' : undefined}>
+            <DevActivityPage />
           </div>
         )}
         {mountedTabs.has('integrations') && (
@@ -897,6 +745,11 @@ export default function Dashboard() {
         {mountedTabs.has('settings') && (
           <div className={currentPage !== 'settings' ? 'dash-tab-hidden' : undefined}>
             <SettingsPage />
+          </div>
+        )}
+        {mountedTabs.has('knowledge-base') && (
+          <div className={currentPage !== 'knowledge-base' ? 'dash-tab-hidden' : undefined}>
+            <KnowledgeBasePage />
           </div>
         )}
         {mountedTabs.has('bots') && (
@@ -1014,7 +867,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="pm-chat-panel-body">
-            <PMAssistantTab />
+            <PMAssistant />
           </div>
         </div>
       )}
@@ -1027,6 +880,9 @@ export default function Dashboard() {
         <span className="pm-float-bubble-glow" />
         {chatOpen ? <X size={22} /> : <Sparkles size={22} />}
       </button>
+
+      {/* Singleton hover card — one portal for the whole app */}
+      <GlobalHoverCard />
     </div>
   )
 }

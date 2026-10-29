@@ -56,17 +56,7 @@ func (h *ReportHandler) getYouTrackClient(ctx context.Context) (*youtrack.Client
 		}
 	}
 
-	// 2. Admin integration fallback
-	if baseURL == "" && h.settingsRepo != nil {
-		if integ, err := h.settingsRepo.GetAdminYouTrackIntegration(ctx); err == nil && integ != nil && integ.Connected {
-			baseURL = integ.BaseURL
-			token = integ.Token
-			projectID = integ.ProjectID
-			boardID = integ.BoardID
-		}
-	}
-
-	// 3. Env vars as last resort
+	// 2. Env vars as last resort
 	if baseURL == "" {
 		baseURL = os.Getenv("YOUTRACK_BASE_URL")
 	}
@@ -885,6 +875,60 @@ func (h *ReportHandler) GetIssueTimelines(w http.ResponseWriter, r *http.Request
 		timelines = []database.IssueTimeline{}
 	}
 
+	// ── YQL enrichment: merge in issues updated in the window that local log missed ──
+	if since != nil || until != nil {
+		if ytClient, ytErr := h.getYouTrackClient(r.Context()); ytErr == nil {
+			fromStr := "*"
+			toStr := "*"
+			if since != nil {
+				fromStr = since.Format("2006-01-02")
+			}
+			if until != nil {
+				toStr = until.Format("2006-01-02")
+			}
+			yql := fmt.Sprintf("updated: %s .. %s", fromStr, toStr)
+
+			ytCtx, ytCancel := context.WithTimeout(r.Context(), 3*time.Second)
+			defer ytCancel()
+			if ytIssues, ytSearchErr := ytClient.SearchIssues(ytCtx, yql, 200); ytSearchErr == nil {
+				knownIDs := make(map[string]bool, len(timelines))
+				for _, t := range timelines {
+					knownIDs[t.IssueID] = true
+				}
+				for _, issue := range ytIssues {
+					id := issue.IDReadable
+					if id == "" {
+						id = issue.ID
+					}
+					if knownIDs[id] {
+						continue
+					}
+					assigneeName := ""
+					if u := youtrack.GetAssignee(issue); u != nil {
+						if u.FullName != "" {
+							assigneeName = u.FullName
+						} else {
+							assigneeName = u.Login
+						}
+					}
+					state := youtrack.GetStatus(issue)
+					priority := youtrack.GetPriority(issue)
+					updatedAt := time.UnixMilli(issue.Updated).UTC()
+					timelines = append(timelines, database.IssueTimeline{
+						IssueID:        id,
+						IssueSummary:   issue.Summary,
+						Assignee:       assigneeName,
+						Priority:       priority,
+						Stints:         []database.IssueStint{},
+						IsLive:         strings.EqualFold(state, "in progress"),
+						LastActivityAt: updatedAt,
+						FirstEnteredAt: updatedAt,
+					})
+				}
+			}
+		}
+	}
+
 	// Annotate each timeline with whether the user has dismissed its moved-back alert
 	type TimelineWithDismiss struct {
 		database.IssueTimeline
@@ -1080,27 +1124,73 @@ func (h *ReportHandler) ImportHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// First pass: build assignee map per issue from Assignee activity items.
-	// When field.presentation == "Assignee", added[0].name is the current assignee login.
-	// We walk chronologically so the last Assignee activity wins (most recent assignment).
+	// Walk chronologically — last Assignee activity wins (most recent assignment).
 	assigneeByIssue := make(map[string]string) // issueID -> assignee name
+	stateIssueIDs := make(map[string]bool)      // all issue IDs that have State activities
 	for _, act := range activities {
-		if !strings.EqualFold(act.Field.Presentation, "Assignee") {
-			continue
-		}
-		if len(act.Added) == 0 {
-			continue
-		}
 		issueID := act.Target.IDReadable
 		if issueID == "" {
 			issueID = act.Target.ID
 		}
-		assigneeByIssue[issueID] = act.Added[0].Name
+		if strings.EqualFold(act.Field.Presentation, "Assignee") {
+			if len(act.Added) > 0 {
+				assigneeByIssue[issueID] = act.Added[0].Name
+			}
+		}
+		if strings.EqualFold(act.Field.Presentation, "State") {
+			stateIssueIDs[issueID] = true
+		}
+	}
+
+	// Second pass: for issues that had state transitions but no assignee activity in the
+	// 2000-activity window, fetch their current assignee from YouTrack live.
+	// This prevents corrupting issue_state_log with moved_by as a fake assignee.
+	var missingIDs []string
+	for id := range stateIssueIDs {
+		if assigneeByIssue[id] == "" {
+			missingIDs = append(missingIDs, id)
+		}
+	}
+	if len(missingIDs) > 0 {
+		// Batch fetch using YQL: limit to 100 IDs to keep query length reasonable
+		batchSize := 100
+		for start := 0; start < len(missingIDs) && start < batchSize; start += batchSize {
+			end := start + batchSize
+			if end > len(missingIDs) {
+				end = len(missingIDs)
+			}
+			parts := make([]string, 0, end-start)
+			for _, id := range missingIDs[start:end] {
+				parts = append(parts, "#"+id)
+			}
+			yql := strings.Join(parts, " ")
+			batchCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			issues, fetchErr := ytClient.SearchIssues(batchCtx, yql, batchSize)
+			cancel()
+			if fetchErr == nil {
+				for _, issue := range issues {
+					id := issue.IDReadable
+					if id == "" {
+						id = issue.ID
+					}
+					if u := youtrack.GetAssignee(issue); u != nil {
+						name := u.FullName
+						if name == "" {
+							name = u.Login
+						}
+						if name != "" {
+							assigneeByIssue[id] = name
+						}
+					}
+				}
+			}
+		}
 	}
 
 	inserted := 0
 	skipped := 0
 
-	// Second pass: insert State transitions with accurate assignee data
+	// Third pass: insert State transitions with accurate assignee data
 	for _, act := range activities {
 		if !strings.EqualFold(act.Field.Presentation, "State") {
 			continue
@@ -1130,11 +1220,8 @@ func (h *ReportHandler) ImportHistory(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Use the most recent assignee for this issue from the Assignee activities
+		// Use the real assignee — never fall back to movedBy (different people, different roles)
 		assignee := assigneeByIssue[issueID]
-		if assignee == "" {
-			assignee = movedBy // fallback: whoever moved it
-		}
 
 		priority := extractPriority(issueSummary)
 		transitionedAt := time.Unix(act.Timestamp/1000, (act.Timestamp%1000)*int64(time.Millisecond))
@@ -1803,39 +1890,32 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Fetch sprint issues — try agile endpoint first, fall back to query API
+	// Fetch sprint issues — prefer YQL /api/issues endpoint (returns full custom fields including
+	// Priority). The agile board endpoint only returns board-configured fields, so custom fields
+	// like Priority come back empty even when requested.
 	var sprintIssues []youtrack.Issue
-	if sprintID != "" {
+	if sprintName != "" {
+		// YQL is the primary path: full custom fields, no board-config dependency
+		sprintIssues, err = ytClient.GetIssuesByStateForSprint(r.Context(), sprintName, nil)
+		if err != nil && sprintID != "" {
+			// YQL failed — fall back to agile endpoint
+			sprintIssues, err = ytClient.GetAllSprintIssues(r.Context(), sprintID)
+		}
+	} else if sprintID != "" {
+		// No sprint name provided — must use agile endpoint, then resolve name for any retry
 		sprintIssues, err = ytClient.GetAllSprintIssues(r.Context(), sprintID)
 		if err != nil {
-			agileErr := err
-			// Agile endpoint failed (404 on some YouTrack versions) — resolve sprint name and use query API
-			resolvedName := sprintName
-			if resolvedName == "" {
-				sprints, sErr := ytClient.GetSprints(r.Context())
-				if sErr != nil {
-					sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: fmt.Sprintf("Sprint agile fetch failed (%v); sprint list also failed: %v", agileErr, sErr)})
-					return
-				}
+			// Agile endpoint failed — resolve sprint name and retry with YQL
+			sprints, sErr := ytClient.GetSprints(r.Context())
+			if sErr == nil {
 				for _, s := range sprints {
 					if s.ID == sprintID {
-						resolvedName = s.Name
+						sprintIssues, err = ytClient.GetIssuesByStateForSprint(r.Context(), s.Name, nil)
 						break
 					}
 				}
-				if resolvedName == "" {
-					sendJSON(w, http.StatusBadRequest, Response{Success: false, Message: fmt.Sprintf("Sprint %q not found in board sprints (agile error: %v)", sprintID, agileErr)})
-					return
-				}
-			}
-			sprintIssues, err = ytClient.GetIssuesByStateForSprint(r.Context(), resolvedName, nil)
-			if err != nil {
-				sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: fmt.Sprintf("Sprint query fallback also failed (sprint=%q): %v", resolvedName, err)})
-				return
 			}
 		}
-	} else if sprintName != "" {
-		sprintIssues, err = ytClient.GetIssuesByStateForSprint(r.Context(), sprintName, nil)
 	}
 	if err != nil {
 		sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: "Failed to fetch sprint issues: " + err.Error()})
@@ -1919,9 +1999,6 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 	for _, issue := range sprintIssues {
 		currentState := youtrack.GetStatus(issue)
 		priority := youtrack.GetPriority(issue)
-		if wfCfg != nil {
-			priority = mapYTPriorityFromConfig(priority, wfCfg.PriorityTags)
-		}
 		assignee := youtrack.GetAssignee(issue)
 		assigneeName := ""
 		assigneeLogin := ""
@@ -1941,10 +2018,11 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 				avatarURL = proxyBase + url.QueryEscape(base64.StdEncoding.EncodeToString([]byte(avatarURL)))
 			}
 		}
-		issueType := ""
+		typeFieldName := "Type"
 		if wfCfg != nil && wfCfg.HotfixRules.TypeFieldName != "" {
-			issueType = youtrack.GetCustomFieldValue(issue, wfCfg.HotfixRules.TypeFieldName)
+			typeFieldName = wfCfg.HotfixRules.TypeFieldName
 		}
+		issueType := youtrack.GetCustomFieldValue(issue, typeFieldName)
 
 		// Extract reporter / created_by
 		createdBy := ""
@@ -2130,19 +2208,6 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 					closedMover = mover
 				}
 
-				// ── Hotfix: active → deployed/verified directly (no dev_done before) ──
-				if fromRole == "active" && (toRole == "deployed" || toRole == "verified") {
-					devDoneHit := false
-					for _, prev := range logs {
-						if prev.TransitionedAt.Before(entry.TransitionedAt) && getStateRole(prev.ToState, wfCfg.ColumnHierarchy) == "dev_done" {
-							devDoneHit = true
-							break
-						}
-					}
-					if !devDoneHit {
-						isHotfix = true
-					}
-				}
 			}
 
 			// Ongoing stint: if ticket is currently in active state, account for time since stintStart
@@ -2162,13 +2227,9 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 			if len(verifiedSlots) >= 3 { verifiedOnProd = verifiedSlots[2] }
 			if verifiedOnProd == "" { verifiedOnProd = closedMover }
 
-			// Also check issue_type field for hotfix
-			if wfCfg.HotfixRules.TypeFieldName != "" {
-				for _, hv := range wfCfg.HotfixRules.HotfixValues {
-					if strings.EqualFold(issueType, hv) {
-						isHotfix = true
-					}
-				}
+			// is_hotfix is derived solely from the Type custom field
+			if strings.EqualFold(issueType, "Hotfix") {
+				isHotfix = true
 			}
 
 			// Cycle time: first active → first done (or now if still in progress)
@@ -2550,6 +2611,117 @@ func (h *ReportHandler) GetSprintQASummary(w http.ResponseWriter, r *http.Reques
 	})
 
 	sendJSON(w, http.StatusOK, Response{Success: true, Data: result})
+}
+
+// ─── Sprint Radar handlers ────────────────────────────────────────────────────
+
+// GetSprintRadar returns tier-classified sprint issues and active alerts.
+// GET /api/reports/sprint-radar?since=<ms>&until=<ms>
+func (h *ReportHandler) GetSprintRadar(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r)
+	if user == nil {
+		sendJSON(w, http.StatusUnauthorized, Response{Success: false, Message: "Unauthorized"})
+		return
+	}
+
+	q := r.URL.Query()
+	var since, until *time.Time
+	if s := q.Get("since"); s != "" {
+		if ms, err := strconv.ParseInt(s, 10, 64); err == nil {
+			t := time.UnixMilli(ms)
+			since = &t
+		}
+	}
+	if u := q.Get("until"); u != "" {
+		if ms, err := strconv.ParseInt(u, 10, 64); err == nil {
+			t := time.UnixMilli(ms)
+			until = &t
+		}
+	}
+
+	issues, err := h.reportRepo.GetSprintRadarIssues(r.Context(), since, until)
+	if err != nil {
+		sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: err.Error()})
+		return
+	}
+
+	// Build tier buckets and health stats
+	type health struct {
+		CriticalTotal int      `json:"critical_total"`
+		CriticalDone  int      `json:"critical_done"`
+		UrgentTotal   int      `json:"urgent_total"`
+		UrgentDone    int      `json:"urgent_done"`
+		NormalTotal   int      `json:"normal_total"`
+		NormalDone    int      `json:"normal_done"`
+		AtRisk        []string `json:"at_risk"`
+	}
+
+	var tier1, tier2, tier3, tier4, regressions []database.RadarIssue
+	h24ago := time.Now().Add(-24 * time.Hour)
+	stats := health{}
+
+	for _, ri := range issues {
+		switch ri.Tier {
+		case 1:
+			tier1 = append(tier1, ri)
+			stats.CriticalTotal++
+			if ri.IsDone {
+				stats.CriticalDone++
+			} else if ri.StateEnteredAt.Before(h24ago) {
+				stats.AtRisk = append(stats.AtRisk, ri.IssueID)
+			}
+		case 2:
+			tier2 = append(tier2, ri)
+			stats.UrgentTotal++
+			if ri.IsDone {
+				stats.UrgentDone++
+			} else if ri.StateEnteredAt.Before(h24ago) {
+				stats.AtRisk = append(stats.AtRisk, ri.IssueID)
+			}
+		case 3:
+			tier3 = append(tier3, ri)
+		case 0:
+			regressions = append(regressions, ri)
+		default:
+			tier4 = append(tier4, ri)
+			stats.NormalTotal++
+			if ri.IsDone {
+				stats.NormalDone++
+			}
+		}
+	}
+
+	if tier1 == nil {
+		tier1 = []database.RadarIssue{}
+	}
+	if tier2 == nil {
+		tier2 = []database.RadarIssue{}
+	}
+	if tier3 == nil {
+		tier3 = []database.RadarIssue{}
+	}
+	if tier4 == nil {
+		tier4 = []database.RadarIssue{}
+	}
+	if regressions == nil {
+		regressions = []database.RadarIssue{}
+	}
+	if stats.AtRisk == nil {
+		stats.AtRisk = []string{}
+	}
+
+	sendJSON(w, http.StatusOK, Response{
+		Success: true,
+		Data: map[string]interface{}{
+			"tier1":       tier1,
+			"tier2":       tier2,
+			"tier3":       tier3,
+			"tier4":       tier4,
+			"regressions": regressions,
+			"health":      stats,
+			"alerts":      []map[string]interface{}{},
+		},
+	})
 }
 
 // ResetStateLog deletes all rows from issue_state_log so tracking starts fresh.

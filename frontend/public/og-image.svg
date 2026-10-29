@@ -1,0 +1,13 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#020617"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient>
+    <radialGradient id="rl" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#6366f1" stop-opacity="0.15"/><stop offset="100%" stop-color="#020617" stop-opacity="0"/></radialGradient>
+  </defs>
+  <circle cx="600" cy="280" r="400" fill="url(#rl)"/>
+  <path d="M520 180 L600 310 L680 180" stroke="url(#g)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.22"/>
+  <path d="M536 180 L600 290 L664 180" stroke="url(#g)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="600" cy="310" r="10" fill="#a5f3fc"/>
+  <text x="600" y="420" font-family="'Plus Jakarta Sans', sans-serif" font-size="72" font-weight="800" letter-spacing="18" fill="white" text-anchor="middle">VELOCITY</text>
+  <text x="600" y="460" font-family="'JetBrains Mono', monospace" font-size="16" font-weight="500" letter-spacing="7" fill="#6366f1" text-anchor="middle">COMMAND · PRECISION · FLOW</text>
+</svg>

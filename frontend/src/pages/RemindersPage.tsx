@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../services/api'
 import type { ReminderItem, SlackMention } from '../services/api'
+import { SprintScanLoader } from '@/components/brand/VelocityLoaders'
 import { Bell, Trash2, Clock, CheckCircle, AlertTriangle, Calendar, X, RefreshCw, MessageSquare } from 'lucide-react'
 
 type Tab = 'upcoming' | 'sent' | 'auto'
@@ -304,7 +305,7 @@ export function RemindersPage() {
       <div className="glass-card reminder-tab-content">
         {loading ? (
           <div className="reminder-empty">
-            <div className="loading-spinner" />
+            <SprintScanLoader size={48} />
           </div>
         ) : tab === 'upcoming' ? (
           upcomingReminders.length === 0 ? (

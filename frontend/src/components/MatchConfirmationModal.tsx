@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { CheckCircle, Clock, XCircle, AlertTriangle, ArrowRight, X, Loader2 } from 'lucide-react'
+import { CheckCircle, Clock, XCircle, AlertTriangle, ArrowRight, X } from 'lucide-react'
 import api from '../services/api'
+import { QuantumOrbitLoader } from './brand/VelocityLoaders'
 
 interface MatchedTicket {
   task_title: string
@@ -294,7 +295,7 @@ export function MatchConfirmationModal({
           >
             {moving ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <QuantumOrbitLoader size={18} />
                 Moving...
               </>
             ) : (

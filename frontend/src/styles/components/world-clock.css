@@ -1,0 +1,169 @@
+.wc-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+}
+
+.wc-zone {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: ew-resize;
+  transition: border-color 120ms, background 120ms, box-shadow 120ms;
+  position: relative;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.wc-zone:hover {
+  border-color: var(--border-color);
+  background: var(--bg-elevated);
+}
+
+.wc-zone:active,
+.wc-zone--active {
+  border-color: var(--color-primary);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.15);
+}
+
+.wc-zone--copied {
+  border-color: var(--color-success);
+  background: var(--bg-elevated);
+}
+
+.wc-zone--editing {
+  border-color: var(--color-primary);
+  background: var(--bg-elevated);
+  cursor: text;
+}
+
+/* ── Day/night icons ───────────────────────────────────────────────── */
+
+.wc-daynight {
+  flex-shrink: 0;
+  transition: opacity 400ms, color 400ms;
+}
+
+.wc-daynight--sun {
+  color: #f59e0b;
+  opacity: 0.9;
+}
+
+.wc-daynight--moon {
+  color: var(--color-primary-light);
+  opacity: 0.8;
+}
+
+/* ── Labels & times ────────────────────────────────────────────────── */
+
+.wc-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.wc-time {
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1;
+  transition: color 150ms;
+}
+
+.wc-time--offset {
+  color: var(--color-primary);
+}
+
+/* ── Inline edit input ─────────────────────────────────────────────── */
+
+.wc-edit-input {
+  width: 68px;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  line-height: 1;
+  font-family: inherit;
+}
+
+/* ── Separator + heartbeat ─────────────────────────────────────────── */
+
+.wc-sep {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 1px;
+}
+
+.wc-pulse {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: wc-pulse 1s ease-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes wc-pulse {
+  0%   { transform: scale(1);   opacity: 1; }
+  40%  { transform: scale(1.9); opacity: 0.4; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+/* ── Offset badge ──────────────────────────────────────────────────── */
+
+.wc-offset-badge {
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
+  border-radius: 99px;
+  background: rgba(var(--color-primary-rgb), 0.15);
+  color: var(--color-primary);
+  line-height: 1.4;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Copy tooltip ──────────────────────────────────────────────────── */
+
+.wc-copied {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--color-success);
+  background: var(--bg-elevated);
+  border: 1px solid var(--color-success);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: wc-pop 0.15s ease;
+}
+
+@keyframes wc-pop {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+[data-theme="light"] .wc-zone:hover,
+[data-theme="light"] .wc-zone:active {
+  background: var(--bg-elevated);
+}

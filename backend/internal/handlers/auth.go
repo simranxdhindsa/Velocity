@@ -449,7 +449,9 @@ func HandleRefreshToken(w http.ResponseWriter, r *http.Request) {
 func HandleGetAuthURL(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	if state == "" {
-		state = "random-state-string"
+		// Caller didn't pass a state — generate a random nonce so the OAuth round-trip
+		// is always CSRF-protected. The frontend must echo this value back to validate it.
+		state = uuid.NewString()
 	}
 
 	authURL := auth.GetGoogleAuthURL(state)

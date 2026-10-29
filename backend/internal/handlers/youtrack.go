@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -25,29 +26,42 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// formMetaCacheEntry holds a cached form-meta JSON payload with its expiry.
+type formMetaCacheEntry struct {
+	payload []byte
+	expiry  time.Time
+}
+
 // YouTrackHandler handles YouTrack integration API requests
 type YouTrackHandler struct {
-	taskRepo     *database.TaskRepository
-	projectRepo  *database.ProjectRepository
-	settingsRepo *database.SettingsRepository
-	sectionRepo  *database.SectionRepository
-	reportRepo   *database.ReportRepository
-	configRepo   *database.WorkflowConfigRepository
-	dayTrackRepo *database.DayTrackRepository
-	notifHandler *NotificationHandler
-	sseHub       *SSEHub
+	taskRepo      *database.TaskRepository
+	projectRepo   *database.ProjectRepository
+	settingsRepo  *database.SettingsRepository
+	sectionRepo   *database.SectionRepository
+	reportRepo    *database.ReportRepository
+	configRepo    *database.WorkflowConfigRepository
+	dayTrackRepo  *database.DayTrackRepository
+	devConfigRepo *database.DeveloperConfigRepository
+	notifHandler  *NotificationHandler
+	sseHub        *SSEHub
+
+	// Per-user form-meta cache (60s TTL). Keyed by userID.
+	formMetaMu    sync.Mutex
+	formMetaCache map[string]formMetaCacheEntry
 }
 
 // NewYouTrackHandler creates a new YouTrack handler
 func NewYouTrackHandler(sseHub ...*SSEHub) *YouTrackHandler {
 	h := &YouTrackHandler{
-		taskRepo:     database.NewTaskRepository(),
-		projectRepo:  database.NewProjectRepository(),
-		settingsRepo: database.NewSettingsRepository(),
-		sectionRepo:  database.NewSectionRepository(),
-		reportRepo:   database.NewReportRepository(),
-		configRepo:   database.NewWorkflowConfigRepository(),
-		dayTrackRepo: database.NewDayTrackRepository(),
+		taskRepo:      database.NewTaskRepository(),
+		projectRepo:   database.NewProjectRepository(),
+		settingsRepo:  database.NewSettingsRepository(),
+		sectionRepo:   database.NewSectionRepository(),
+		reportRepo:    database.NewReportRepository(),
+		configRepo:    database.NewWorkflowConfigRepository(),
+		dayTrackRepo:  database.NewDayTrackRepository(),
+		devConfigRepo: database.NewDeveloperConfigRepository(),
+		formMetaCache: make(map[string]formMetaCacheEntry),
 	}
 	if len(sseHub) > 0 {
 		h.sseHub = sseHub[0]
@@ -60,10 +74,64 @@ func (h *YouTrackHandler) SetNotificationHandler(notifHandler *NotificationHandl
 	h.notifHandler = notifHandler
 }
 
-// getYouTrackClient creates a YouTrack client — checks per-user DB first, then
-// global settings DB, then environment variables as last resort.
+// getYouTrackClient creates a YouTrack client for READ operations.
+// Resolution order: per-user token → admin personal token (fallback for members) →
+// org-level settings → env vars.
 func (h *YouTrackHandler) getYouTrackClient(ctx context.Context) (*youtrack.Client, error) {
 	return h.getYouTrackClientForUser(ctx, middleware.GetUserID(ctx))
+}
+
+// getYouTrackClientForWrite creates a YouTrack client for WRITE operations.
+// It deliberately skips the admin personal-token fallback so that members/viewers
+// cannot mutate YouTrack data using the admin's credentials.
+// Returns nil when only an admin fallback would be available — callers must 403.
+func (h *YouTrackHandler) getYouTrackClientForWrite(ctx context.Context) (*youtrack.Client, error) {
+	userID := middleware.GetUserID(ctx)
+	var baseURL, token, projectID, boardID string
+
+	// 1. Per-user DB integration
+	if userID != "" {
+		if integration, err := h.settingsRepo.GetYouTrackIntegration(ctx, userID); err == nil && integration != nil && integration.Connected {
+			baseURL = integration.BaseURL
+			token = integration.Token
+			projectID = integration.ProjectID
+			boardID = integration.BoardID
+		}
+	}
+
+	// 2. Org-level settings (intentional shared service token — NOT admin's personal token)
+	if baseURL == "" {
+		if settings, err := h.settingsRepo.GetYouTrackSettings(ctx); err == nil && settings != nil && settings.Configured {
+			baseURL = settings.BaseURL
+			token = settings.Token
+			projectID = settings.ProjectID
+			boardID = settings.BoardID
+		}
+	}
+
+	// 3. Environment variables (last resort)
+	if baseURL == "" {
+		baseURL = os.Getenv("YOUTRACK_BASE_URL")
+	}
+	if token == "" {
+		token = os.Getenv("YOUTRACK_TOKEN")
+	}
+	if projectID == "" {
+		projectID = os.Getenv("YOUTRACK_PROJECT_ID")
+	}
+	if boardID == "" {
+		boardID = os.Getenv("YOUTRACK_BOARD_ID")
+	}
+
+	if baseURL == "" || token == "" || projectID == "" {
+		return nil, nil // Not configured — caller must return 403
+	}
+
+	client := youtrack.NewClient(baseURL, token, projectID)
+	if boardID != "" {
+		client.SetBoardID(boardID)
+	}
+	return client, nil
 }
 
 func (h *YouTrackHandler) getYouTrackClientForUser(ctx context.Context, userID string) (*youtrack.Client, error) {
@@ -79,19 +147,7 @@ func (h *YouTrackHandler) getYouTrackClientForUser(ctx context.Context, userID s
 		}
 	}
 
-	// 2. Admin fallback for members/viewers
-	if baseURL == "" {
-		if u := middleware.GetUserFromCtx(ctx); u != nil && (u.Role == models.RoleMember || u.Role == models.RoleViewer) {
-			if adminInteg, err := h.settingsRepo.GetAdminYouTrackIntegration(ctx); err == nil && adminInteg != nil && adminInteg.Connected {
-				baseURL = adminInteg.BaseURL
-				token = adminInteg.Token
-				projectID = adminInteg.ProjectID
-				boardID = adminInteg.BoardID
-			}
-		}
-	}
-
-	// 3. Global settings DB (org-wide fallback)
+	// 2. Global settings DB (org-wide fallback)
 	if baseURL == "" {
 		if settings, err := h.settingsRepo.GetYouTrackSettings(ctx); err == nil && settings != nil && settings.Configured {
 			baseURL = settings.BaseURL
@@ -101,7 +157,7 @@ func (h *YouTrackHandler) getYouTrackClientForUser(ctx context.Context, userID s
 		}
 	}
 
-	// 3. Environment variables (last resort)
+	// 4. Environment variables (last resort)
 	if baseURL == "" {
 		baseURL = os.Getenv("YOUTRACK_BASE_URL")
 	}
@@ -135,6 +191,8 @@ func (h *YouTrackHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Collect the resolved config values (for display, no token)
+	// Resolution order mirrors getYouTrackClientForUser so the source shown in UI
+	// matches the credentials actually used for data fetching.
 	var baseURL, projectID, boardID string
 	var source string // "user_db" | "global_db" | "env"
 
@@ -227,6 +285,50 @@ func (h *YouTrackHandler) TestConnection(w http.ResponseWriter, r *http.Request)
 		"success": true,
 		"message": "Connection successful",
 	})
+}
+
+// ProbeYouTrack accepts temporary {base_url, token} credentials and returns projects + boards
+// without requiring them to be saved first — used by the setup wizard.
+func (h *YouTrackHandler) ProbeYouTrack(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BaseURL string `json:"base_url"`
+		Token   string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.BaseURL == "" || req.Token == "" {
+		http.Error(w, "base_url and token are required", http.StatusBadRequest)
+		return
+	}
+	client := youtrack.NewClient(req.BaseURL, req.Token, "")
+	projects, err := client.GetProjects(r.Context())
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		// Return 200 so api.ts does NOT fire the global gateway-down overlay —
+		// YouTrack being unreachable is a config error, not our server going down.
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "Cannot reach YouTrack — check URL and token"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": projects})
+}
+
+// ProbeYouTrackBoards returns boards for a given project using temporary credentials.
+func (h *YouTrackHandler) ProbeYouTrackBoards(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BaseURL   string `json:"base_url"`
+		Token     string `json:"token"`
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.BaseURL == "" || req.Token == "" {
+		http.Error(w, "base_url and token are required", http.StatusBadRequest)
+		return
+	}
+	client := youtrack.NewClient(req.BaseURL, req.Token, req.ProjectID)
+	boards, err := client.GetBoards(r.Context())
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "Failed to fetch boards"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": boards})
 }
 
 // GetProjects returns available YouTrack projects
@@ -369,6 +471,35 @@ func (h *YouTrackHandler) GetPriorities(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data":    priorities,
+	})
+}
+
+// GetSwimlaneField returns the board's swimlane field name and its values with colors
+func (h *YouTrackHandler) GetSwimlaneField(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := h.getYouTrackClient(r.Context())
+	if err != nil || client == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": map[string]interface{}{"field_name": "", "values": []interface{}{}}})
+		return
+	}
+	fieldName, values, err := client.GetSwimlaneField(r.Context())
+	if err != nil || fieldName == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": map[string]interface{}{"field_name": "", "values": []interface{}{}}})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"field_name": fieldName,
+			"values":     values,
+		},
 	})
 }
 
@@ -643,6 +774,18 @@ func (h *YouTrackHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 		assignee.AvatarUrl = client.GetBaseURL() + assignee.AvatarUrl
 	}
 
+	// Get sprints for this issue
+	var sprintName, boardName string
+	sprints, err := client.GetIssueSprints(r.Context(), issueID)
+	if err == nil && len(sprints) > 0 {
+		// Use the first sprint (typically an issue is in one sprint at a time)
+		sprintName = sprints[0].Name
+		// Get board name from the sprint's agile (board)
+		if sprints[0].Agile != nil {
+			boardName = sprints[0].Agile.Name
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -658,7 +801,11 @@ func (h *YouTrackHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 			"assignee":    assignee,
 			"created":     issue.Created,
 			"updated":     issue.Updated,
+			"created_by":  userDisplayName(issue.Reporter),
+			"updated_by":  userDisplayName(issue.Updater),
 			"attachments": issue.Attachments,
+			"sprint":      sprintName,
+			"board":       boardName,
 		},
 	})
 }
@@ -698,9 +845,9 @@ func (h *YouTrackHandler) AddIssueComment(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	client, err := h.getYouTrackClient(r.Context())
+	client, err := h.getYouTrackClientForWrite(r.Context())
 	if err != nil || client == nil {
-		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		http.Error(w, "YouTrack write access requires your personal integration to be configured in Settings → Integrations", http.StatusForbidden)
 		return
 	}
 	issueID := mux.Vars(r)["issue_id"]
@@ -713,6 +860,125 @@ func (h *YouTrackHandler) AddIssueComment(w http.ResponseWriter, r *http.Request
 	}
 	if err := client.AddIssueComment(r.Context(), issueID, req.Text); err != nil {
 		http.Error(w, "Failed to add comment: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// SearchIssues runs a YQL query and returns matching issues for typeahead suggestions.
+func (h *YouTrackHandler) SearchIssues(w http.ResponseWriter, r *http.Request) {
+	client, err := h.getYouTrackClient(r.Context())
+	if err != nil || client == nil {
+		http.Error(w, "YouTrack not configured", http.StatusBadRequest)
+		return
+	}
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": []interface{}{}})
+		return
+	}
+	issues, err := client.SearchIssues(r.Context(), q, 10)
+	if err != nil {
+		http.Error(w, "Search failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	type result struct {
+		ID      string `json:"id"`
+		Summary string `json:"summary"`
+	}
+	out := make([]result, 0, len(issues))
+	for _, iss := range issues {
+		id := iss.IDReadable
+		if id == "" {
+			id = iss.ID
+		}
+		out = append(out, result{ID: id, Summary: iss.Summary})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": out})
+}
+
+// GetIssueLinksList returns all links for a ticket grouped with display labels.
+func (h *YouTrackHandler) GetIssueLinksList(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := h.getYouTrackClient(r.Context())
+	if err != nil || client == nil {
+		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		return
+	}
+	issueID := mux.Vars(r)["issue_id"]
+	links, err := client.GetAllIssueLinks(r.Context(), issueID)
+	if err != nil {
+		http.Error(w, "Failed to get links: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if links == nil {
+		links = []youtrack.IssueLink{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": links})
+}
+
+// AddIssueLink adds a link between two issues via the YouTrack Commands API.
+func (h *YouTrackHandler) AddIssueLink(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := h.getYouTrackClientForWrite(r.Context())
+	if err != nil || client == nil {
+		http.Error(w, "YouTrack write access requires your personal integration", http.StatusForbidden)
+		return
+	}
+	issueID := mux.Vars(r)["issue_id"]
+	var req struct {
+		LinkType string `json:"link_type"` // e.g. "relates to"
+		TargetID string `json:"target_id"` // e.g. "ARD-2344"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LinkType == "" || req.TargetID == "" {
+		http.Error(w, "link_type and target_id are required", http.StatusBadRequest)
+		return
+	}
+	command := fmt.Sprintf("%s %s", strings.ToLower(req.LinkType), req.TargetID)
+	if err := client.LinkIssues(r.Context(), issueID, command); err != nil {
+		http.Error(w, "Failed to add link: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// RemoveIssueLink removes a link between two issues via the YouTrack Commands API.
+func (h *YouTrackHandler) RemoveIssueLink(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := h.getYouTrackClientForWrite(r.Context())
+	if err != nil || client == nil {
+		http.Error(w, "YouTrack write access requires your personal integration", http.StatusForbidden)
+		return
+	}
+	issueID := mux.Vars(r)["issue_id"]
+	var req struct {
+		LinkType string `json:"link_type"` // e.g. "relates to"
+		TargetID string `json:"target_id"` // e.g. "ARD-2344"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LinkType == "" || req.TargetID == "" {
+		http.Error(w, "link_type and target_id are required", http.StatusBadRequest)
+		return
+	}
+	command := fmt.Sprintf("remove %s %s", strings.ToLower(req.LinkType), req.TargetID)
+	if err := client.LinkIssues(r.Context(), issueID, command); err != nil {
+		http.Error(w, "Failed to remove link: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -753,8 +1019,13 @@ func (h *YouTrackHandler) ProxyAttachment(w http.ResponseWriter, r *http.Request
 		rawURL = strings.TrimRight(client.GetBaseURL(), "/") + rawURL
 	}
 
-	// Security: only proxy URLs from the configured YouTrack instance
-	if !strings.HasPrefix(rawURL, client.GetBaseURL()) {
+	// Security: only proxy URLs whose host matches the configured YouTrack instance.
+	// String prefix check is NOT sufficient — "http://yt.co.evil.com" passes a prefix
+	// check against "http://yt.co" and leaks the admin token to an attacker's server.
+	parsedRaw, parseErr := url.Parse(rawURL)
+	parsedBase, parseErr2 := url.Parse(client.GetBaseURL())
+	if parseErr != nil || parseErr2 != nil || parsedRaw.Host == "" ||
+		!strings.EqualFold(parsedRaw.Host, parsedBase.Host) || parsedRaw.Scheme != parsedBase.Scheme {
 		http.Error(w, "URL not allowed", http.StatusForbidden)
 		return
 	}
@@ -819,9 +1090,9 @@ func (h *YouTrackHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := h.getYouTrackClient(r.Context())
+	client, err := h.getYouTrackClientForWrite(r.Context())
 	if err != nil || client == nil {
-		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		http.Error(w, "YouTrack write access requires your personal integration to be configured in Settings → Integrations", http.StatusForbidden)
 		return
 	}
 
@@ -935,9 +1206,9 @@ func (h *YouTrackHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := h.getYouTrackClient(r.Context())
+	client, err := h.getYouTrackClientForWrite(r.Context())
 	if err != nil || client == nil {
-		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		http.Error(w, "YouTrack write access requires your personal integration to be configured in Settings → Integrations", http.StatusForbidden)
 		return
 	}
 
@@ -1006,6 +1277,16 @@ func (h *YouTrackHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update sprint if provided (best-effort — non-fatal if it fails)
+	if req.SprintID != "" {
+		go func() {
+			ctx2 := context.Background()
+			if addErr := client.AddIssueToSprint(ctx2, req.SprintID, issueID); addErr != nil {
+				log.Printf("failed to add issue %s to sprint %s: %v", issueID, req.SprintID, addErr)
+			}
+		}()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -1032,9 +1313,9 @@ func (h *YouTrackHandler) UpdateIssueState(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	client, err := h.getYouTrackClient(r.Context())
+	client, err := h.getYouTrackClientForWrite(r.Context())
 	if err != nil || client == nil {
-		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		http.Error(w, "YouTrack write access requires your personal integration to be configured in Settings → Integrations", http.StatusForbidden)
 		return
 	}
 
@@ -1063,6 +1344,27 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
 		return
 	}
+
+	// Cache key is project-scoped (baseURL:projectID), not user-scoped.
+	// Types/priorities/states/subsystems/users are project-wide — once any user
+	// with admin YouTrack rights fetches them, every user on the same project
+	// benefits from the cache, including members whose tokens lack admin access.
+	cacheKey := client.GetBaseURL() + ":" + client.GetProjectID()
+
+	h.formMetaMu.Lock()
+	if entry, ok := h.formMetaCache[cacheKey]; ok && time.Now().Before(entry.expiry) {
+		payload := entry.payload
+		h.formMetaMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(payload)
+		return
+	}
+	h.formMetaMu.Unlock()
+
+	// Pre-resolve the internal project ID and the issue-field anchor once so the
+	// parallel goroutines share cached values instead of each issuing extra calls.
+	client.WarmProjectID(r.Context())
+	client.WarmIssueFieldAnchor(r.Context())
 
 	type result struct {
 		states           []youtrack.State
@@ -1093,28 +1395,36 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 	fetch(func() error {
 		v, e := client.GetStates(r.Context())
 		if e == nil {
-			mu.Lock(); res.states = v; mu.Unlock()
+			mu.Lock()
+			res.states = v
+			mu.Unlock()
 		}
 		return e
 	})
 	fetch(func() error {
 		v, e := client.GetPriorities(r.Context())
 		if e == nil {
-			mu.Lock(); res.priorities = v; mu.Unlock()
+			mu.Lock()
+			res.priorities = v
+			mu.Unlock()
 		}
 		return e
 	})
 	fetch(func() error {
 		v, e := client.GetCustomFieldValues(r.Context(), "Type")
 		if e == nil {
-			mu.Lock(); res.types = v; mu.Unlock()
+			mu.Lock()
+			res.types = v
+			mu.Unlock()
 		}
 		return e
 	})
 	fetch(func() error {
 		v, e := client.GetCustomFieldValues(r.Context(), "Subsystem")
 		if e == nil {
-			mu.Lock(); res.subsystems = v; mu.Unlock()
+			mu.Lock()
+			res.subsystems = v
+			mu.Unlock()
 		}
 		return e
 	})
@@ -1132,14 +1442,18 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 					v[i].AvatarUrl = base + url.QueryEscape(base64.StdEncoding.EncodeToString([]byte(v[i].AvatarUrl)))
 				}
 			}
-			mu.Lock(); res.users = v; mu.Unlock()
+			mu.Lock()
+			res.users = v
+			mu.Unlock()
 		}
 		return e
 	})
 	fetch(func() error {
 		v, e := client.GetSprints(r.Context())
 		if e == nil {
-			mu.Lock(); res.sprints = v; mu.Unlock()
+			mu.Lock()
+			res.sprints = v
+			mu.Unlock()
 		}
 		return e
 	})
@@ -1150,15 +1464,41 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 			if v == nil {
 				v = []*database.DeveloperSubsystemConfig{}
 			}
-			mu.Lock(); res.developerConfigs = v; mu.Unlock()
+			mu.Lock()
+			res.developerConfigs = v
+			mu.Unlock()
 		}
 		return e
 	})
 
 	wg.Wait()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	// A failed fetch leaves its slice nil, which marshals to JSON `null` — the
+	// frontend calls .find()/.filter() on these unconditionally, so normalize
+	// every field to an empty slice rather than crash the Create Issue form.
+	if res.states == nil {
+		res.states = []youtrack.State{}
+	}
+	if res.priorities == nil {
+		res.priorities = []youtrack.PriorityValue{}
+	}
+	if res.types == nil {
+		res.types = []youtrack.PriorityValue{}
+	}
+	if res.subsystems == nil {
+		res.subsystems = []youtrack.PriorityValue{}
+	}
+	if res.users == nil {
+		res.users = []youtrack.User{}
+	}
+	if res.sprints == nil {
+		res.sprints = []youtrack.Sprint{}
+	}
+	if res.developerConfigs == nil {
+		res.developerConfigs = []*database.DeveloperSubsystemConfig{}
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
 			"states":            res.states,
@@ -1171,6 +1511,17 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 			"errors":            errs,
 		},
 	})
+
+	// Cache only when all fields resolved (no errors) — project-scoped so all
+	// users on the same YouTrack project share the entry.
+	if len(errs) == 0 {
+		h.formMetaMu.Lock()
+		h.formMetaCache[cacheKey] = formMetaCacheEntry{payload: payload, expiry: time.Now().Add(60 * time.Second)}
+		h.formMetaMu.Unlock()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(payload)
 }
 
 // UploadIssueAttachment receives a multipart file from the frontend and proxies it to YouTrack.
@@ -1185,9 +1536,9 @@ func (h *YouTrackHandler) UploadIssueAttachment(w http.ResponseWriter, r *http.R
 		http.Error(w, "issue_id required", http.StatusBadRequest)
 		return
 	}
-	client, err := h.getYouTrackClient(r.Context())
+	client, err := h.getYouTrackClientForWrite(r.Context())
 	if err != nil || client == nil {
-		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		http.Error(w, "YouTrack write access requires your personal integration to be configured in Settings → Integrations", http.StatusForbidden)
 		return
 	}
 
@@ -1250,22 +1601,109 @@ func (h *YouTrackHandler) AIParseTicket(w http.ResponseWriter, r *http.Request) 
 	usersJSON, _ := json.Marshal(req.Users)
 	sprintsJSON, _ := json.Marshal(req.Sprints)
 
+	// Load developer-subsystem mapping and inject into prompt so the AI can
+	// resolve subsystem from the assignee when the text doesn't make it explicit.
+	var devSubsystemHint string
+	devCfgRepo := database.NewDeveloperConfigRepository()
+	if devCfgs, err2 := devCfgRepo.GetAll(r.Context()); err2 == nil && len(devCfgs) > 0 {
+		var sb strings.Builder
+		sb.WriteString("\nASSIGNEE → SUBSYSTEM MAPPING (from Integrations config):\n")
+		sb.WriteString("If you detect an assignee, use this mapping to resolve subsystem (if they own only one, pick it; if multiple, pick the best fit from context):\n")
+		for _, cfg := range devCfgs {
+			if len(cfg.Subsystems) > 0 {
+				sb.WriteString(fmt.Sprintf("  %s → %s\n", cfg.DeveloperLogin, strings.Join(cfg.Subsystems, ", ")))
+			}
+		}
+		devSubsystemHint = sb.String()
+	}
+
 	// Load editable instructions from the ticket_parser bot config in DB.
 	// The admin can customise the instructions; dynamic field values are always
 	// appended here at runtime so the DB prompt never needs to list them.
-	const defaultTicketParserInstructions = `You are a project management assistant. Convert raw text into a YouTrack ticket.
+	const defaultTicketParserInstructions = `You are a software engineering project management assistant. Convert raw engineering input into a production-quality YouTrack ticket.
 
-RESPOND ONLY WITH A SINGLE JSON OBJECT. No explanation, no markdown, no extra text — just JSON.
+RESPOND ONLY WITH A SINGLE JSON OBJECT. No markdown fences, no explanation, no extra text.
 
-Title rules: "{subsystem}: {concise action-oriented description}" — max 80 chars, never copy raw text verbatim. The subsystem prefix MUST be copied EXACTLY from the available subsystems list — never invent or abbreviate. Do NOT include a priority prefix in the title. Examples of good titles: "FE UI: Handle Empty Transcribe Requests Gracefully", "FE MC: Courses Tab Fails to Open", "BE: Prevent Deletion During File Processing".
+━━━ TITLE ━━━
+Format: "{Subsystem}: {Action-oriented engineering task}"
+- Max 80 characters
+- Subsystem MUST exactly match the available subsystems list — never invent or abbreviate
+- Never include priority in the title
+- Never copy raw text verbatim — rephrase as a concise engineering task
+- Never use: Fix, Handle, Support, Issue, Problem, Bug, Error (unless part of an official API name)
 
-Description rules: 1-2 sentence overview of what is broken or missing, then "\n\n**Expected Behavior**\n- bullet\n- bullet". Remove filler words (okay, like, so, yeah, uh). For bugs: what is broken + what should happen. For features: what is missing + what should happen.
+FE titles → prefer: Display, Render, Navigate, Disable, Enable, Highlight, Open, Close, Persist, Synchronize
+BE titles → prefer: Return, Persist, Expose, Populate, Validate, Calculate, Ignore, Store, Aggregate, Trigger, Queue, Publish, Index
 
-Priority: pick the closest match from the available priorities list — show-stopper/crash/data-loss → first option; completely broken → second; significant regression → third; standard bug → middle option; cosmetic → last. MUST be an exact string from the list.
+Good examples:
+  "BE MC: Return Asset Counts for Course Sections"
+  "FE Studio: Preserve Pagination After Project Deletion"
+  "BE RAG: Return Mobile-Specific Onboarding Prompts"
+  "FE UI: Disable Delete During Chunk Processing"
 
-CRITICAL: subsystem and type_name MUST exactly match values from the available lists — never invent or abbreviate. Both are REQUIRED.
-assignee_login: match login from users list only if a person's name is mentioned, else "".
-sprint_id: id of the most recent non-completed sprint from the sprints list, else "".`
+━━━ DESCRIPTION ━━━
+
+STRUCTURED TICKET MODE — if input starts with a ## Title heading (pattern: "## Title\n\n<title text>\n\n## Description..."):
+  • Use the text under ## Title as the summary.
+  • Set description = everything from ## Description onwards. Do NOT include the ## Title block in description.
+  • Preserve all remaining sections CHARACTER-FOR-CHARACTER.
+
+PRESERVE MODE — if input contains bug-report headings such as:
+  Problem Statement, Current Behavior, Actual Behavior, Steps to Reproduce, Acceptance Criteria
+THEN:
+  • Return description CHARACTER-FOR-CHARACTER. Changing even one character is incorrect.
+  • Do NOT add or remove ## markers. Do NOT reword, reorder, merge, shorten, or add sections.
+  • Only derive: summary, priority, subsystem, type_name, assignee_login, sprint_id.
+  • "Expected Behavior" alone does NOT trigger PRESERVE MODE — only trigger when bug-report headings above are present.
+
+REWRITE MODE — if input is rough notes, Slack message, meeting notes, voice-to-text, or informal prose:
+Target 150–400 words. Use this structure:
+
+[Problem Statement — no heading label, plain paragraph]
+1–2 paragraphs. Describe: where the issue exists, what currently happens, why it matters.
+Never begin with: "There is an issue", "There is a problem", "We need", "Basically", "Like", "Okay", "I think".
+Describe the issue directly.
+
+[Current Behavior — include ONLY if explicitly described in the input. Never invent.]
+
+[Steps to Reproduce — include ONLY if explicitly provided. Never invent. Numbered list, imperative verbs.]
+
+**Expected Behavior** (always required)
+3–8 bullets. One behavior per bullet. Observable system behavior only.
+Good: "Return asset count for every section." / "Preserve pagination after deletion."
+Bad: "Call another API." / "Add a database table." / "Use Redis."
+
+**References** (include when input contains: API endpoints, URLs, curl, JSON, payloads, IDs, filenames, logs, stack traces, screenshots, Loom links, document links)
+Copy ALL technical artifacts verbatim. Never shorten, prettify, or redact — including Bearer tokens.
+
+FE descriptions → prefer: Display, Render, Navigate, Disable, Enable, Highlight, Persist, Synchronize. Avoid backend wording.
+BE descriptions → prefer: Return, Persist, Expose, Populate, Calculate, Validate, Store, Aggregate, Trigger, Publish, Index. Avoid UI wording.
+
+━━━ TYPE ━━━
+If user explicitly specifies a type → use it exactly. Never override.
+
+Otherwise infer:
+  Regression  → "regression", "worked before", "previously working", "after deployment/merge/update", "stopped working", "broke after"
+  Hotfix      → ONLY when the word "hotfix" appears literally. Do NOT infer from "down", "blocking", "outage", "urgent", "completely down", or severity descriptions. Those are Bugs.
+  Bug         → existing functionality behaves incorrectly: wrong response, validation fails, state inconsistent, rendering broken
+  Feature     → "add", "implement", "create", "introduce", "support", "ability to", "allow users to"
+  Enhancement → "improve", "redesign", "optimize", "better UX", "performance improvement"
+
+━━━ PRIORITY ━━━
+If user explicitly specifies a priority → use it exactly. Never override.
+If not specified → set Normal.
+Do NOT infer priority from keywords like "regression", "500", "crash", "security", or "urgent".
+
+━━━ NEVER INVENT ━━━
+Never invent: APIs, URLs, buttons, screens, error messages, validation rules, business logic,
+acceptance criteria, steps to reproduce, fallback values, or implementation details.
+Only use information explicitly present in the raw input.
+
+━━━ OTHER FIELDS ━━━
+subsystem:       Exact match from available list. Use ASSIGNEE→SUBSYSTEM MAPPING only as a tiebreaker when ambiguous.
+type_name:       Exact match from available types.
+assignee_login:  ONLY when explicitly mentioned ("assign to X", "@X", "assigned to X"). NEVER infer from context.
+sprint_id:       Latest active sprint. If none, return "".`
 
 	instructions := defaultTicketParserInstructions
 	botRepo := database.NewBotConfigRepository()
@@ -1281,7 +1719,7 @@ sprint_id: id of the most recent non-completed sprint from the sprints list, els
 	// Always append the dynamic runtime data — these are never editable in the DB
 	// because they come live from YouTrack.
 	systemPrompt := fmt.Sprintf(`%s
-
+%s
 Available values — choose ONLY from these lists (return exact strings, no variations):
 - priorities: %s
 - types: %s
@@ -1292,12 +1730,31 @@ Available values — choose ONLY from these lists (return exact strings, no vari
 Return ONLY this JSON object (no other text):
 {"summary":"","description":"","priority":"","type_name":"","subsystem":"","assignee_login":"","sprint_id":""}`,
 		instructions,
+		devSubsystemHint,
 		strings.Join(req.Priorities, ", "),
 		strings.Join(req.Types, ", "),
 		strings.Join(req.Subsystems, ", "),
 		string(usersJSON),
 		string(sprintsJSON),
 	)
+
+	// Detect PRESERVE MODE in Go before calling the LLM.
+	// If the raw input already has structured headings, the LLM description output
+	// is unreliable (it adds/removes ## markers). We override it with the raw text directly.
+	// PRESERVE MODE triggers only on true bug-report template headings.
+	// "expected behavior" alone is NOT enough — it appears in feature/task tickets too.
+	preserveKeywords := []string{
+		"problem statement", "actual behavior", "steps to reproduce",
+		"acceptance criteria",
+	}
+	rawLower := strings.ToLower(req.RawText)
+	isPreserveMode := false
+	for _, kw := range preserveKeywords {
+		if strings.Contains(rawLower, kw) {
+			isPreserveMode = true
+			break
+		}
+	}
 
 	response, err := ai.QueryWithHistory(r.Context(), systemPrompt, nil, req.RawText)
 	if err != nil {
@@ -1313,6 +1770,67 @@ Return ONLY this JSON object (no other text):
 	if err := json.Unmarshal([]byte(cleaned), &parsed); err != nil {
 		http.Error(w, "AI returned invalid JSON: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// PRESERVE MODE override: replace LLM description with the original raw text verbatim.
+	// Strip a leading "Title: ..." line if present (used as a hint for the summary field only).
+	if isPreserveMode {
+		desc := strings.TrimSpace(req.RawText)
+		if firstLine := strings.SplitN(desc, "\n", 2); len(firstLine) == 2 &&
+			strings.HasPrefix(strings.ToLower(strings.TrimSpace(firstLine[0])), "title:") {
+			desc = strings.TrimSpace(firstLine[1])
+		}
+		parsed["description"] = desc
+		log.Printf("[AI-Fill] PRESERVE MODE — description kept verbatim (%d chars)", len(desc))
+	}
+
+	// PRIORITY ENFORCEMENT: if the raw text contains no recognized priority token,
+	// force "Normal". The model overrides prompt instructions ("don't infer from crash/urgent")
+	// so we enforce deterministically in Go.
+	explicitPriorityRe := regexp.MustCompile(`(?i)\b(show[- ]stopper|showstopper|p0|p1|p2|p3|a0|a1|a2|a3|critical|major|minor|normal)\b`)
+	if !explicitPriorityRe.MatchString(req.RawText) {
+		parsed["priority"] = "Normal"
+		log.Printf("[AI-Fill] PRIORITY — no explicit token, forced to Normal")
+	}
+
+	// TYPE ENFORCEMENT: if the raw text starts with an explicit type label ("bug:", "feature:",
+	// "hotfix:", "regression:", "enhancement:"), override whatever the LLM inferred.
+	explicitTypeRe := regexp.MustCompile(`(?i)^\s*(bug|feature|hotfix|regression|enhancement)\s*[:\-]`)
+	if m := explicitTypeRe.FindStringSubmatch(req.RawText); len(m) > 1 {
+		explicit := strings.Title(strings.ToLower(m[1]))
+		if explicit == "Enhancement" {
+			// map to exact value
+		}
+		parsed["type_name"] = explicit
+		log.Printf("[AI-Fill] TYPE — explicit prefix %q overrides LLM", explicit)
+	}
+
+	// REGRESSION ENFORCEMENT: use Go-side detection to both upgrade and downgrade.
+	// Strong signals: "worked before", "used to work", "stopped working after", "broke after merge/deploy/update".
+	// Weak phrases like "since last deployment" or "since this morning" describe timing, NOT regressions.
+	strongRegressionRe := regexp.MustCompile(`(?i)(regression|\bworked\b.{0,20}\bbefore\b|\bused\s+to\s+work\b|\bpreviously\s+work|\bstopped\s+work|\bbroke\s+after\b|\bafter\s+(the\s+)?(latest\s+)?merge\b|\bafter\s+(the\s+)?deploy|\bafter\s+(the\s+)?update\b)`)
+	hasStrongRegression := strongRegressionRe.MatchString(req.RawText)
+	switch parsed["type_name"] {
+	case "Regression":
+		if !hasStrongRegression {
+			parsed["type_name"] = "Bug"
+			log.Printf("[AI-Fill] TYPE — Regression downgraded to Bug (no strong signal in text)")
+		}
+	case "Bug":
+		if hasStrongRegression {
+			parsed["type_name"] = "Regression"
+			log.Printf("[AI-Fill] TYPE — Bug upgraded to Regression (strong signal present)")
+		}
+	}
+
+	// ASSIGNEE ENFORCEMENT: only keep LLM's assignee_login when an explicit assignment phrase
+	// appears in the raw text. Prevents hallucination from subsystem ownership mapping.
+	explicitAssigneeRe := regexp.MustCompile(`(?i)(assign(?:ed)?\s+to\s+\w+|@\w+)`)
+	if !explicitAssigneeRe.MatchString(req.RawText) {
+		if parsed["assignee_login"] != "" && parsed["assignee_login"] != nil {
+			log.Printf("[AI-Fill] ASSIGNEE — no explicit phrase, cleared %q", parsed["assignee_login"])
+			parsed["assignee_login"] = ""
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1374,9 +1892,9 @@ func (h *YouTrackHandler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	issueID := vars["issue_id"]
 
-	client, err := h.getYouTrackClient(r.Context())
+	client, err := h.getYouTrackClientForWrite(r.Context())
 	if err != nil || client == nil {
-		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		http.Error(w, "YouTrack write access requires your personal integration to be configured in Settings → Integrations", http.StatusForbidden)
 		return
 	}
 
@@ -1474,15 +1992,15 @@ func (h *YouTrackHandler) ImportFromYouTrack(w http.ResponseWriter, r *http.Requ
 			// Create new task
 			createdTime := time.Unix(issue.Created/1000, 0)
 			newTask := &models.Task{
-				Title:        issue.Summary,
-				Description:  issue.Description,
-				Status:       status,
-				Priority:     priority,
-				ProjectID:    defaultProjectID,
-				YouTrackID:   &issue.ID,
-				SectionName:  &stateName,
-				CreatedBy:    userID,
-				CreatedAt:    createdTime,
+				Title:       issue.Summary,
+				Description: issue.Description,
+				Status:      status,
+				Priority:    priority,
+				ProjectID:   defaultProjectID,
+				YouTrackID:  &issue.ID,
+				SectionName: &stateName,
+				CreatedBy:   userID,
+				CreatedAt:   createdTime,
 			}
 
 			// Set assignee if available
@@ -1864,9 +2382,9 @@ func (h *YouTrackHandler) BulkUpdateStates(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	client, err := h.getYouTrackClient(r.Context())
+	client, err := h.getYouTrackClientForWrite(r.Context())
 	if err != nil || client == nil {
-		http.Error(w, "YouTrack is not configured", http.StatusBadRequest)
+		http.Error(w, "YouTrack write access requires your personal integration to be configured in Settings → Integrations", http.StatusForbidden)
 		return
 	}
 
@@ -1997,6 +2515,12 @@ func min(a, b int) int {
 
 var priorityRegex = regexp.MustCompile(`^(P[0-3])\s+(.*)`)
 
+// package-level regexes used in PMAssistantQuery — compiled once at init, not per request.
+var (
+	resolvedFilterRe = regexp.MustCompile(`(?i)\bresolved\s*:\s*(\{[^}]*\}|\S+)`)
+	yqlTypeFilterRe  = regexp.MustCompile(`(?i)\bType:\s*\w+`)
+)
+
 // extractPriorityFromSummary parses "P2 FE UI: Avatar Bug" -> ("P2", "P2 FE UI: Avatar Bug")
 // The clean_title keeps the priority prefix since it's part of the Slack message format
 func extractPriorityFromSummary(summary string) (string, string) {
@@ -2119,8 +2643,8 @@ var stateOrder = map[string]int{
 	"open":            0,
 	"submitted":       0,
 	"in progress":     1,
-	"blocked":         1,  // lateral — not forward, not backward relative to In Progress
-	"findings":        1,  // lateral
+	"blocked":         1, // lateral — not forward, not backward relative to In Progress
+	"findings":        1, // lateral
 	"dev":             2,
 	"ready for stage": 3,
 	"stage":           4,
@@ -2450,52 +2974,123 @@ func buildYQLTranslationPrompt(projectID, activeSprint string, states []youtrack
 	sb.WriteString("• 'moved to [state] today/recently' → use that state + updated: Today  (NOT created:)\n")
 	sb.WriteString("• NEVER use 'created:' for transition/movement queries — only for ticket creation date\n\n")
 
+	// Build a name→login lookup hint for assignee queries
+	if len(users) > 0 {
+		sb.WriteString("ASSIGNEE LOOKUP — when user mentions a person's name, use the login from this table:\n")
+		for _, u := range users {
+			if u.Login != "" && u.FullName != "" {
+				sb.WriteString(fmt.Sprintf("  \"%s\" → Assignee: %s\n", u.FullName, u.Login))
+			}
+		}
+		sb.WriteString("  If the person is not in this list, omit the Assignee filter entirely.\n\n")
+	}
+
+	sprintToken := ""
+	if activeSprint != "" {
+		sprintToken = fmt.Sprintf("#{%s}", activeSprint)
+	}
+	// projectSprint is used in examples — avoids double-space when no sprint is active.
+	projectSprint := projectID
+	if sprintToken != "" {
+		projectSprint = projectID + " " + sprintToken
+	}
+
+	// Resolve real state tokens from the injected states list so examples use names that
+	// actually exist in this YouTrack instance. Falls back to common names if not found.
+	stateToken := func(keyword string, fallback string) string {
+		kl := strings.ToLower(keyword)
+		for _, s := range states {
+			if strings.ToLower(s.Name) == kl {
+				if strings.ContainsAny(s.Name, " \t") {
+					return "#{" + s.Name + "}"
+				}
+				return "#" + s.Name
+			}
+		}
+		// Partial match (e.g. "done" matches "Mobile Done", "done" in "dev done")
+		for _, s := range states {
+			if strings.Contains(strings.ToLower(s.Name), kl) {
+				if strings.ContainsAny(s.Name, " \t") {
+					return "#{" + s.Name + "}"
+				}
+				return "#" + s.Name
+			}
+		}
+		return fallback
+	}
+	stInProgress := stateToken("in progress", "#{In Progress}")
+	stBlocked := stateToken("blocked", "#Blocked")
+	stDEV := stateToken("dev", "#DEV")
+	// "done" semantics: prefer explicit "Done", fall back to "Closed"
+	stDone := stateToken("done", "")
+	if stDone == "" {
+		stDone = stateToken("closed", "#Closed")
+	}
+	stTodo := stateToken("to do", "#{To Do}")
+	stStage := stateToken("stage", "#Stage")
+	stReadyForProd := stateToken("ready for prod", "#{Ready For Prod}")
+
 	sb.WriteString("PROVEN EXAMPLES (use these exact patterns):\n")
-	sb.WriteString(fmt.Sprintf("  all sprint issues       → project: %s #{%s}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  blocked tickets         → project: %s #{%s} #Blocked\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  in progress             → project: %s #{%s} #{In Progress}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  moved to DEV today      → project: %s #{%s} #DEV updated: Today\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  moved to Stage today    → project: %s #{%s} #Stage updated: Today\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  moved to Done today     → project: %s #{%s} #Done updated: Today\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  updated this week       → project: %s #{%s} updated: {This week}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  DEV + Stage + Prod      → project: %s #{%s} #DEV #Stage #{Ready For Prod}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  single assignee         → project: %s #{%s} Assignee: rajvirsingh\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  P0 or P1 open           → project: %s #{%s} #P0 #P1 #{In Progress} #{To Do}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  created today           → project: %s #{%s} created: Today\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  created yesterday       → project: %s #{%s} created: yesterday\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  hotfixes in progress    → project: %s #{%s} Type: Hotfix #{In Progress}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  bugs in sprint          → project: %s #{%s} Type: Bug\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  tasks for one person    → project: %s #{%s} Assignee: simran\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  FE MC done tickets      → project: %s #{%s} #{FE MC} #DEV #Done\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  MC FE tickets only      → project: %s #{%s} #{FE MC}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  MC excl backend         → project: %s #{%s} #{FE MC}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  BE excl RAG             → project: %s #{%s} #{BE MC} #{BE Studio} #{BE UI}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  bugs this sprint only   → project: %s #{%s} Type: Bug\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  bugs not from last week → project: %s #{%s} Type: Bug\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  created this week       → project: %s created: {This week}\n", projectID))
-	sb.WriteString(fmt.Sprintf("  bounced back            → project: %s #{%s}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  bounced tickets         → project: %s #{%s}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  highest bounce count    → project: %s #{%s}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  overdue tickets         → project: %s #{%s}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  past SLA deadline       → project: %s #{%s}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  at-risk tickets         → project: %s #{%s}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  cycle time per dev      → project: %s #{%s}\n", projectID, activeSprint))
-	sb.WriteString(fmt.Sprintf("  developer workload      → project: %s #{%s}\n", projectID, activeSprint))
+	sb.WriteString(fmt.Sprintf("  all sprint issues         → project: %s\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  sprint summary / overview → project: %s\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  blocked tickets           → project: %s %s\n", projectSprint, stBlocked))
+	sb.WriteString(fmt.Sprintf("  in progress               → project: %s %s\n", projectSprint, stInProgress))
+	sb.WriteString(fmt.Sprintf("  moved to DEV today        → project: %s %s updated: Today\n", projectSprint, stDEV))
+	sb.WriteString(fmt.Sprintf("  moved to Stage today      → project: %s %s updated: Today\n", projectSprint, stStage))
+	sb.WriteString(fmt.Sprintf("  finished / done today     → project: %s %s updated: Today\n", projectSprint, stDEV))
+	sb.WriteString(fmt.Sprintf("  done / dev-complete       → project: %s %s\n", projectSprint, stDEV))
+	sb.WriteString(fmt.Sprintf("  fully closed this sprint  → project: %s %s\n", projectSprint, stDone))
+	sb.WriteString(fmt.Sprintf("  updated this week         → project: %s updated: {This week}\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  DEV + Stage + Prod        → project: %s %s %s %s\n", projectSprint, stDEV, stStage, stReadyForProd))
+	sb.WriteString(fmt.Sprintf("  single assignee           → project: %s Assignee: rajvirsingh\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  P0 or P1 open             → project: %s #P0 #P1 %s %s\n", projectSprint, stInProgress, stTodo))
+	sb.WriteString(fmt.Sprintf("  created today             → project: %s created: Today\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  created yesterday         → project: %s created: yesterday\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  created this week         → project: %s created: {This week}\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  hotfixes in progress      → project: %s Type: Hotfix %s\n", projectSprint, stInProgress))
+	sb.WriteString(fmt.Sprintf("  all hotfixes in sprint    → project: %s Type: Hotfix\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  bugs in sprint            → project: %s Type: Bug\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  tasks for one person      → project: %s Assignee: simran\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  what is Alice doing?      → project: %s Assignee: alice_login %s %s\n", projectSprint, stInProgress, stBlocked))
+	sb.WriteString(fmt.Sprintf("  FE MC done tickets        → project: %s #{FE MC} %s\n", projectSprint, stDEV))
+	sb.WriteString(fmt.Sprintf("  FE MC in progress         → project: %s #{FE MC} %s\n", projectSprint, stInProgress))
+	sb.WriteString(fmt.Sprintf("  MC FE tickets only        → project: %s #{FE MC}\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  BE excl RAG               → project: %s #{BE MC} #{BE Studio} #{BE UI}\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  bugs + date filter        → project: %s Type: Bug\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  bounced / moved back      → project: %s\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  overdue / past SLA        → project: %s\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  at-risk tickets           → project: %s\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  cycle time / workload     → project: %s\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  who has most tickets?     → project: %s\n", projectSprint))
+	// Specific ticket ID — no sprint filter needed, ID is globally unique
+	sb.WriteString(fmt.Sprintf("  specific ticket ARD-1234  → project: %s ARD-1234\n", projectID))
+	sb.WriteString(fmt.Sprintf("  specific ticket 3-2554    → project: %s 3-2554\n", projectID))
+	sb.WriteString(fmt.Sprintf("  tickets assigned to Bob   → project: %s Assignee: bob_login\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  high priority open        → project: %s #P0 #P1\n", projectSprint))
+	sb.WriteString(fmt.Sprintf("  all open (not done)       → project: %s %s %s %s\n", projectSprint, stInProgress, stBlocked, stTodo))
 
 	sb.WriteString("\nCRITICAL RULES:\n")
 	sb.WriteString("1. NEVER use  State: value  or  Priority: value  — always use # prefix\n")
 	sb.WriteString("2. NEVER use  sprint: {name}  — always use  #{Sprint Name}\n")
-	sb.WriteString("3. Multiple states: #{State1} #{State2} (space-separated, NOT comma-separated)\n")
-	sb.WriteString(fmt.Sprintf("4. Default to active sprint #{%s} unless user asks for historical data\n", activeSprint))
-	sb.WriteString("5. For 'summary' / 'all issues': only add #{SprintName}, no state filter\n")
-	sb.WriteString("6. For 'multiple assignees': use only one Assignee: filter or none — NEVER chain Assignee: x Assignee: y\n")
-	sb.WriteString("7. Type filter: Type: Hotfix / Type: Bug / Type: Task / Type: Feature (never use # for Type)\n")
-	sb.WriteString("8. NEVER use date comparisons like  due: <  or  updated: <=  — these are invalid YQL\n")
-	sb.WriteString("   NEVER use  resolved: {period}  — this project does NOT have resolved dates; use state filters instead\n")
-	sb.WriteString("   For 'exclude resolved last week': just return sprint + type filter — the bot will reason from ticket data\n")
-	sb.WriteString("9. NEVER invent state names like #Bounced #Overdue #AtRisk #Reopened #Fixed — these do not exist\n")
-	sb.WriteString("10. Subsystem EXCLUSION (-Subsystem:) is NOT valid YQL — to get 'MC excluding backend', use Subsystem: {FE MC} only\n")
-	sb.WriteString("11. Only use state names from the STATES list above — do not guess or invent state names\n")
+	sb.WriteString("3. Multiple states/priorities: space-separated, NOT comma-separated: #{State1} #{State2}\n")
+	if activeSprint != "" {
+		sb.WriteString(fmt.Sprintf("4. Default to active sprint #{%s} unless user explicitly asks for another sprint\n", activeSprint))
+	} else {
+		sb.WriteString("4. No active sprint is selected — use project: filter only unless a sprint name is mentioned\n")
+	}
+	sb.WriteString("5. For 'summary' / 'all issues' / 'overview': return project + sprint only, no state filter\n")
+	sb.WriteString("6. For 'multiple assignees' (\"show Alice and Bob\"): omit Assignee filter — let the bot reason from full sprint data\n")
+	sb.WriteString("7. Type filter: Type: Hotfix / Type: Bug / Type: Task / Type: Feature (NEVER use # for Type)\n")
+	sb.WriteString("8. NEVER use  resolved: {period}  or  resolved: Today  — this project has NO resolved dates. Use state filters (#DEV #Done) for 'done' tickets\n")
+	sb.WriteString("   For 'bugs resolved/done last week': return  project: " + projectSprint + " Type: Bug  — the bot handles date reasoning from ticket data\n")
+	sb.WriteString("9. NEVER invent state names like #Bounced #Overdue #AtRisk #Reopened #Fixed — these states do not exist in YouTrack\n")
+	sb.WriteString("10. Subsystem EXCLUSION (-Subsystem:) is NOT valid — to exclude a subsystem, list only the subsystems you WANT\n")
+	sb.WriteString("11. Only use state names from the STATES list above — never guess or invent\n")
+	sb.WriteString("12. For a SPECIFIC TICKET ID in the query (e.g. 'tell me about ARD-1234', 'what is 3-2554'): return  project: " + projectID + " {issueID}  — no sprint filter\n")
+	sb.WriteString("13. For 'what did X finish/complete today': use  #DEV #Done updated: Today Assignee: login\n")
+	sb.WriteString("14. For 'what is X working on?': use  #{In Progress} #Blocked Assignee: login  — look up login from ASSIGNEE LOOKUP table above\n")
+	sb.WriteString("15. NEVER chain multiple Assignee: filters — use at most one, or none for team-wide queries\n")
+	sb.WriteString("16. For any bounce/overdue/SLA/cycle-time query: return plain sprint filter — analytics are computed server-side and embedded in the data\n")
 	return sb.String()
 }
 
@@ -2549,8 +3144,8 @@ func normalizeYQL(yql string) string {
 var pmStateOrder = map[string]int{
 	"backlog": 0, "open": 0, "to do": 0, "todo": 0, "new": 0,
 	"in progress": 1,
-	"dev": 2,
-	"stage": 3, "ready for stage": 3,
+	"dev":         2,
+	"stage":       3, "ready for stage": 3,
 	"prod": 4, "ready for prod": 4,
 	"done": 5, "closed": 5, "won't fix": 5, "duplicate": 5, "mobile done": 5,
 }
@@ -2829,6 +3424,14 @@ func (h *YouTrackHandler) PMAssistantQuery(w http.ResponseWriter, r *http.Reques
 	yql = strings.TrimSpace(yql)
 	yql = normalizeYQL(yql)
 
+	// Strip resolved: filters — this project has no resolved dates set, they always return 0 results.
+	// The LLM is instructed not to generate them, but this is a safety net for model drift.
+	if resolvedFilterRe.MatchString(yql) {
+		cleaned := strings.TrimSpace(resolvedFilterRe.ReplaceAllString(yql, ""))
+		log.Printf("[PM-YQL] stripped resolved: filter: %q → %q", yql, cleaned)
+		yql = cleaned
+	}
+
 	// Analytics override: queries about computed metrics (bounce, overdue, SLA, cycle time, workload)
 	// have no native YouTrack filter — override to a plain sprint fetch so the bot reads the
 	// bounces:N and [OVERDUE] flags that are embedded in every ticket line of the data context.
@@ -2850,7 +3453,7 @@ func (h *YouTrackHandler) PMAssistantQuery(w http.ResponseWriter, r *http.Reques
 			}
 			// Preserve Type: filter from the generated YQL if present (e.g. Type: Bug)
 			typeFilter := ""
-			if m := regexp.MustCompile(`(?i)\bType:\s*\w+`).FindString(yql); m != "" {
+			if m := yqlTypeFilterRe.FindString(yql); m != "" {
 				typeFilter = " " + m
 			}
 			yql = fmt.Sprintf("project: %s%s%s", projectID, sprintTag, typeFilter)
@@ -2887,7 +3490,7 @@ func (h *YouTrackHandler) PMAssistantQuery(w http.ResponseWriter, r *http.Reques
 		ctxSB.WriteString("QUERY RESULTS: No issues found matching this filter. Answer only from the Sprint Summary above — do NOT invent ticket IDs or data.\n")
 	} else {
 		ctxSB.WriteString(fmt.Sprintf("QUERY RESULTS (%d issues — COMPLETE, answer directly from this list):\n", len(yqlIssues)))
-		ctxSB.WriteString("ID | Priority | Type | Summary | State | Assignee\n")
+		ctxSB.WriteString("ID | Priority | Type | Summary | State | Assignee | Subsystem | Created\n")
 		for _, iss := range yqlIssues {
 			issID := iss.IDReadable
 			if issID == "" {
@@ -2898,6 +3501,11 @@ func (h *YouTrackHandler) PMAssistantQuery(w http.ResponseWriter, r *http.Reques
 			state := youtrack.GetStatus(iss)
 			prio := youtrack.GetPriority(iss)
 			issType := youtrack.GetCustomFieldValue(iss, "Type")
+			subsys := youtrack.GetSubsystem(iss)
+			createdDate := ""
+			if iss.Created > 0 {
+				createdDate = time.UnixMilli(iss.Created).UTC().Format("2006-01-02")
+			}
 			asgn := ""
 			if a := youtrack.GetAssignee(iss); a != nil {
 				asgn = a.FullName
@@ -2920,8 +3528,8 @@ func (h *YouTrackHandler) PMAssistantQuery(w http.ResponseWriter, r *http.Reques
 			if tLines := issueTransitions[lookupID]; len(tLines) > 0 {
 				transitions = "\n" + strings.Join(tLines, "\n")
 			}
-			ctxSB.WriteString(fmt.Sprintf("%s | %s | %s | %s | %s | %s%s%s%s\n",
-				issID, prio, issType, iss.Summary, state, asgn, flags, blocker, transitions))
+			ctxSB.WriteString(fmt.Sprintf("%s | %s | %s | %s | %s | %s | %s | %s%s%s%s\n",
+				issID, prio, issType, iss.Summary, state, asgn, subsys, createdDate, flags, blocker, transitions))
 		}
 	}
 	dataContext := ctxSB.String()
@@ -3009,6 +3617,19 @@ func (h *YouTrackHandler) PMAssistantQuery(w http.ResponseWriter, r *http.Reques
 // HandleWebhook receives and processes YouTrack webhook events
 // This endpoint does NOT require authentication — called by YouTrack server
 func (h *YouTrackHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	// Verify webhook authenticity if a secret is configured.
+	// Set YOUTRACK_WEBHOOK_SECRET to the value you enter in YouTrack → Webhooks → Secret.
+	// YouTrack sends it as a plain Bearer token in the Authorization header.
+	if webhookSecret := os.Getenv("YOUTRACK_WEBHOOK_SECRET"); webhookSecret != "" {
+		authHeader := r.Header.Get("Authorization")
+		expected := "Bearer " + webhookSecret
+		if authHeader != expected {
+			log.Printf("[YouTrack Webhook] Rejected request: bad Authorization header")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("[YouTrack Webhook] Failed to read body: %v", err)
@@ -3044,10 +3665,131 @@ func (h *YouTrackHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// summarizeWebhookTrigger renders a short, human-readable description of what fired this
+// webhook batch (e.g. "ARD-1872 created", "ARD-1900 updated (State, Priority)"), purely for
+// log readability around checkTodayDeletedTickets.
+func summarizeWebhookTrigger(events []youtrack.WebhookEvent) string {
+	if len(events) == 0 {
+		return "empty payload"
+	}
+	parts := make([]string, 0, len(events))
+	for _, event := range events {
+		if event.Issue == nil {
+			continue
+		}
+		issueID := event.Issue.IDReadable
+		if issueID == "" {
+			issueID = event.Issue.ID
+		}
+		if issueID == "" {
+			issueID = event.IssueID
+		}
+		if issueID == "" {
+			continue
+		}
+		// Created and Updated land within a couple seconds of each other only on the
+		// issue's very first webhook delivery — a reasonable proxy for "just created"
+		// since the payload carries no explicit creation flag.
+		if event.Issue.Created > 0 && event.Issue.Updated > 0 && event.Issue.Updated-event.Issue.Created < 5000 {
+			parts = append(parts, issueID+" created")
+			continue
+		}
+		changes := event.NormalizedChanges()
+		if len(changes) == 0 {
+			parts = append(parts, issueID+" updated")
+			continue
+		}
+		names := make([]string, 0, len(changes))
+		for _, c := range changes {
+			names = append(names, c.Name)
+		}
+		parts = append(parts, fmt.Sprintf("%s updated (%s)", issueID, strings.Join(names, ", ")))
+	}
+	if len(parts) == 0 {
+		return "no issue payload"
+	}
+	return strings.Join(parts, "; ")
+}
+
+// checkTodayDeletedTickets piggybacks on any incoming YouTrack webhook (a ticket created,
+// moved, or otherwise changed) to opportunistically re-check today's YouTrack-sourced
+// DayTrack entries for tickets that got deleted, and pushes an SSE event so DayTrack removes
+// them live without a page refresh. Scoped to today only, and skipped per-user once that
+// user's update has already been posted to Slack — same rule as the on-load prune in
+// DayTrackHandler.pruneDeletedYouTrackEntries.
+func (h *YouTrackHandler) checkTodayDeletedTickets(ctx context.Context, trigger string) {
+	if h.dayTrackRepo == nil {
+		return
+	}
+	client, err := h.getYouTrackClient(ctx)
+	if err != nil || client == nil {
+		return
+	}
+	today := istToday()
+	links, err := h.dayTrackRepo.TodayYouTrackLinkedIssues(ctx, today)
+	if err != nil {
+		log.Printf("[DayTrack Webhook] failed to load today's linked issues: %v", err)
+		return
+	}
+	if len(links) == 0 {
+		return
+	}
+	log.Printf("[DayTrack Webhook] webhook (%s) → checking %d linked ticket(s) for %s", trigger, len(links), today)
+
+	postedByUser := make(map[string]bool)
+	checked := make(map[string]bool)
+	deletedCount := 0
+	for _, link := range links {
+		if checked[link.IssueID] {
+			continue
+		}
+		posted, known := postedByUser[link.UserID]
+		if !known {
+			post, _ := h.dayTrackRepo.GetDailyPost(ctx, link.UserID, today)
+			posted = post != nil
+			postedByUser[link.UserID] = posted
+		}
+		if posted {
+			continue
+		}
+		checked[link.IssueID] = true
+
+		if _, err := client.GetIssue(ctx, link.IssueID); err == nil {
+			continue // still exists — nothing to do
+		} else if err.Error() != "YouTrack resource not found" {
+			continue // ambiguous failure (network/auth/rate-limit) — leave it alone
+		}
+
+		if pruneErr := h.dayTrackRepo.PruneEntriesForDeletedIssue(ctx, link.IssueID); pruneErr != nil {
+			log.Printf("[DayTrack Webhook] ✗ %s confirmed deleted on YouTrack but failed to prune: %v", link.IssueID, pruneErr)
+			continue
+		}
+		deletedCount++
+		log.Printf("[DayTrack Webhook] ✓ %s deleted on YouTrack → removed its DayTrack entries + notified frontend via SSE", link.IssueID)
+		if h.sseHub != nil {
+			h.sseHub.Broadcast(SSEEvent{
+				Type: "youtrack_update",
+				Data: map[string]interface{}{
+					"issue_id":  link.IssueID,
+					"field":     "deleted",
+					"old_value": "",
+					"new_value": "",
+					"summary":   "",
+				},
+			})
+		}
+	}
+	if deletedCount == 0 {
+		log.Printf("[DayTrack Webhook] checked %d ticket(s), none deleted", len(checked))
+	}
+}
+
 // processWebhookEvents handles YouTrack webhook events in the background
 func (h *YouTrackHandler) processWebhookEvents(events []youtrack.WebhookEvent) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	h.checkTodayDeletedTickets(ctx, summarizeWebhookTrigger(events))
 
 	for _, event := range events {
 		if event.Issue == nil {
@@ -3167,13 +3909,14 @@ func (h *YouTrackHandler) processWebhookEvents(events []youtrack.WebhookEvent) {
 					log.Printf("[YouTrack Webhook] State log recorded: %s → %s for %s (moved by: %s)", oldValue, newValue, issueID, movedBy)
 				}
 
-				// --- DayTrack: log ticket tested when moved to a verified/QA column ---
+				// --- DayTrack: log ticket tested/developed when moved to a verified/QA or dev-done column ---
 				if h.dayTrackRepo != nil {
 					mover := movedBy
 					if mover == "" {
 						mover = assignee
 					}
-					h.logYouTrackTestedToDayTrack(ctx, issueID, summary, mover, newValue)
+					h.logYouTrackTestedToDayTrack(ctx, issueID, summary, mover, oldValue, newValue)
+					h.logYouTrackDevToDayTrack(ctx, issueID, summary, mover, oldValue, newValue)
 				}
 			}
 
@@ -3286,14 +4029,19 @@ func (h *YouTrackHandler) processWebhookEvents(events []youtrack.WebhookEvent) {
 
 // testedEnvFromState maps a YouTrack toState column name to the environment that was tested.
 // Returns ("", "", false) if the state is not a verified/QA column.
-func testedEnvFromState(toState string) (env, extSuffix string, ok bool) {
+// testedEnvFromState detects a QA/verification transition. fromState is only
+// needed to disambiguate "Verified" for the mobile track (Mobile Done → Verified) —
+// pass "" when the origin state isn't known (e.g. a current-state-only query);
+// that just means mobile verifications won't match through that path.
+func testedEnvFromState(fromState, toState string) (env, extSuffix string, ok bool) {
 	lower := strings.ToLower(toState)
+	fromLower := strings.ToLower(fromState)
 	switch {
 	case strings.Contains(lower, "ready for stage") || strings.Contains(lower, "ready for staging"):
 		return "DEV", "dev", true
 	case strings.Contains(lower, "ready for prod"):
 		return "STAGE", "stage", true
-	case strings.Contains(lower, "mobile done"):
+	case lower == "verified" && strings.Contains(fromLower, "mobile done"):
 		return "Mobile", "mobile", true
 	case lower == "verified":
 		return "PROD", "prod", true
@@ -3301,9 +4049,44 @@ func testedEnvFromState(toState string) (env, extSuffix string, ok bool) {
 	return "", "", false
 }
 
+// devEnvFromState detects a developer completing work: To Do/In Progress/Backlog →
+// Dev/Stage/PROD/Mobile Done. Requires the origin state so a backward move (e.g. a
+// revert from PROD back to Dev) is never mistaken for newly-finished work.
+func devEnvFromState(fromState, toState string) (env, extSuffix, label string, ok bool) {
+	fromLower := strings.ToLower(strings.TrimSpace(fromState))
+	fromOK := strings.Contains(fromLower, "to do") || strings.Contains(fromLower, "backlog") || fromLower == "in progress"
+	if !fromOK {
+		return "", "", "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(toState)) {
+	case "dev":
+		return "DEV", "dev", "Fixed on DEV", true
+	case "stage":
+		return "STAGE", "stage", "Fixed till STAGE", true
+	case "prod":
+		return "PROD", "prod", "Fixed on PROD", true
+	case "mobile done":
+		return "Mobile", "mobile", "Fixed on Mobile", true
+	}
+	return "", "", "", false
+}
+
+// nowIST returns the current time in Asia/Kolkata. The DayTrack entries below are
+// formatted and stored as plain "3:04 PM" wall-clock strings (no timezone info), so a
+// bare time.Now() renders in whatever zone the server process happens to run in — on
+// this project's server that's UTC, which showed up as entries logged ~5:30 early.
+// Falls back to time.Now() (UTC) if the zone database entry is somehow unavailable.
+func nowIST() time.Time {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		return time.Now()
+	}
+	return time.Now().In(loc)
+}
+
 // logYouTrackTestedToDayTrack logs a "Verified on <env>" DayTrack entry for the person who moved the ticket.
-func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issueID, summary, moverName, toState string) {
-	env, extSuffix, ok := testedEnvFromState(toState)
+func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issueID, summary, moverName, fromState, toState string) {
+	env, extSuffix, ok := testedEnvFromState(fromState, toState)
 	if !ok || moverName == "" {
 		return
 	}
@@ -3315,7 +4098,7 @@ func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issue
 		log.Printf("[YouTrack Webhook] DayTrack tested log: no user found for mover %q: %v", moverName, err)
 		return
 	}
-	now := time.Now()
+	now := nowIST()
 	entryName := issueID + ": Verified on " + env
 	if summary != "" {
 		full := issueID + ": " + summary + " – Verified on " + env
@@ -3324,7 +4107,7 @@ func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issue
 		}
 	}
 	extRef := "yt-tested-" + issueID + "-" + extSuffix
-	_, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
+	entry, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
 		entryName, "Testing",
 		now.Format("3:04 PM"), now.Format("3:04 PM"), nil, "", "done", nil,
 		"youtrack", extRef)
@@ -3332,7 +4115,132 @@ func (h *YouTrackHandler) logYouTrackTestedToDayTrack(ctx context.Context, issue
 		log.Printf("[YouTrack Webhook] DayTrack tested log failed for %s on %s: %v", issueID, env, err)
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack tested entry: %s verified on %s by %s", issueID, env, moverName)
+		if entry != nil {
+			_ = h.dayTrackRepo.SetYoutrackIssueID(ctx, entry.ID, issueID)
+		}
 	}
+}
+
+// logYouTrackDevToDayTrack logs a "Fixed/Implemented on <env>" DayTrack entry under the
+// "Development" category for the person who moved a ticket from To Do/In Progress
+// straight into Dev/Stage/PROD/Mobile Done.
+//
+// Scoped to developers who own a subsystem in Developer Config (Integrations → Developers) —
+// a developer with no subsystem assigned never gets these entries. This intentionally does
+// NOT fire for the routine "Ready for Stage → Stage" / "Ready for PROD → PROD" release-sweep
+// hop (bulk-deploying already-QA-verified tickets): devEnvFromState only matches transitions
+// originating from To Do/Backlog/In Progress, so a bulk deploy sweep — whose tickets always
+// originate from a verified column — never matches here regardless of batch size.
+//
+// The external_ref includes the minute so a ticket that bounces backward (e.g. Stage → To Do)
+// and is fixed again later — even later the same day — gets its own fresh entry instead of
+// being deduped against the first fix; true webhook redeliveries (which arrive within the
+// same request cycle, not a minute+ apart) still collapse to one entry.
+func (h *YouTrackHandler) logYouTrackDevToDayTrack(ctx context.Context, issueID, summary, moverName, fromState, toState string) {
+	env, extSuffix, label, ok := devEnvFromState(fromState, toState)
+	if !ok || moverName == "" {
+		// Not a hotfix-shaped transition (didn't originate from To Do/Backlog/In Progress) —
+		// this is the expected, silent case for every routine mid-pipeline move, so no log line.
+		return
+	}
+	if !h.moverOwnsSubsystem(ctx, moverName) {
+		log.Printf("[YouTrack Webhook] DayTrack dev log SKIPPED for %s (%s → %s): mover %q has no subsystem assigned in Developer Config", issueID, fromState, toState, moverName)
+		return
+	}
+	pool := database.GetPool()
+	var userID string
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM users WHERE LOWER(name) = LOWER($1) LIMIT 1`, moverName,
+	).Scan(&userID); err != nil {
+		log.Printf("[YouTrack Webhook] DayTrack dev log SKIPPED for %s: mover %q owns a subsystem but has no Velocity account (no matching users.name) — %v", issueID, moverName, err)
+		return
+	}
+	now := nowIST()
+
+	// Start time = the most recent time this ticket entered the state it's leaving right
+	// now (fromState) — e.g. the latest "→ In Progress" transition. ORDER BY ... DESC LIMIT 1
+	// means any earlier To Do ↔ In Progress bouncing is ignored; only the latest cycle counts.
+	// Falls back to a zero-duration entry (start == end) if there's no prior row to anchor to.
+	startTime := now
+	var durationMins *int
+	var lastEnteredAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT transitioned_at FROM issue_state_log
+		WHERE issue_id = $1 AND to_state = $2
+		ORDER BY transitioned_at DESC LIMIT 1
+	`, issueID, fromState).Scan(&lastEnteredAt); err == nil {
+		loc, _ := time.LoadLocation("Asia/Kolkata")
+		if loc != nil {
+			lastEnteredAt = lastEnteredAt.In(loc)
+		}
+		startTime = lastEnteredAt
+		mins := int(now.Sub(lastEnteredAt).Minutes())
+		if mins > 0 {
+			durationMins = &mins
+		}
+	}
+
+	entryName := issueID + ": " + label
+	if summary != "" {
+		full := issueID + ": " + summary + " – " + label
+		if len(full) <= 120 {
+			entryName = full
+		}
+	}
+	extRef := "yt-dev-" + issueID + "-" + extSuffix + "-" + now.Format("200601021504")
+	entry, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
+		entryName, "Development",
+		startTime.Format("3:04 PM"), now.Format("3:04 PM"), durationMins, "", "done", nil,
+		"youtrack", extRef)
+	if err != nil {
+		log.Printf("[YouTrack Webhook] DayTrack dev log failed for %s on %s: %v", issueID, env, err)
+	} else {
+		log.Printf("[YouTrack Webhook] DayTrack dev entry: %s (%s) by %s, started %s", issueID, label, moverName, startTime.Format("3:04 PM"))
+		if entry != nil {
+			_ = h.dayTrackRepo.SetYoutrackIssueID(ctx, entry.ID, issueID)
+		}
+	}
+}
+
+// moverOwnsSubsystem reports whether moverName has at least one subsystem assigned in
+// Developer Config. Developers with no subsystem configured (e.g. a QA-only user) are
+// excluded from hotfix-style dev DayTrack logging entirely.
+//
+// developer_subsystem_configs.developer_name is inconsistently populated in practice —
+// some rows hold a full display name ("Jagmeet Singh"), most hold a bare lowercase
+// YouTrack login ("harpinder") — while moverName always comes from the webhook/users
+// table as a full display name ("Harpinder Singh"). There's no login column on `users`
+// to bridge the two directly, so a plain exact-match on DeveloperName silently misses
+// almost every real developer. Match on DeveloperName OR DeveloperLogin OR the first
+// word of moverName against DeveloperLogin (logins in this dataset are first names).
+func (h *YouTrackHandler) moverOwnsSubsystem(ctx context.Context, moverName string) bool {
+	if h.devConfigRepo == nil {
+		return false
+	}
+	moverName = strings.TrimSpace(moverName)
+	if moverName == "" {
+		return false
+	}
+	moverFirstWord := moverName
+	if idx := strings.IndexByte(moverName, ' '); idx > 0 {
+		moverFirstWord = moverName[:idx]
+	}
+	configs, err := h.devConfigRepo.GetAll(ctx)
+	if err != nil {
+		log.Printf("[YouTrack Webhook] DayTrack dev log: failed to load developer configs: %v", err)
+		return false
+	}
+	for _, c := range configs {
+		login := strings.TrimSpace(c.DeveloperLogin)
+		name := strings.TrimSpace(c.DeveloperName)
+		matches := strings.EqualFold(name, moverName) ||
+			strings.EqualFold(login, moverName) ||
+			(login != "" && strings.EqualFold(login, moverFirstWord))
+		if matches {
+			return len(c.Subsystems) > 0
+		}
+	}
+	return false
 }
 
 // logYouTrackRejectedToDayTrack logs a "QA Rejected" DayTrack entry for the person who moved a ticket backward.
@@ -3348,7 +4256,7 @@ func (h *YouTrackHandler) logYouTrackRejectedToDayTrack(ctx context.Context, iss
 		log.Printf("[YouTrack Webhook] DayTrack rejected log: no user found for mover %q: %v", moverName, err)
 		return
 	}
-	now := time.Now()
+	now := nowIST()
 	entryName := fmt.Sprintf("%s: QA Rejected — %s → %s", issueID, fromState, toState)
 	if summary != "" {
 		full := fmt.Sprintf("%s: %s – QA Rejected (%s → %s)", issueID, summary, fromState, toState)
@@ -3358,7 +4266,7 @@ func (h *YouTrackHandler) logYouTrackRejectedToDayTrack(ctx context.Context, iss
 	}
 	// Dedup key includes fromState so re-fires of the same transition don't double-log.
 	extRef := "yt-rejected-" + issueID + "-" + strings.ToLower(strings.ReplaceAll(fromState, " ", "-"))
-	_, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
+	entry, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, now.Format("2006-01-02"),
 		entryName, "Testing",
 		now.Format("3:04 PM"), now.Format("3:04 PM"), nil, "", "done", nil,
 		"youtrack", extRef)
@@ -3366,6 +4274,9 @@ func (h *YouTrackHandler) logYouTrackRejectedToDayTrack(ctx context.Context, iss
 		log.Printf("[YouTrack Webhook] DayTrack rejected log failed for %s: %v", issueID, err)
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack rejected entry: %s moved back from %s to %s by %s", issueID, fromState, toState, moverName)
+		if entry != nil {
+			_ = h.dayTrackRepo.SetYoutrackIssueID(ctx, entry.ID, issueID)
+		}
 	}
 }
 
@@ -3380,7 +4291,7 @@ func (h *YouTrackHandler) logYouTrackCreationToDayTrack(ctx context.Context, iss
 		log.Printf("[YouTrack Webhook] DayTrack creation log: no user found for creator %q: %v", creatorName, err)
 		return
 	}
-	now := time.Now()
+	now := nowIST()
 	timeStr := now.Format("3:04 PM")
 	dateStr := now.Format("2006-01-02")
 	entryName := issueID + ": " + summary
@@ -3388,7 +4299,7 @@ func (h *YouTrackHandler) logYouTrackCreationToDayTrack(ctx context.Context, iss
 		entryName = entryName[:117] + "..."
 	}
 	extRef := "yt-create-" + issueID
-	_, err = h.dayTrackRepo.CreateEntrySourced(ctx, userID, dateStr,
+	entry, err := h.dayTrackRepo.CreateEntrySourced(ctx, userID, dateStr,
 		entryName, "Tickets Created",
 		timeStr, timeStr, nil, "", "done", nil,
 		"youtrack", extRef)
@@ -3396,6 +4307,9 @@ func (h *YouTrackHandler) logYouTrackCreationToDayTrack(ctx context.Context, iss
 		log.Printf("[YouTrack Webhook] DayTrack creation log failed for %s: %v", issueID, err)
 	} else {
 		log.Printf("[YouTrack Webhook] DayTrack entry created for ticket %s by %s", issueID, creatorName)
+		if entry != nil {
+			_ = h.dayTrackRepo.SetYoutrackIssueID(ctx, entry.ID, issueID)
+		}
 	}
 }
 
@@ -3414,36 +4328,57 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 	if scanDate == "" {
 		scanDate = time.Now().Format("2006-01-02")
 	}
+
+	added, skipped, testedAdded, devAdded, inProgressAdded, err := h.scanYouTrackTicketsForUser(ctx, userID, scanDate)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errYTScanInvalidDate) || errors.Is(err, errYTScanNotConfigured) {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "added": added, "skipped": skipped, "tested": testedAdded, "developed": devAdded, "in_progress": inProgressAdded})
+}
+
+var (
+	errYTScanInvalidDate   = errors.New("invalid date format, expected YYYY-MM-DD")
+	errYTScanNotConfigured = errors.New("YouTrack not configured")
+)
+
+// scanYouTrackTicketsForUser pulls today's created and tested/developed tickets for userID
+// from YouTrack and logs any new ones to DayTrack. Shared by the manual sync button (via
+// ScanYouTrackTickets above) and the DayTrack daily auto-send job, so an auto-sent update
+// reflects the same fresh YouTrack state a manual click would have pulled in first.
+func (h *YouTrackHandler) scanYouTrackTicketsForUser(ctx context.Context, userID, scanDate string) (added, skipped, testedAdded, devAdded, inProgressAdded int, err error) {
 	// Validate format
 	scanDay, parseErr := time.ParseInLocation("2006-01-02", scanDate, time.Local)
 	if parseErr != nil {
-		http.Error(w, "invalid date format, expected YYYY-MM-DD", http.StatusBadRequest)
-		return
+		return 0, 0, 0, 0, 0, errYTScanInvalidDate
 	}
 
 	ytClient, err := h.getYouTrackClientForUser(ctx, userID)
 	if err != nil || ytClient == nil {
 		log.Printf("[ScanYTTickets] YouTrack client unavailable: %v", err)
-		http.Error(w, "YouTrack not configured", http.StatusBadRequest)
-		return
+		return 0, 0, 0, 0, 0, errYTScanNotConfigured
 	}
 
 	// Identify this user in YouTrack by calling /api/users/me with their token
 	ytMe, err := ytClient.GetCurrentUser(ctx)
 	if err != nil || ytMe == nil {
 		log.Printf("[ScanYTTickets] GetCurrentUser failed: %v", err)
-		http.Error(w, "Could not identify YouTrack user", http.StatusInternalServerError)
-		return
+		return 0, 0, 0, 0, 0, fmt.Errorf("could not identify YouTrack user: %w", err)
 	}
 	issues, err := ytClient.GetIssuesCreatedToday(ctx, scanDate, "")
 	if err != nil {
 		log.Printf("[ScanYTTickets] GetIssuesCreatedToday error: %v", err)
-		http.Error(w, "YouTrack query failed: "+err.Error(), http.StatusInternalServerError)
-		return
+		return 0, 0, 0, 0, 0, fmt.Errorf("YouTrack query failed: %w", err)
 	}
 
-	added := 0
-	skipped := 0
+	added = 0
+	skipped = 0
 	for _, issue := range issues {
 		issueID := issue.IDReadable
 		if issueID == "" {
@@ -3501,12 +4436,16 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 	//
 	// ON CONFLICT (user_id, external_ref) DO NOTHING in the DB deduplicates any overlaps.
 
-	testedAdded := 0
+	testedAdded = 0
+	devAdded = 0
 	seenExtRefs := make(map[string]struct{})
 
 	// helper: create one tested DayTrack entry, track uniqueness in seenExtRefs.
-	createTestedEntry := func(issueID, summary, toState, timeStr, dateStr string) {
-		env, extSuffix, ok := testedEnvFromState(toState)
+	// fromState is "" when only the current state is known (e.g. the YQL primary
+	// pass below) — that just means mobile verifications won't match through it,
+	// since disambiguating "Verified" for mobile requires knowing the origin state.
+	createTestedEntry := func(issueID, summary, fromState, toState, timeStr, dateStr string) {
+		env, extSuffix, ok := testedEnvFromState(fromState, toState)
 		if !ok {
 			return
 		}
@@ -3538,6 +4477,40 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// helper: create one "Development" DayTrack entry (To Do/In Progress → Dev/Stage/PROD/Mobile Done).
+	// Requires a real fromState, so this can only run from the activities-stream path below —
+	// there's no way to know the origin state from a current-state-only YQL query.
+	createDevEntry := func(issueID, summary, fromState, toState, timeStr, dateStr string) {
+		env, extSuffix, label, ok := devEnvFromState(fromState, toState)
+		if !ok {
+			return
+		}
+		extRef := "yt-dev-" + issueID + "-" + extSuffix
+		if _, dup := seenExtRefs[extRef]; dup {
+			return
+		}
+		seenExtRefs[extRef] = struct{}{}
+
+		entryName := issueID + ": " + label
+		if summary != "" {
+			if full := issueID + ": " + summary + " – " + label; len(full) <= 120 {
+				entryName = full
+			}
+		}
+		entry, createErr := h.dayTrackRepo.CreateEntrySourced(ctx, userID, dateStr,
+			entryName, "Development",
+			timeStr, timeStr, nil, "", "done", nil,
+			"youtrack", extRef)
+		if createErr != nil {
+			log.Printf("[ScanYTTickets] dev entry failed for %s: %v", issueID, createErr)
+			return
+		}
+		if entry != nil {
+			log.Printf("[ScanYTTickets] dev entry saved: issue=%s env=%s", issueID, env)
+			devAdded++
+		}
+	}
+
 	// PRIMARY: issues updated by this user today whose current state is a tested column.
 	yqlIssues, yqlErr := ytClient.GetIssuesUpdatedByUserToday(ctx, scanDate, ytMe.Login)
 	if yqlErr != nil {
@@ -3552,12 +4525,13 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 			if stateName == "" {
 				continue
 			}
-			if _, _, ok := testedEnvFromState(stateName); !ok {
+			// No origin state available from a current-state-only query — mobile
+			// verifications won't match here, only through the activities pass below.
+			if _, _, ok := testedEnvFromState("", stateName); !ok {
 				continue
 			}
 			updatedAt := time.UnixMilli(issue.Updated)
-			log.Printf("[ScanYTTickets] tested yql: issue=%s state=%q updated=%s", issueID, stateName, updatedAt.Format(time.RFC3339))
-			createTestedEntry(issueID, issue.Summary, stateName, updatedAt.Format("3:04 PM"), updatedAt.Format("2006-01-02"))
+			createTestedEntry(issueID, issue.Summary, "", stateName, updatedAt.Format("3:04 PM"), updatedAt.Format("2006-01-02"))
 		}
 	}
 
@@ -3589,20 +4563,82 @@ func (h *YouTrackHandler) ScanYouTrackTickets(w http.ResponseWriter, r *http.Req
 				continue
 			}
 			toState := act.Added[0].Name
-			if _, _, ok := testedEnvFromState(toState); !ok {
-				continue
+			fromState := ""
+			if len(act.Removed) > 0 {
+				fromState = act.Removed[0].Name
 			}
 			issueID := act.Target.IDReadable
 			if issueID == "" {
 				issueID = act.Target.ID
 			}
-			log.Printf("[ScanYTTickets] tested activity (secondary): issue=%s toState=%q author=%s", issueID, toState, act.Author.Login)
-			createTestedEntry(issueID, act.Target.Summary, toState, actTime.Format("3:04 PM"), actTime.Format("2006-01-02"))
+			if _, _, ok := testedEnvFromState(fromState, toState); ok {
+				createTestedEntry(issueID, act.Target.Summary, fromState, toState, actTime.Format("3:04 PM"), actTime.Format("2006-01-02"))
+			}
+			if _, _, _, ok := devEnvFromState(fromState, toState); ok {
+				log.Printf("[ScanYTTickets] dev activity (secondary): issue=%s from=%q to=%q author=%s", issueID, fromState, toState, act.Author.Login)
+				createDevEntry(issueID, act.Target.Summary, fromState, toState, actTime.Format("3:04 PM"), actTime.Format("2006-01-02"))
+			}
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "added": added, "skipped": skipped, "tested": testedAdded})
+	// ── "In Progress" snapshot ──────────────────────────────────────────────
+	// Unlike the created/tested/dev passes above (one-time events, deduped forever by
+	// external_ref), this is a live snapshot: whatever is sitting in the user's "In
+	// Progress"-role column right now, re-pulled fresh on every scan. It goes into
+	// Planned & Carry Over (not Today's Log) since it isn't finished work yet — the
+	// user drags it into Today's Log to actually resume it (see startPlanned on the
+	// frontend, which also moves the ticket to Dev in YouTrack at that point). One row
+	// per ticket (external_ref is NOT date-qualified) — each scan just bumps its
+	// entry_date to today via UpsertInProgressPlanned, so a ticket open for a week
+	// shows as current without piling up a duplicate row per day, and a ticket that's
+	// moved on (including the user moving it in YouTrack directly, bypassing the drag
+	// flow entirely) gets removed by PruneStaleInProgressPlanned below instead of
+	// lingering forever. It still reaches the Slack report because postDayTrackUpdate
+	// also pulls youtrack-sourced Planned items into the report's "In Progress"
+	// section (see daytrack_handler.go).
+	if h.configRepo != nil {
+		var hierarchy []models.ColumnState
+		if wfCfg, cfgErr := h.configRepo.GetEffective(ctx, userID, "youtrack"); cfgErr == nil && wfCfg != nil {
+			hierarchy = wfCfg.ColumnHierarchy
+		}
+		activeStates := getStatesByRole("active", hierarchy)
+		if len(activeStates) == 0 {
+			activeStates = []string{"In Progress"} // fallback when no workflow config is set up yet
+		}
+		inProgressIssues, ipErr := ytClient.GetIssuesByAssigneeAndState(ctx, ytMe.Login, activeStates)
+		if ipErr != nil {
+			log.Printf("[ScanYTTickets] GetIssuesByAssigneeAndState error: %v", ipErr)
+		} else {
+			nowStr := time.Now().Format("3:04 PM")
+			openIssueIDs := make([]string, 0, len(inProgressIssues))
+			for _, issue := range inProgressIssues {
+				issueID := issue.IDReadable
+				if issueID == "" {
+					issueID = issue.ID
+				}
+				openIssueIDs = append(openIssueIDs, issueID)
+				entryName := issueID + ": " + issue.Summary
+				if len(entryName) > 120 {
+					entryName = entryName[:117] + "..."
+				}
+				extRef := "yt-inprogress-" + issueID
+				planned, upsertErr := h.dayTrackRepo.UpsertInProgressPlanned(ctx, userID, scanDate,
+					entryName, "Development", nowStr, nowStr, extRef, issueID)
+				if upsertErr != nil {
+					log.Printf("[ScanYTTickets] in-progress planned item failed for %s: %v", issueID, upsertErr)
+					continue
+				}
+				if planned != nil {
+					inProgressAdded++
+				}
+			}
+			if pruneErr := h.dayTrackRepo.PruneStaleInProgressPlanned(ctx, userID, openIssueIDs); pruneErr != nil {
+				log.Printf("[ScanYTTickets] failed to prune stale in-progress planned items: %v", pruneErr)
+			}
+		}
+	}
+
+	return added, skipped, testedAdded, devAdded, inProgressAdded, nil
 }
 
 // notifyBlocked fires a notification when a ticket moves to Blocked state.
@@ -3815,29 +4851,45 @@ func (h *YouTrackHandler) GetDailyBrief(w http.ResponseWriter, r *http.Request) 
 	if doneYesterday == nil {
 		doneYesterday = []issueRow{}
 	}
-	if p0 == nil { p0 = []issueRow{} }
-	if p1 == nil { p1 = []issueRow{} }
-	if p2 == nil { p2 = []issueRow{} }
-	if p3 == nil { p3 = []issueRow{} }
-	if blockedOurs == nil { blockedOurs = []issueRow{} }
-	if blockedTheirs == nil { blockedTheirs = []issueRow{} }
-	if openItems == nil { openItems = []issueRow{} }
-	if unassigned == nil { unassigned = []issueRow{} }
+	if p0 == nil {
+		p0 = []issueRow{}
+	}
+	if p1 == nil {
+		p1 = []issueRow{}
+	}
+	if p2 == nil {
+		p2 = []issueRow{}
+	}
+	if p3 == nil {
+		p3 = []issueRow{}
+	}
+	if blockedOurs == nil {
+		blockedOurs = []issueRow{}
+	}
+	if blockedTheirs == nil {
+		blockedTheirs = []issueRow{}
+	}
+	if openItems == nil {
+		openItems = []issueRow{}
+	}
+	if unassigned == nil {
+		unassigned = []issueRow{}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"done_yesterday":  doneYesterday,
-			"p0":              p0,
-			"p1":              p1,
-			"p2":              p2,
-			"p3":              p3,
-			"blocked_ours":    blockedOurs,
-			"blocked_theirs":  blockedTheirs,
-			"open_items":      openItems,
-			"unassigned":      unassigned,
-			"generated_at":    time.Now().Format(time.RFC3339),
+			"done_yesterday": doneYesterday,
+			"p0":             p0,
+			"p1":             p1,
+			"p2":             p2,
+			"p3":             p3,
+			"blocked_ours":   blockedOurs,
+			"blocked_theirs": blockedTheirs,
+			"open_items":     openItems,
+			"unassigned":     unassigned,
+			"generated_at":   time.Now().Format(time.RFC3339),
 		},
 	})
 }
@@ -3951,10 +5003,18 @@ func (h *YouTrackHandler) GetEODSummary(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if completedToday == nil { completedToday = []issueRow{} }
-	if newBlockers == nil { newBlockers = []issueRow{} }
-	if stillInProgress == nil { stillInProgress = []issueRow{} }
-	if noMovement == nil { noMovement = []issueRow{} }
+	if completedToday == nil {
+		completedToday = []issueRow{}
+	}
+	if newBlockers == nil {
+		newBlockers = []issueRow{}
+	}
+	if stillInProgress == nil {
+		stillInProgress = []issueRow{}
+	}
+	if noMovement == nil {
+		noMovement = []issueRow{}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -4008,15 +5068,15 @@ func (h *YouTrackHandler) GetDeveloperLoad(w http.ResponseWriter, r *http.Reques
 	}
 
 	type devLoad struct {
-		Assignee        string     `json:"assignee"`
-		ActiveIssues    []issueRow `json:"active_issues"`
-		BlockedIssues   []issueRow `json:"blocked_issues"`
-		DoneToday       int        `json:"done_today"`
-		AvgHoursPerP1   float64    `json:"avg_hours_per_p1"`
-		AvgHoursPerP2   float64    `json:"avg_hours_per_p2"`
-		LastActivityAt  *string    `json:"last_activity_at"`
-		MissingUpdate   bool       `json:"missing_update"`
-		Overloaded      bool       `json:"overloaded"`
+		Assignee       string     `json:"assignee"`
+		ActiveIssues   []issueRow `json:"active_issues"`
+		BlockedIssues  []issueRow `json:"blocked_issues"`
+		DoneToday      int        `json:"done_today"`
+		AvgHoursPerP1  float64    `json:"avg_hours_per_p1"`
+		AvgHoursPerP2  float64    `json:"avg_hours_per_p2"`
+		LastActivityAt *string    `json:"last_activity_at"`
+		MissingUpdate  bool       `json:"missing_update"`
+		Overloaded     bool       `json:"overloaded"`
 	}
 
 	loadsMap := make(map[string]*devLoad)
@@ -4370,7 +5430,7 @@ func (h *YouTrackHandler) SaveCarryoverPlan(w http.ResponseWriter, r *http.Reque
 type FeatureIssue struct {
 	IDReadable   string `json:"id_readable"`
 	Summary      string `json:"summary"`
-	IssueType    string `json:"issue_type"`   // FE, BE, RAG, Mobile, etc.
+	IssueType    string `json:"issue_type"` // FE, BE, RAG, Mobile, etc.
 	CurrentState string `json:"current_state"`
 	StateClass   string `json:"state_class"` // "done"|"active"|"pending"|"blocked"
 	Assignee     string `json:"assignee"`
@@ -4724,7 +5784,7 @@ func (h *YouTrackHandler) GetCarryover(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":        true,
+		"success": true,
 		"data": map[string]interface{}{
 			"yesterday":      fetchItems(yesterday),
 			"today":          fetchItems(today),
@@ -4732,4 +5792,15 @@ func (h *YouTrackHandler) GetCarryover(w http.ResponseWriter, r *http.Request) {
 			"today_date":     today,
 		},
 	})
+}
+
+// userDisplayName returns a YouTrack user's full name, falling back to login.
+func userDisplayName(u *youtrack.User) string {
+	if u == nil {
+		return ""
+	}
+	if u.FullName != "" {
+		return u.FullName
+	}
+	return u.Login
 }
