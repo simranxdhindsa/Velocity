@@ -3,6 +3,7 @@
 ## 2026-10-30
 
 ### Enhancements
+- Board can be grouped by Subsystem, and grouped lanes now respect the search, assignee, priority and subsystem filters instead of ignoring them
 - Board top bar is cleaner, with a ticket count that says what it counts, no YouTrack badge, and a new Subsystem filter built from your project subsystems
 
 
