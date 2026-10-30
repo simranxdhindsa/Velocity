@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import {
-  RefreshCw, Search, Users, ChevronDown, X,
-  AlertTriangle, ArrowDownUp, ArrowUpNarrowWide, ArrowDownNarrowWide,
-  Filter, LayoutDashboard, CalendarDays, Rows3,
-} from 'lucide-react'
-import { SprintScanLoader, QuantumOrbitLoader } from '@/components/brand/VelocityLoaders'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { AlertTriangle, Filter } from 'lucide-react'
 import { VelocityLogo } from '@/components/brand/VelocityLogo'
 import { KanbanBoard } from '../components/board'
+import { BoardToolbar, BoardToolbarSkeleton } from '../components/board/BoardToolbar'
+import {
+  NO_SUBSYSTEM, buildFilterOptions, priorityOrder,
+  type SortKey, type SwimlaneBy,
+} from '../components/board/board-filters'
 import api, { getYouTrackAvatarMap } from '../services/api'
 import type { YouTrackIssue, YouTrackSprint } from '../services/api'
 import { getPMIssues, updatePMIssueState, getPMStates, getActiveSource } from '../services/pmDataService'
@@ -21,19 +21,6 @@ interface ColPaginationState {
   hasMore: boolean
   loading: boolean
 }
-
-
-function priorityOrder(name: string): number {
-  const p = (name || '').toLowerCase()
-  if (p.includes('critical') || p.includes('show-stopper') || p.includes('blocker')) return 0
-  if (p.includes('major')) return 1
-  if (p.includes('normal') || p.includes('medium')) return 2
-  if (p.includes('minor') || p.includes('cosmetic') || p.includes('low')) return 3
-  return 4
-}
-
-
-type SortKey = 'newest' | 'priority' | 'alpha'
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 
@@ -52,51 +39,22 @@ export function BoardPage() {
   const { data: cachedSprints } = useSprintsCache()
   const sprints: YouTrackSprint[] = (cachedSprints as YouTrackSprint[] | null) ?? []
   const [activeSprint, setActiveSprint] = useState<YouTrackSprint | null | undefined>(undefined)
-  const [sprintDropdownOpen, setSprintDropdownOpen] = useState(false)
-  const sprintDropdownRef = useRef<HTMLDivElement>(null)
 
   // ── Filter state ───────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('')
   const [filterAssignee, setFilterAssignee] = useState('')
   const [filterPriorities, setFilterPriorities] = useState<string[]>([])
+  const [filterSubsystems, setFilterSubsystems] = useState<string[]>([])
   const [priorities, setPriorities] = useState<{ name: string; background?: string; foreground?: string }[]>([])
-  const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false)
-  const assigneeDropdownRef = useRef<HTMLDivElement>(null)
-  const [priorityDropdownOpen, setPriorityDropdownOpen] = useState(false)
-  const priorityDropdownRef = useRef<HTMLDivElement>(null)
+  const [subsystemCatalog, setSubsystemCatalog] = useState<{ name: string; background?: string }[]>([])
 
-  // ── Sort state ─────────────────────────────────────────────────────────────
+  // ── Sort + swimlane state ──────────────────────────────────────────────────
   const [sortKey, setSortKey] = useState<SortKey>('newest')
-  const [sortDropdownOpen, setSortDropdownOpen] = useState(false)
-  const sortDropdownRef = useRef<HTMLDivElement>(null)
-
-  // ── Swimlane state ─────────────────────────────────────────────────────────
-  type SwimlaneBy = 'none' | 'assignee' | 'priority' | 'board'
   const [swimlaneBy, setSwimlaneBy] = useState<SwimlaneBy>('none')
-  const [swimlaneDropdownOpen, setSwimlaneDropdownOpen] = useState(false)
-  const swimlaneDropdownRef = useRef<HTMLDivElement>(null)
   const [boardSwimlaneField, setBoardSwimlaneField] = useState<{
     field_name: string
     values: { name: string; background?: string; foreground?: string }[]
   } | null>(null)
-
-  // ── Close dropdowns on outside click ──────────────────────────────────────
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (assigneeDropdownRef.current && !assigneeDropdownRef.current.contains(e.target as Node))
-        setAssigneeDropdownOpen(false)
-      if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node))
-        setSortDropdownOpen(false)
-      if (priorityDropdownRef.current && !priorityDropdownRef.current.contains(e.target as Node))
-        setPriorityDropdownOpen(false)
-      if (sprintDropdownRef.current && !sprintDropdownRef.current.contains(e.target as Node))
-        setSprintDropdownOpen(false)
-      if (swimlaneDropdownRef.current && !swimlaneDropdownRef.current.contains(e.target as Node))
-        setSwimlaneDropdownOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
 
   // ── Close modal on Escape ──────────────────────────────────────────────────
   useEffect(() => {
@@ -209,6 +167,14 @@ export function BoardPage() {
       const data = (res as any)?.data
       if (data?.field_name) setBoardSwimlaneField(data)
     }).catch(() => {})
+
+    // The project's configured subsystems (with colours) seed the Subsystem filter.
+    // Anything else found on the loaded tickets is added on top, so it stays dynamic.
+    if (getActiveSource() === 'youtrack') {
+      api.getYouTrackFormMeta().then(res => {
+        if (res.success && res.data) setSubsystemCatalog(res.data.subsystems ?? [])
+      }).catch(() => {})
+    }
   }, [])
 
   // Auto-select active sprint when sprints become available from cache.
@@ -230,16 +196,23 @@ export function BoardPage() {
   }, [sprints, activeSprint, fetchBoard])
 
   // ── Derived values ─────────────────────────────────────────────────────────
-  const allAssignees = useMemo(() =>
-    Array.from(new Set(
-      issues.map(i => i.assignee?.fullName || i.assignee?.login || '').filter(Boolean)
-    )).sort()
+  const assigneeOptions = useMemo(() =>
+    buildFilterOptions(issues.map(i => i.assignee?.fullName || i.assignee?.login || ''))
   , [issues])
+
+  const priorityOptions = useMemo(() =>
+    buildFilterOptions(issues.map(i => i.priority || ''), priorities)
+  , [issues, priorities])
+
+  const subsystemOptions = useMemo(() =>
+    buildFilterOptions(issues.map(i => i.subsystem || NO_SUBSYSTEM), subsystemCatalog)
+  , [issues, subsystemCatalog])
 
   const activeFilterCount = [
     searchQuery !== '',
     filterAssignee !== '',
     filterPriorities.length > 0,
+    filterSubsystems.length > 0,
   ].filter(Boolean).length
 
   const getColumnIssues = useCallback((colName: string): YouTrackIssue[] => {
@@ -256,16 +229,18 @@ export function BoardPage() {
     if (filterPriorities.length > 0) {
       list = list.filter(i => filterPriorities.includes(i.priority || ''))
     }
+    if (filterSubsystems.length > 0) {
+      list = list.filter(i => filterSubsystems.includes(i.subsystem || NO_SUBSYSTEM))
+    }
     return list.sort((a, b) => {
       if (sortKey === 'alpha') return a.summary.localeCompare(b.summary)
       if (sortKey === 'priority') return priorityOrder(a.priority || '') - priorityOrder(b.priority || '')
       return (b.updated || 0) - (a.updated || 0)
     })
-  }, [issues, searchQuery, filterAssignee, filterPriorities, sortKey])
+  }, [issues, searchQuery, filterAssignee, filterPriorities, filterSubsystems, sortKey])
 
   const handleSprintChange = useCallback((sprint: YouTrackSprint | null) => {
     setActiveSprint(sprint)
-    setSprintDropdownOpen(false)
     fetchBoard(false, true, sprint?.id)
   }, [fetchBoard])
 
@@ -282,11 +257,16 @@ export function BoardPage() {
     setSearchQuery('')
     setFilterAssignee('')
     setFilterPriorities([])
+    setFilterSubsystems([])
   }
 
   const visibleCount = useMemo(() =>
     columns.reduce((acc, col) => acc + getColumnIssues(col).length, 0)
   , [columns, getColumnIssues])
+
+  const hasMore = Object.values(colPagination).some(pg => pg.hasMore)
+  const isYouTrack = getActiveSource() === 'youtrack'
+  const sourceLabel = isYouTrack ? 'YouTrack' : 'Asana'
 
   // ── Loading / error states ─────────────────────────────────────────────────
   if (loading) {
@@ -307,21 +287,7 @@ export function BoardPage() {
     )
     return (
       <div className="pm-reports-page board-page-layout">
-        {/* Skeleton header */}
-        <div className="pm-tab-header" style={{ pointerEvents: 'none' }}>
-          {sk(180, 22, 8)}
-          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
-            {sk(110, 30, 8)}{sk(90, 30, 8)}{sk(80, 30, 8)}
-          </div>
-        </div>
-        {/* Skeleton filter bar — search | assignee | priority | group by | sort */}
-        <div className="board-filter-bar" style={{ pointerEvents: 'none', gap: 8, alignItems: 'center' }}>
-          {sk(160, 30, 8)}
-          {sk(110, 30, 8)}
-          {sk(130, 30, 8)}
-          {sk(105, 30, 8)}
-          {sk(95, 30, 8)}
-        </div>
+        <BoardToolbarSkeleton />
         {/* Skeleton kanban board — fills full width + height */}
         <div className="board-kanban-wrap">
           <div className="kanban-board" style={{ pointerEvents: 'none' }}>
@@ -367,261 +333,38 @@ export function BoardPage() {
     )
   }
 
-  function fmtSprintDate(ms: number) {
-    return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-  }
-
-  const sortLabel: Record<SortKey, string> = {
-    newest: 'Newest First',
-    priority: 'Priority',
-    alpha: 'Alphabetical',
-  }
-
   return (
     <div className="pm-reports-page board-page-layout">
-      {/* ── Header — same pattern as pm-tab-header ─────────────────────────── */}
-      <div className="pm-tab-header">
-        <h3 className="pm-section-title">
-          <LayoutDashboard size={18} />
-          Project Board
-          <span className="board-task-count">
-            {activeFilterCount > 0 ? `${visibleCount} / ${issues.length}` : issues.length}
-          </span>
-          <span className="board-yt-badge">YouTrack</span>
-        </h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          {/* Sprint selector — only for YouTrack */}
-          {getActiveSource() === 'youtrack' && sprints.length > 0 && (
-            <div className="pm-custom-dropdown" ref={sprintDropdownRef}>
-              <button
-                className="pm-custom-dropdown-trigger"
-                onClick={() => setSprintDropdownOpen(o => !o)}
-                style={{ minWidth: 160 }}
-              >
-                <CalendarDays size={14} />
-                <span style={{ fontWeight: 600 }}>
-                  {activeSprint ? activeSprint.name : 'All sprints'}
-                </span>
-                {activeSprint && (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginLeft: 4 }}>
-                    {fmtSprintDate(activeSprint.start)} – {fmtSprintDate(activeSprint.finish)}
-                  </span>
-                )}
-                <ChevronDown size={12} className={`dropdown-chevron ${sprintDropdownOpen ? 'open' : ''}`} />
-              </button>
-              {sprintDropdownOpen && (
-                <div className="pm-custom-dropdown-menu" style={{ minWidth: 220 }}>
-                  <button
-                    className={`pm-dropdown-item ${!activeSprint ? 'active' : ''}`}
-                    onClick={() => handleSprintChange(null)}
-                  >
-                    <CalendarDays size={14} /><span>All sprints</span>
-                  </button>
-                  <div style={{ borderTop: '1px solid var(--color-border)', margin: '4px 0' }} />
-                  {[...sprints]
-                    .sort((a, b) => b.start - a.start)
-                    .map(s => (
-                      <button
-                        key={s.id}
-                        className={`pm-dropdown-item ${activeSprint?.id === s.id ? 'active' : ''}`}
-                        onClick={() => handleSprintChange(s)}
-                      >
-                        <span style={{ flex: 1, textAlign: 'left' }}>
-                          {s.isCompleted && <span style={{ opacity: 0.5 }}>✓ </span>}
-                          {s.name}
-                        </span>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
-                          {fmtSprintDate(s.start)} – {fmtSprintDate(s.finish)}
-                        </span>
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-          )}
-          <button
-            className="btn-secondary btn-sm"
-            onClick={() => fetchBoard(true, true, activeSprint?.id)}
-            disabled={syncing}
-            title="Refresh from YouTrack"
-          >
-            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-      </div>
-
-      {/* ── Filter bar — identical to PMReportsPage pm-filter-bar ──────────── */}
-      <div className="pm-filter-bar">
-        {/* Search */}
-        <div className="pm-search-box">
-          <Search size={13} />
-          <input
-            type="text"
-            placeholder="Search issue…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        {/* Assignee dropdown */}
-        <div className="pm-custom-dropdown" ref={assigneeDropdownRef}>
-          <button className="pm-custom-dropdown-trigger" onClick={() => setAssigneeDropdownOpen(o => !o)}>
-            {filterAssignee ? (
-              <>
-                {avatarMap[filterAssignee]
-                  ? <img src={avatarMap[filterAssignee]} alt={filterAssignee} className="filter-avatar-img" />
-                  : <span className="filter-avatar-placeholder">{filterAssignee.charAt(0).toUpperCase()}</span>}
-                <span className="filter-assignee-name">{filterAssignee.split(' ')[0]}</span>
-              </>
-            ) : (
-              <><Users size={14} /><span>All Assignees</span></>
-            )}
-            <ChevronDown size={12} className={`dropdown-chevron ${assigneeDropdownOpen ? 'open' : ''}`} />
-          </button>
-          {assigneeDropdownOpen && (
-            <div className="pm-custom-dropdown-menu">
-              <button
-                className={`pm-dropdown-item ${!filterAssignee ? 'active' : ''}`}
-                onClick={() => { setFilterAssignee(''); setAssigneeDropdownOpen(false) }}
-              >
-                <Users size={14} /><span>All Assignees</span>
-              </button>
-              {allAssignees.map(a => (
-                <button
-                  key={a}
-                  className={`pm-dropdown-item ${filterAssignee === a ? 'active' : ''}`}
-                  onClick={() => { setFilterAssignee(a); setAssigneeDropdownOpen(false) }}
-                >
-                  {avatarMap[a]
-                    ? <img src={avatarMap[a]} alt={a} className="filter-avatar-img" />
-                    : <span className="filter-avatar-placeholder">{a.charAt(0).toUpperCase()}</span>}
-                  <span>{a}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Priority dropdown — multi-select, live from YouTrack */}
-        {priorities.length > 0 && (
-          <div className="pm-custom-dropdown" ref={priorityDropdownRef}>
-            <button className="pm-custom-dropdown-trigger" onClick={() => setPriorityDropdownOpen(o => !o)}>
-              <ArrowUpNarrowWide size={14} />
-              {filterPriorities.length === 1 && (() => {
-                const match = priorities.find(p => p.name === filterPriorities[0])
-                return match ? <span className="board-priority-dot" style={match.background ? { background: match.background } : undefined} /> : null
-              })()}
-              <span>
-                {filterPriorities.length === 0
-                  ? 'All Priorities'
-                  : filterPriorities.length === 1
-                    ? filterPriorities[0]
-                    : `${filterPriorities.length} priorities`}
-              </span>
-              {filterPriorities.length > 0 && (
-                <span className="board-filter-count">{filterPriorities.length}</span>
-              )}
-              <ChevronDown size={12} className={`dropdown-chevron ${priorityDropdownOpen ? 'open' : ''}`} />
-            </button>
-            {priorityDropdownOpen && (
-              <div className="pm-custom-dropdown-menu">
-                <button
-                  className={`pm-dropdown-item ${filterPriorities.length === 0 ? 'active' : ''}`}
-                  onClick={() => { setFilterPriorities([]); setPriorityDropdownOpen(false) }}
-                >
-                  <ArrowUpNarrowWide size={14} /><span>All Priorities</span>
-                </button>
-                <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '4px 0' }} />
-                {priorities.map(({ name, background }) => (
-                  <button
-                    key={name}
-                    className={`pm-dropdown-item ${filterPriorities.includes(name) ? 'active' : ''}`}
-                    onClick={() => setFilterPriorities(prev =>
-                      prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]
-                    )}
-                  >
-                    <span
-                      className="board-priority-dot"
-                      style={background ? { background } : undefined}
-                    />
-                    <span>{name}</span>
-                    {filterPriorities.includes(name) && <span style={{ marginLeft: 'auto', color: 'var(--color-primary)', fontSize: '0.7rem' }}>✓</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Group By (swimlane) dropdown */}
-        <div className="pm-custom-dropdown" ref={swimlaneDropdownRef}>
-          <button
-            className={`pm-custom-dropdown-trigger${swimlaneBy !== 'none' ? ' active' : ''}`}
-            onClick={() => setSwimlaneDropdownOpen(o => !o)}
-          >
-            <Rows3 size={14} />
-            <span>{
-              swimlaneBy === 'assignee' ? 'By Assignee'
-              : swimlaneBy === 'priority' ? 'By Priority'
-              : swimlaneBy === 'board' ? `By ${boardSwimlaneField?.field_name ?? 'Board'}`
-              : 'Group By'
-            }</span>
-            <ChevronDown size={12} className={`dropdown-chevron ${swimlaneDropdownOpen ? 'open' : ''}`} />
-          </button>
-          {swimlaneDropdownOpen && (
-            <div className="pm-custom-dropdown-menu">
-              {([
-                { key: 'none', label: 'No Grouping' },
-                { key: 'assignee', label: 'Assignee' },
-                { key: 'priority', label: 'Priority' },
-                ...(boardSwimlaneField ? [{ key: 'board', label: `${boardSwimlaneField.field_name} (Board)` }] : []),
-              ] as { key: SwimlaneBy; label: string }[]).map(({ key, label }) => (
-                <button
-                  key={key}
-                  className={`pm-dropdown-item ${swimlaneBy === key ? 'active' : ''}`}
-                  onClick={() => { setSwimlaneBy(key); setSwimlaneDropdownOpen(false) }}
-                >
-                  <Rows3 size={14} /><span>{label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Sort dropdown */}
-        <div className="pm-custom-dropdown" ref={sortDropdownRef}>
-          <button className="pm-custom-dropdown-trigger" onClick={() => setSortDropdownOpen(o => !o)}>
-            <ArrowDownUp size={14} />
-            <span>{sortLabel[sortKey]}</span>
-            <ChevronDown size={12} className={`dropdown-chevron ${sortDropdownOpen ? 'open' : ''}`} />
-          </button>
-          {sortDropdownOpen && (
-            <div className="pm-custom-dropdown-menu">
-              {([
-                { key: 'newest' as SortKey, label: 'Newest First', Icon: ArrowDownNarrowWide },
-                { key: 'priority' as SortKey, label: 'Priority', Icon: ArrowUpNarrowWide },
-                { key: 'alpha' as SortKey, label: 'Alphabetical', Icon: ArrowDownUp },
-              ]).map(({ key, label, Icon }) => (
-                <button
-                  key={key}
-                  className={`pm-dropdown-item ${sortKey === key ? 'active' : ''}`}
-                  onClick={() => { setSortKey(key); setSortDropdownOpen(false) }}
-                >
-                  <Icon size={14} /><span>{label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Clear filters */}
-        {activeFilterCount > 0 && (
-          <button className="btn-sm btn-ghost tl-clear-filters" onClick={clearFilters}>
-            <X size={12} /> Clear
-          </button>
-        )}
-      </div>
+      <BoardToolbar
+        sourceLabel={sourceLabel}
+        totalCount={issues.length}
+        visibleCount={visibleCount}
+        hasMore={hasMore}
+        filtered={activeFilterCount > 0}
+        sprints={isYouTrack ? sprints : []}
+        activeSprint={activeSprint}
+        onSprintChange={handleSprintChange}
+        syncing={syncing}
+        onRefresh={() => fetchBoard(true, true, activeSprint?.id)}
+        search={searchQuery}
+        onSearchChange={setSearchQuery}
+        assignee={filterAssignee}
+        assigneeOptions={assigneeOptions}
+        avatarMap={avatarMap}
+        onAssigneeChange={setFilterAssignee}
+        priorityOptions={priorityOptions}
+        selectedPriorities={filterPriorities}
+        onPrioritiesChange={setFilterPriorities}
+        subsystemOptions={subsystemOptions}
+        selectedSubsystems={filterSubsystems}
+        onSubsystemsChange={setFilterSubsystems}
+        swimlaneBy={swimlaneBy}
+        swimlaneFieldName={boardSwimlaneField?.field_name}
+        onSwimlaneChange={setSwimlaneBy}
+        sortKey={sortKey}
+        onSortChange={setSortKey}
+        onClear={clearFilters}
+      />
 
       {/* ── Board ──────────────────────────────────────────────────────────── */}
       {columns.length === 0 ? (
@@ -644,8 +387,8 @@ export function BoardPage() {
             getColumnIssues={getColumnIssues}
             onIssueMove={handleIssueMove}
             onIssueClick={setSelectedIssue}
-            colPagination={getActiveSource() === 'youtrack' ? colPagination : undefined}
-            onLoadMore={getActiveSource() === 'youtrack' ? handleLoadMore : undefined}
+            colPagination={isYouTrack ? colPagination : undefined}
+            onLoadMore={isYouTrack ? handleLoadMore : undefined}
           />
         </div>
       )}
