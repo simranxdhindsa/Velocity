@@ -199,9 +199,16 @@ export function BoardToolbar(p: BoardToolbarProps) {
     none: 'No grouping',
     assignee: 'Assignee',
     priority: 'Priority',
+    subsystem: 'Subsystem',
     board: p.swimlaneFieldName ?? 'Board',
   }
-  const groupOptions: SwimlaneBy[] = ['none', 'assignee', 'priority', ...(p.swimlaneFieldName ? ['board' as const] : [])]
+  // A board whose own swimlane field is Subsystem already offers it, with the board's lane order
+  const canGroupBySubsystem = p.subsystemOptions.length > 0 && p.swimlaneFieldName?.toLowerCase() !== 'subsystem'
+  const groupOptions: SwimlaneBy[] = [
+    'none', 'assignee', 'priority',
+    ...(canGroupBySubsystem ? ['subsystem' as const] : []),
+    ...(p.swimlaneFieldName ? ['board' as const] : []),
+  ]
   const sortOptions: { key: SortKey; Icon: typeof ArrowDownNarrowWide }[] = [
     { key: 'newest', Icon: ArrowDownNarrowWide },
     { key: 'priority', Icon: ArrowUpNarrowWide },

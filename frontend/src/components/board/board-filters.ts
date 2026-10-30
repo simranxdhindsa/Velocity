@@ -1,7 +1,7 @@
 // Types and pure helpers for the Board toolbar and its filtering. No React.
 
 export type SortKey = 'newest' | 'priority' | 'alpha'
-export type SwimlaneBy = 'none' | 'assignee' | 'priority' | 'board'
+export type SwimlaneBy = 'none' | 'assignee' | 'priority' | 'subsystem' | 'board'
 
 /** One selectable value in a filter menu. `count` is how many loaded tickets carry it. */
 export interface FilterOption {

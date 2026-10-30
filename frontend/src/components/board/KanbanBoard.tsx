@@ -5,8 +5,9 @@ import {
 } from '@dnd-kit/core'
 import type { DragStartEvent, DragOverEvent, DragEndEvent } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { ChevronRight, Users, ArrowUpNarrowWide, Rows3 } from 'lucide-react'
+import { ChevronRight, Users, ArrowUpNarrowWide, Rows3, Layers } from 'lucide-react'
 import { KanbanColumn } from './KanbanColumn'
+import { NO_SUBSYSTEM, type SwimlaneBy } from './board-filters'
 import type { YouTrackIssue } from '../../services/api'
 
 interface ColPaginationState {
@@ -14,8 +15,6 @@ interface ColPaginationState {
   hasMore: boolean
   loading: boolean
 }
-
-type SwimlaneBy = 'none' | 'assignee' | 'priority' | 'board'
 
 interface BoardSwimlaneField {
   field_name: string
@@ -27,6 +26,7 @@ interface KanbanBoardProps {
   columns: string[]
   avatarMap: Record<string, string>
   priorityColorMap?: Record<string, string>
+  subsystemColorMap?: Record<string, string>
   swimlaneBy?: SwimlaneBy
   boardSwimlaneField?: BoardSwimlaneField
   getColumnIssues: (col: string, laneKey?: string) => YouTrackIssue[]
@@ -41,6 +41,7 @@ interface KanbanBoardProps {
 function laneKeyForIssue(issue: YouTrackIssue, by: SwimlaneBy, boardField?: BoardSwimlaneField): string {
   if (by === 'assignee') return issue.assignee?.fullName || issue.assignee?.login || 'Unassigned'
   if (by === 'priority') return issue.priority || 'No Priority'
+  if (by === 'subsystem') return issue.subsystem || NO_SUBSYSTEM
   if (by === 'board' && boardField) {
     const fn = boardField.field_name.toLowerCase()
     if (fn === 'subsystem') return issue.subsystem || 'Uncategorized'
@@ -72,8 +73,10 @@ function buildLanes(issues: YouTrackIssue[], by: SwimlaneBy, boardField?: BoardS
     const key = laneKeyForIssue(issue, by, boardField)
     if (!seen.has(key)) { seen.add(key); keys.push(key) }
   }
-  const fallback = by === 'assignee' ? 'Unassigned' : 'No Priority'
-  return [...keys.filter(k => k !== fallback), ...(seen.has(fallback) ? [fallback] : [])]
+  const fallback = by === 'assignee' ? 'Unassigned' : by === 'subsystem' ? NO_SUBSYSTEM : 'No Priority'
+  // Subsystem lanes read best in a fixed order, not in whatever order the sort happened to see them
+  const ordered = by === 'subsystem' ? [...keys].sort((a, b) => a.localeCompare(b)) : keys
+  return [...ordered.filter(k => k !== fallback), ...(seen.has(fallback) ? [fallback] : [])]
 }
 
 // ── Swimlane row header ──────────────────────────────────────────────────────
@@ -85,15 +88,17 @@ interface SwimLaneHeaderProps {
   onToggle: () => void
   avatarMap: Record<string, string>
   priorityColorMap?: Record<string, string>
+  subsystemColorMap?: Record<string, string>
   boardSwimlaneField?: BoardSwimlaneField
 }
 
 const SwimLaneHeader = memo(function SwimLaneHeader({
-  laneKey, by, count, collapsed, onToggle, avatarMap, priorityColorMap, boardSwimlaneField,
+  laneKey, by, count, collapsed, onToggle, avatarMap, priorityColorMap, subsystemColorMap, boardSwimlaneField,
 }: SwimLaneHeaderProps) {
-  const isFallback = laneKey === 'Unassigned' || laneKey === 'No Priority' || laneKey === 'Uncategorized'
+  const isFallback = laneKey === 'Unassigned' || laneKey === 'No Priority' || laneKey === 'Uncategorized' || laneKey === NO_SUBSYSTEM
   const avatarUrl = by === 'assignee' && !isFallback ? avatarMap[laneKey] : undefined
   const priorityColor = by === 'priority' && !isFallback ? priorityColorMap?.[laneKey] : undefined
+  const subsystemColor = by === 'subsystem' && !isFallback ? subsystemColorMap?.[laneKey] : undefined
   const boardFieldColor = by === 'board' && !isFallback
     ? boardSwimlaneField?.values.find(v => v.name === laneKey)?.background
     : undefined
@@ -122,6 +127,12 @@ const SwimLaneHeader = memo(function SwimLaneHeader({
       {by === 'priority' && !priorityColor && (
         <div className="swimlane-icon-wrap"><ArrowUpNarrowWide size={13} /></div>
       )}
+      {by === 'subsystem' && subsystemColor && (
+        <span className="board-priority-dot" style={{ background: subsystemColor }} />
+      )}
+      {by === 'subsystem' && !subsystemColor && (
+        <div className="swimlane-icon-wrap"><Layers size={13} /></div>
+      )}
       {by === 'board' && boardFieldColor && (
         <span className="board-priority-dot" style={{ background: boardFieldColor }} />
       )}
@@ -137,7 +148,7 @@ const SwimLaneHeader = memo(function SwimLaneHeader({
 
 // ── Main Board ───────────────────────────────────────────────────────────────
 export const KanbanBoard = memo(function KanbanBoard({
-  issues, columns, avatarMap, priorityColorMap, swimlaneBy = 'none', boardSwimlaneField,
+  issues, columns, avatarMap, priorityColorMap, subsystemColorMap, swimlaneBy = 'none', boardSwimlaneField,
   getColumnIssues, onIssueMove, onIssueClick, getExtraClass, colPagination, onLoadMore,
 }: KanbanBoardProps) {
   const [activeIssue, setActiveIssue] = useState<YouTrackIssue | null>(null)
@@ -189,7 +200,7 @@ export const KanbanBoard = memo(function KanbanBoard({
     <div className="kanban-board">
       {columns.map(col => {
         const colIssues = swimlaneBy !== 'none' && laneKey
-          ? issues.filter(i => i.status === col && laneKeyForIssue(i, swimlaneBy, boardSwimlaneField) === laneKey)
+          ? getColumnIssues(col, laneKey).filter(i => laneKeyForIssue(i, swimlaneBy, boardSwimlaneField) === laneKey)
           : getColumnIssues(col)
         const pg = colPagination?.[col]
         return (
@@ -212,7 +223,9 @@ export const KanbanBoard = memo(function KanbanBoard({
     </div>
   )
 
-  const lanes = swimlaneBy !== 'none' ? buildLanes(issues, swimlaneBy, boardSwimlaneField) : []
+  // Lanes come from the tickets that pass the board filters, so filtered-out lanes do not linger empty
+  const visibleIssues = swimlaneBy !== 'none' ? columns.flatMap(col => getColumnIssues(col)) : []
+  const lanes = swimlaneBy !== 'none' ? buildLanes(visibleIssues, swimlaneBy, boardSwimlaneField) : []
 
   return (
     <DndContext
@@ -227,7 +240,7 @@ export const KanbanBoard = memo(function KanbanBoard({
       ) : (
         <div className="swimlane-wrap">
           {lanes.map(laneKey => {
-            const laneIssues = issues.filter(i => laneKeyForIssue(i, swimlaneBy, boardSwimlaneField) === laneKey)
+            const laneIssues = visibleIssues.filter(i => laneKeyForIssue(i, swimlaneBy, boardSwimlaneField) === laneKey)
             const collapsed = collapsedLanes.has(laneKey)
             return (
               <div key={laneKey} className="swimlane-row">
@@ -239,6 +252,7 @@ export const KanbanBoard = memo(function KanbanBoard({
                   onToggle={() => toggleLane(laneKey)}
                   avatarMap={avatarMap}
                   priorityColorMap={priorityColorMap}
+                  subsystemColorMap={subsystemColorMap}
                   boardSwimlaneField={boardSwimlaneField}
                 />
                 <div className={`swimlane-body${collapsed ? ' swimlane-body--collapsed' : ''}`}>

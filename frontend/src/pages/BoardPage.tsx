@@ -382,6 +382,7 @@ export function BoardPage() {
             columns={columns}
             avatarMap={avatarMap}
             priorityColorMap={Object.fromEntries(priorities.map(p => [p.name, p.background ?? '']))}
+            subsystemColorMap={Object.fromEntries(subsystemOptions.filter(o => o.color).map(o => [o.name, o.color as string]))}
             swimlaneBy={swimlaneBy}
             boardSwimlaneField={boardSwimlaneField ?? undefined}
             getColumnIssues={getColumnIssues}
