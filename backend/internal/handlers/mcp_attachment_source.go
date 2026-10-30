@@ -12,19 +12,42 @@ import (
 	"github.com/dhindsa/project-management/internal/services/s3storage"
 )
 
+// mcpChatGPTFile is the native file input supplied by ChatGPT fileParams.
+type mcpChatGPTFile struct {
+	DownloadURL string `json:"download_url"`
+	FileID      string `json:"file_id"`
+	MimeType    string `json:"mime_type"`
+	FileName    string `json:"file_name"`
+}
+
+func mcpChatGPTFileSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"download_url": map[string]string{"type": "string"},
+			"file_id":      map[string]string{"type": "string"},
+			"mime_type":    map[string]string{"type": "string"},
+			"file_name":    map[string]string{"type": "string"},
+		},
+		"required":             []string{"download_url", "file_id"},
+		"additionalProperties": false,
+	}
+}
+
 // mcpAttachmentSource is one file given to an MCP tool by exactly one of
-// file_url, file_base64 or s3_object_key. Shared by upload_youtrack_attachment
+// file, file_url, file_base64 or s3_object_key. Shared by upload_youtrack_attachment
 // and add_youtrack_comment.
 type mcpAttachmentSource struct {
-	FileURL     string `json:"file_url"`
-	FileBase64  string `json:"file_base64"`
-	S3ObjectKey string `json:"s3_object_key"`
-	MimeType    string `json:"mime_type"`
-	Filename    string `json:"filename"`
+	File        *mcpChatGPTFile `json:"file"`
+	FileURL     string          `json:"file_url"`
+	FileBase64  string          `json:"file_base64"`
+	S3ObjectKey string          `json:"s3_object_key"`
+	MimeType    string          `json:"mime_type"`
+	Filename    string          `json:"filename"`
 }
 
 func (s mcpAttachmentSource) empty() bool {
-	return s.FileURL == "" && s.FileBase64 == "" && s.S3ObjectKey == ""
+	return s.File == nil && s.FileURL == "" && s.FileBase64 == "" && s.S3ObjectKey == ""
 }
 
 // mcpLoadedAttachment is a source resolved to bytes. Call cleanup only after
@@ -50,6 +73,22 @@ func (l *mcpLoadedAttachment) cleanup(ctx context.Context) {
 
 // load fetches the file bytes and fills in filename and mime type defaults.
 func (s mcpAttachmentSource) load(ctx context.Context) (*mcpLoadedAttachment, error) {
+	if s.File != nil {
+		if s.FileURL != "" || s.FileBase64 != "" || s.S3ObjectKey != "" {
+			return nil, errors.New("provide file alone, without file_url, file_base64 or s3_object_key")
+		}
+		if strings.TrimSpace(s.File.DownloadURL) == "" || strings.TrimSpace(s.File.FileID) == "" {
+			return nil, errors.New("file requires download_url and file_id supplied by ChatGPT")
+		}
+		// Fetch on the backend, without requiring the ChatGPT sandbox to PUT to S3.
+		s.FileURL = s.File.DownloadURL
+		if s.Filename == "" {
+			s.Filename = s.File.FileName
+		}
+		if s.MimeType == "" {
+			s.MimeType = s.File.MimeType
+		}
+	}
 	l := &mcpLoadedAttachment{Filename: s.Filename, MimeType: s.MimeType}
 	switch {
 	case s.S3ObjectKey != "":
@@ -101,7 +140,7 @@ func (s mcpAttachmentSource) load(ctx context.Context) (*mcpLoadedAttachment, er
 		}
 
 	default:
-		return nil, errors.New("one of file_url, file_base64 or s3_object_key is required")
+		return nil, errors.New("one of file, file_url, file_base64 or s3_object_key is required")
 	}
 	if l.Filename == "" {
 		l.Filename = "attachment"
