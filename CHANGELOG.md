@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-30
+
+### Enhancements
+- Board top bar is cleaner, with a ticket count that says what it counts, no YouTrack badge, and a new Subsystem filter built from your project subsystems
+
+
 ## 2026-10-29
 
 ### Enhancements
