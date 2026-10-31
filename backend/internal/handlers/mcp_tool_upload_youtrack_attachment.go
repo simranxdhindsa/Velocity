@@ -8,25 +8,27 @@ import (
 
 var uploadYoutrackAttachmentToolSchema = map[string]interface{}{
 	"name":        "upload_youtrack_attachment",
-	"description": "Uploads a file attachment to a YouTrack ticket. Provide exactly one of: file_url (a publicly accessible URL to download from), file_base64 (raw file bytes, base64-encoded — use for small local/pasted files), or s3_object_key (from create_attachment_upload_url — use for large files or videos).",
+	"description": "Uploads a file attachment to a YouTrack ticket. For files or screenshots uploaded in ChatGPT, use the native file input; Velocity downloads the file and uploads it to YouTrack, with no client-side S3 upload or base64 conversion needed. Provide exactly one of: file (ChatGPT file), file_url (a publicly accessible URL), file_base64 (raw file bytes, base64-encoded for small files), or s3_object_key (from create_attachment_upload_url for clients able to PUT file bytes to S3).",
+	"_meta":       map[string]interface{}{"openai/fileParams": []string{"file"}},
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
+			"file": mcpChatGPTFileSchema(),
 			"issue_id": map[string]string{
 				"type":        "string",
 				"description": "Readable ticket ID, e.g. ARD-123.",
 			},
 			"file_url": map[string]string{
 				"type":        "string",
-				"description": "Publicly accessible URL of the file to upload. Omit if using file_base64 or s3_object_key.",
+				"description": "Publicly accessible URL of the file to upload. Omit if using file, file_base64 or s3_object_key.",
 			},
 			"file_base64": map[string]string{
 				"type":        "string",
-				"description": "Base64-encoded file content. Use for small local/pasted files with no public URL. Omit if using file_url or s3_object_key.",
+				"description": "Base64-encoded file content. Use for small local/pasted files with no public URL. Omit if using file, file_url or s3_object_key.",
 			},
 			"s3_object_key": map[string]string{
 				"type":        "string",
-				"description": "object_key returned by create_attachment_upload_url, after the file has been PUT to its upload_url. Omit if using file_url or file_base64.",
+				"description": "object_key returned by create_attachment_upload_url, after the file has been PUT to its upload_url. Omit if using file, file_url or file_base64.",
 			},
 			"mime_type": map[string]string{
 				"type":        "string",
@@ -47,7 +49,7 @@ func mcpUploadYoutrackAttachment(ctx context.Context, h *MCPHandler, userID stri
 		mcpAttachmentSource
 	}
 	if err := json.Unmarshal(args, &a); err != nil || a.IssueID == "" || a.empty() {
-		return rpcErr(id, -32602, "invalid arguments: issue_id and one of file_url/file_base64/s3_object_key are required")
+		return rpcErr(id, -32602, "invalid arguments: issue_id and one of file/file_url/file_base64/s3_object_key are required")
 	}
 	ytClient := mcpYTClient(ctx, userID)
 	if ytClient == nil {

@@ -519,3 +519,7 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 
 ### 2026-10-29
 - Velocity: tickets created through MCP end with a permanent "#Created by Velocity 🤖" footer (linked, blank line above); AI edits and attachment uploads keep it in place (`youtrack/velocity_footer.go`)
+
+### 2026-10-30
+- Velocity: Board top bar redesigned (clear "Board" title, labelled ticket count, no YouTrack badge, filters on the left and group/sort on the right) and a dynamic Subsystem filter with live counts and search (`components/board/BoardToolbar.tsx`)
+- Velocity: Board Group by Subsystem; grouped lanes now respect Search, Assignee, Priority and Subsystem filters and the sort; board toolbar documented in `docs/features/board.md`

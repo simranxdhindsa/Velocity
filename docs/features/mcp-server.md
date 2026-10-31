@@ -35,6 +35,16 @@ Per-user integration board, then the org-wide `youtrack_board_id` setting, then 
 
 `get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments, images and the status history: every column move from → to, who moved it, when, hours in the previous column, from Velocity's `issue_state_log`, which starts July 2025), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `search_knowledge_base` (read-only: the admin-managed team knowledge base), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered), `generate_deployment_report` (read-only deployment report for chosen columns, with exclusions).
 
+### ChatGPT screenshot and file uploads
+
+`upload_youtrack_attachment` accepts a native ChatGPT `file` input. `add_youtrack_comment` accepts a top-level `files` array for comment attachments. Both advertise these inputs through `_meta["openai/fileParams"]` so ChatGPT can supply uploaded files directly.
+
+Each file object declares `download_url`, `file_id`, `mime_type`, and `file_name`; only `download_url` and `file_id` are required. Velocity downloads the original bytes from the temporary URL on the backend and sends them to YouTrack. ChatGPT does not need to run `curl`, convert screenshots to base64, or PUT bytes to S3. See the [OpenAI file input reference](https://developers.openai.com/plugins/reference#define-file-inputs).
+
+Existing `file_url`, `file_base64`, and `s3_object_key` inputs remain available for other clients. Use only one source per ticket attachment; comment `files` are appended to any legacy `attachments`. For inline comment images, reference the supplied filename with `![](screenshot.png)`.
+
+After deploying the backend, refresh the ChatGPT integration's tools (or reconnect it if necessary) so the new file inputs are discovered. Verify with a newly uploaded screenshot, then check the attachment in YouTrack; local tests do not verify ChatGPT's live file handoff.
+
 ### `read_slack_messages` / `get_slack_mentions` notes (read-only)
 
 Files: `mcp_tool_read_slack_messages.go`, `mcp_tool_get_slack_mentions.go`, shared helpers in `mcp_slack_read.go` (`slackReader`: caller identity, access control, mention/link resolution, 12-hour formatting), Slack API read calls in `services/slack/client_read.go` (`GetHistoryPaged`, `GetThreadPaged`, `GetConversationInfo`, `GetConversationMembers`, `GetBotMemberChannels`, `WorkspaceURL`).
@@ -215,8 +225,9 @@ No params. Lets Claude resolve "me / my / I" before calling other tools (`youtra
 | Param | Default | Notes |
 |---|---|---|
 | `issue_id` | required | Readable ID, e.g. `ARD-123` |
-| `text` | required | YouTrack Markdown. May be empty only when `attachments` are given (then becomes `Attached: <names>`) |
+| `text` | required | YouTrack Markdown. May be empty only when `attachments` or `files` are given (then becomes `Attached: <names>`) |
 | `attachments` | none | Array of `{file_url \| file_base64 \| s3_object_key, filename, mime_type}`. Same sources as `upload_youtrack_attachment` (shared `mcpAttachmentSource` in `mcp_attachment_source.go`) |
+| `files` | none | Native ChatGPT file array: `{download_url, file_id, mime_type?, file_name?}`. Supports attachment-only comments with empty `text`. |
 | `visible_to_groups` | none (everyone) | YouTrack group names or IDs, sent as `LimitedVisibility.permittedGroups`. On edit, `[]` resets to everyone and omitting keeps the current visibility |
 | `resolve_mentions` | `true` | |
 | `convert_slack_links` | `true` | |

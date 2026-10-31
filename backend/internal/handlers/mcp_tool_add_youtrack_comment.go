@@ -19,21 +19,27 @@ var addYoutrackCommentToolSchema = map[string]interface{}{
 		"Slack links <url|label> are converted to [label](url) automatically (outside code). " +
 		"Mentions: write @login, or a display name like @Deepak, @{Deepak Kumar} or @Deepak Kumar. Names are resolved to the real YouTrack login " +
 		"(YouTrack users plus Velocity developer configs); real logins are kept, emails and code are never touched, and unknown or ambiguous names are left as written and listed in mention_warnings. " +
-		"Files: pass `attachments` to attach files to the comment itself (shown under the comment). To show an image inline, reference it by filename in the text, e.g. ![](screenshot.png); " +
+		"Files: for files or screenshots uploaded in ChatGPT, pass native `files`; Velocity downloads them directly, without client-side S3 uploads or base64 conversion. Other clients can pass `attachments`. Files are attached to the comment itself (shown under the comment). To show an image inline, reference it by filename in the text, e.g. ![](screenshot.png); " +
 		"this also works for files already attached to the ticket. " +
 		"Optional visible_to_groups restricts the comment to YouTrack user groups. " +
 		"Returns the comment id, stored text, rendered HTML preview, author, attachments and a permalink. " +
 		"Only call this when the user asked for a comment; never comment on tickets on your own.",
+	"_meta": map[string]interface{}{"openai/fileParams": []string{"files"}},
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
+			"files": map[string]interface{}{
+				"type":        "array",
+				"description": "Native ChatGPT files to attach to this comment. Use for screenshots uploaded in chat.",
+				"items":       mcpChatGPTFileSchema(),
+			},
 			"issue_id": map[string]string{
 				"type":        "string",
 				"description": "Readable ticket ID, e.g. ARD-123.",
 			},
 			"text": map[string]string{
 				"type":        "string",
-				"description": "Comment body in YouTrack Markdown. May be empty only when attachments are given.",
+				"description": "Comment body in YouTrack Markdown. May be empty only when attachments or native ChatGPT files are given.",
 			},
 			"attachments": map[string]interface{}{
 				"type":        "array",
@@ -72,6 +78,7 @@ type commentArgs struct {
 	CommentID         string                `json:"comment_id"`
 	Text              *string               `json:"text"`
 	Attachments       []mcpAttachmentSource `json:"attachments"`
+	Files             []mcpChatGPTFile      `json:"files"`
 	VisibleToGroups   *[]string             `json:"visible_to_groups"`
 	ResolveMentions   *bool                 `json:"resolve_mentions"`
 	ConvertSlackLinks *bool                 `json:"convert_slack_links"`
@@ -93,8 +100,11 @@ func mcpAddYoutrackComment(ctx context.Context, h *MCPHandler, userID string, id
 	if a.Text != nil {
 		text = *a.Text
 	}
+	for i := range a.Files {
+		a.Attachments = append(a.Attachments, mcpAttachmentSource{File: &a.Files[i]})
+	}
 	if strings.TrimSpace(text) == "" && len(a.Attachments) == 0 {
-		return rpcErr(id, -32602, "invalid arguments: text is required (it may be empty only when attachments are given)")
+		return rpcErr(id, -32602, "invalid arguments: text is required (it may be empty only when attachments or files are given)")
 	}
 	for i, s := range a.Attachments {
 		if s.empty() {
