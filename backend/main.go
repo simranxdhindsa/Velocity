@@ -567,6 +567,19 @@ func main() {
 	// Keep only the last 30 days of Slack bot conversation history
 	handlers.RunSlackBotConversationPruner(database.NewSlackBotConversationRepository())
 
+	// Admin Chats — Slack-style view of every DM between people and the Velocity bot, with a
+	// reply box. Private conversations: admin only, no per-user variant.
+	slackChatsHandler := handlers.NewSlackChatsHandler()
+	slackChatsRoutes := api.PathPrefix("/slack-chats").Subrouter()
+	slackChatsRoutes.Use(middleware.AuthMiddleware)
+	slackChatsRoutes.Use(middleware.AdminOnly)
+	slackChatsRoutes.HandleFunc("", slackChatsHandler.List).Methods("GET")
+	slackChatsRoutes.HandleFunc("/summary", slackChatsHandler.Summary).Methods("GET")
+	slackChatsRoutes.HandleFunc("/{channel}/messages", slackChatsHandler.Messages).Methods("GET")
+	slackChatsRoutes.HandleFunc("/{channel}/reply", slackChatsHandler.Reply).Methods("POST")
+	slackChatsRoutes.HandleFunc("/{channel}/mode", slackChatsHandler.SetMode).Methods("PUT")
+	slackChatsRoutes.HandleFunc("/{channel}/resolve", slackChatsHandler.Resolve).Methods("POST")
+
 	// Team knowledge base (admin only). Answers reach everyone through the
 	// Slack bot and MCP, filtered by each document's visibility.
 	kbHandler := handlers.NewKBHandler()

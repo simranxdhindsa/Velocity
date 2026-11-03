@@ -542,6 +542,34 @@ func GetSavedItems(ctx context.Context, botToken string) ([]SavedItem, error) {
 	return items, nil
 }
 
+// PostInThread posts text into a thread, or as a plain message when threadTS is empty, and
+// returns the new message's ts (so callers can record it, unlike PostThreadReply).
+func (c *Client) PostInThread(ctx context.Context, channelID, threadTS, text string) (string, error) {
+	payload := map[string]interface{}{
+		"channel":  channelID,
+		"text":     truncateForSlack(text),
+		"username": "Velocity",
+	}
+	if threadTS != "" {
+		payload["thread_ts"] = threadTS
+	}
+	body, err := c.doRequest(ctx, "POST", "/chat.postMessage", payload)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Response
+		TS string `json:"ts"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	if !resp.OK {
+		return "", fmt.Errorf("slack API error: %s", resp.Error)
+	}
+	return resp.TS, nil
+}
+
 // PostThreadReply posts a reply in a thread (chat.postMessage with thread_ts)
 func (c *Client) PostThreadReply(ctx context.Context, channelID, threadTS, text string) error {
 	payload := map[string]string{
