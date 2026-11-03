@@ -96,16 +96,8 @@ func (r *OAuthRepository) ConsumeCode(ctx context.Context, code, clientID, redir
 		return "", fmt.Errorf("invalid_grant")
 	}
 
-	// Verify PKCE S256
-	if challenge != "" {
-		if !strings.EqualFold(method, "S256") {
-			return "", fmt.Errorf("invalid_grant")
-		}
-		h := sha256.Sum256([]byte(verifier))
-		computed := base64.RawURLEncoding.EncodeToString(h[:])
-		if computed != challenge {
-			return "", fmt.Errorf("invalid_grant")
-		}
+	if err := VerifyPKCE(challenge, method, verifier); err != nil {
+		return "", fmt.Errorf("invalid_grant")
 	}
 	return userID, nil
 }
@@ -114,4 +106,17 @@ func oauthRandHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("%x", b)
+}
+
+// VerifyPKCE checks an S256 code challenge against the verifier. A code without a challenge is
+// refused: PKCE is what stops a stolen code from being exchanged by someone else.
+func VerifyPKCE(challenge, method, verifier string) error {
+	if challenge == "" || verifier == "" || !strings.EqualFold(method, "S256") {
+		return fmt.Errorf("pkce required")
+	}
+	h := sha256.Sum256([]byte(verifier))
+	if base64.RawURLEncoding.EncodeToString(h[:]) != challenge {
+		return fmt.Errorf("pkce mismatch")
+	}
+	return nil
 }

@@ -296,6 +296,19 @@
   font-size: 12.5px;
   color: var(--text-secondary);
 }
+.oa-who { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; text-align: center; }
+.oa-who-label { font-size: 11.5px; color: var(--text-muted); letter-spacing: 0.01em; }
+.oa-who .oa-user-pill { border-color: rgba(var(--color-primary-rgb), 0.35); padding: 6px 16px 6px 7px; max-width: 100%; }
+.oa-user-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.25; }
+.oa-user-name { font-size: 13px; color: var(--text-primary); font-weight: 600; }
+.oa-user-text .oa-user-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.oa-switch {
+  background: none; border: 0; padding: 2px 4px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600;
+  color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px;
+}
+.oa-switch:hover:not(:disabled) { color: var(--color-primary-hover); }
+.oa-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+.oa-who-host { font-size: 11px; color: var(--text-muted); }
 /* Small green "signed in" dot */
 .oa-user-dot {
   width: 7px; height: 7px;
