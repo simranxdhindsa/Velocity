@@ -105,10 +105,10 @@ function ConnectingChevrons() {
 
 // ── Phase content — idle (consent card body) ────────────────────────────────
 function IdleContent({
-  user, initials, displayEmail, perms, onApprove, onDeny, approving, error
+  user, initials, displayEmail, perms, redirectHost, onSwitch, onApprove, onDeny, approving, error
 }: {
-  user: any; initials: string; displayEmail: string; perms: string[]
-  onApprove: () => void; onDeny: () => void; approving: boolean; error: string
+  user: any; initials: string; displayEmail: string; perms: string[]; redirectHost: string
+  onSwitch: () => void; onApprove: () => void; onDeny: () => void; approving: boolean; error: string
 }) {
   return (
     <motion.div
@@ -145,16 +145,25 @@ function IdleContent({
         Claude.ai wants to connect to Velocity
       </motion.h1>
 
-      {/* User pill */}
+      {/* Which account is being connected: the one thing a person must check before approving */}
       <motion.div
-        className="oa-user-pill"
+        className="oa-who"
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3, duration: 0.36 }}
       >
-        <div className="oa-avatar">{initials}</div>
-        <span className="oa-user-email">{displayEmail}</span>
-        <span className="oa-user-dot" />
+        <span className="oa-who-label">This will connect the Velocity account</span>
+        <div className="oa-user-pill">
+          <div className="oa-avatar">{initials}</div>
+          <span className="oa-user-text">
+            {user?.name && <strong className="oa-user-name">{user.name}</strong>}
+            <span className="oa-user-email">{displayEmail}</span>
+          </span>
+        </div>
+        <button type="button" className="oa-switch" onClick={onSwitch} disabled={approving}>
+          Not you? Switch account
+        </button>
+        {redirectHost && <span className="oa-who-host">Sends you back to {redirectHost}</span>}
       </motion.div>
 
       {/* Permissions */}
@@ -352,7 +361,7 @@ function SuccessContent() {
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function OAuthAuthorizePage() {
-  const { isAuthenticated, isLoading, user } = useAuth()
+  const { isAuthenticated, isLoading, user, logout } = useAuth()
   const isPreview = window.location.pathname === '/oauth-preview'
   const params = isPreview
     ? { clientId: 'preview', redirectUri: 'https://preview', state: '', challenge: '', method: 'S256' }
@@ -369,7 +378,7 @@ export default function OAuthAuthorizePage() {
     return (
       <div className="oa-root">
         <motion.div className="oa-card" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="oa-error">Invalid OAuth request — missing client_id or redirect_uri.</p>
+          <p className="oa-error">This connection request is incomplete. Start the connection again from Claude.</p>
         </motion.div>
       </div>
     )
@@ -423,6 +432,15 @@ export default function OAuthAuthorizePage() {
 
   const handleDeny = () => deny(params.redirectUri, params.state)
 
+  // Sign out of Velocity in this browser and come back to this same request, so the next
+  // person logs in as themselves instead of approving under someone else's session.
+  const handleSwitch = async () => {
+    try { await logout() } finally { window.location.reload() }
+  }
+
+  let redirectHost = ''
+  try { redirectHost = new URL(params.redirectUri).host } catch { /* shown only when valid */ }
+
   return (
     <div className="oa-root">
       <div className="oa-blob oa-blob-1" />
@@ -458,6 +476,8 @@ export default function OAuthAuthorizePage() {
               initials={initials}
               displayEmail={displayEmail}
               perms={PERMS}
+              redirectHost={redirectHost}
+              onSwitch={handleSwitch}
               onApprove={handleApprove}
               onDeny={handleDeny}
               approving={false}

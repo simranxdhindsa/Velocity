@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -65,12 +67,12 @@ func (h *OAuthHandler) RegisterClient(w http.ResponseWriter, r *http.Request) {
 		ClientName   string   `json:"client_name"`
 		RedirectURIs []string `json:"redirect_uris"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, oauthRegisterBodyMB)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
-	if len(body.RedirectURIs) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "redirect_uris required"})
+	if err := validateClientRegistration(body.ClientName, body.RedirectURIs); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri", "error_description": err.Error()})
 		return
 	}
 	client, err := h.repo.RegisterClient(r.Context(), body.ClientName, body.RedirectURIs)
@@ -121,6 +123,7 @@ func (h *OAuthHandler) Token(w http.ResponseWriter, r *http.Request) {
 	if client, _ := h.repo.GetClient(r.Context(), clientID); client != nil && client.ClientName != "" {
 		clientName = client.ClientName
 	}
+	log.Printf("[mcp-oauth] token issued: user=%s client=%q (%s)", userID, clientName, clientID)
 	plain, err := h.tokenRepo.GenerateToken(r.Context(), userID, clientID, clientName)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
@@ -176,9 +179,19 @@ func (h *OAuthHandler) CreateCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Re-check at approval time: clients registered before these rules existed are covered too.
+	if err := validateRedirectURI(body.RedirectURI); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "redirect_uri not allowed"})
+		return
+	}
+	// PKCE is mandatory: a code that leaks from the redirect is useless without the verifier.
 	method := body.Method
 	if method == "" {
 		method = "S256"
+	}
+	if body.Challenge == "" || !strings.EqualFold(method, "S256") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "code_challenge (S256) is required"})
+		return
 	}
 
 	code, err := h.repo.CreateCode(r.Context(), u.ID, body.ClientID, body.RedirectURI, body.Challenge, method)
@@ -187,5 +200,13 @@ func (h *OAuthHandler) CreateCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[mcp-oauth] consent approved: user=%s client=%q (%s) redirect_host=%s", u.ID, client.ClientName, client.ClientID, redirectHost(body.RedirectURI))
 	writeJSON(w, http.StatusOK, map[string]string{"code": code})
+}
+
+func redirectHost(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Host
+	}
+	return "?"
 }
