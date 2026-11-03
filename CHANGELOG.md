@@ -6,6 +6,14 @@
 - Long Day Track updates now post to Slack in full as continued messages instead of being cut off, and updating or deleting them handles every part
 
 
+### Enhancements
+- Admins can now read and answer every DM between people and the Velocity bot, with replies passed back to the admin instead of the bot
+- Velocity bot replies now fit the message, from a two word thanks to a few short lines, and stay accurate
+
+### Features
+- New Chats tab in Slack where admins read DM conversations, reply as Velocity, and hand a chat back to the bot
+- When someone answers a DM Velocity sent for you, the bot stays quiet and tells you what they said instead of joking back
+
 ## 2026-10-30
 
 ### Enhancements
