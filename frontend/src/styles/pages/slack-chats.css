@@ -94,20 +94,62 @@
 .slchat-bubble-time { margin-top: 3px; font-size: 0.64rem; color: var(--text-muted); text-align: right; }
 
 /* ── Reply box ─────────────────────────────────────────────────────────────── */
-.slchat-composer { padding: 10px 14px 12px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 6px; }
-.slchat-composer-row { display: flex; gap: 8px; align-items: flex-end; }
-.slchat-composer textarea {
-  flex: 1; min-width: 0; resize: none; padding: 9px 12px; font: inherit; font-size: 0.86rem; line-height: 1.4;
-  color: var(--text-primary); background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); outline: 0;
+.slchat-composer { padding: 10px 14px 12px; padding-right: 84px; /* clear the floating PM Assistant bubble */ border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 6px; }
+
+/* Reply box: one rounded surface holding the field, the AI chips and the send button. */
+.slchat-box {
+  position: relative; display: flex; flex-direction: column; gap: 4px; padding: 8px 8px 8px 12px;
+  background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px);
+  transition: border-color 0.2s ease, box-shadow 0.25s ease;
 }
-.slchat-composer textarea:focus { border-color: var(--color-primary); }
-.slchat-composer textarea:disabled { opacity: 0.6; }
+.slchat-box:focus-within { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.14); }
+.slchat-box textarea {
+  width: 100%; min-width: 0; resize: none; padding: 4px 0; font: inherit; font-size: 0.88rem; line-height: 1.45;
+  color: var(--text-primary); background: transparent; border: 0; outline: 0; overflow-y: auto; max-height: 140px;
+}
+.slchat-box textarea::placeholder { color: var(--text-muted); }
+.slchat-box textarea:disabled { opacity: 0.7; }
+.slchat-box-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* A soft light sweeps across the box while the AI rewrites. */
+.slchat-box--busy { border-color: var(--color-primary); overflow: hidden; }
+.slchat-box--busy::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 20%, rgba(var(--color-primary-rgb), 0.18) 50%, transparent 80%);
+  background-size: 220% 100%; animation: slchat-sweep 1.2s linear infinite;
+}
+@keyframes slchat-sweep { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+.slchat-ai {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;
+  opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.slchat-ai--on { opacity: 1; transform: none; pointer-events: auto; }
+.slchat-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; font-size: 0.74rem; font-weight: 600; cursor: pointer;
+  color: var(--color-primary); background: rgba(var(--color-primary-rgb), 0.1); border: 1px solid rgba(var(--color-primary-rgb), 0.28);
+  border-radius: 999px; transition: background 0.15s ease, transform 0.15s ease;
+}
+.slchat-chip:hover:not(:disabled) { background: rgba(var(--color-primary-rgb), 0.2); transform: translateY(-1px); }
+.slchat-chip:active:not(:disabled) { transform: scale(0.96); }
+.slchat-chip:disabled { opacity: 0.55; cursor: not-allowed; }
+.slchat-chip--busy svg { animation: slchat-twinkle 0.9s ease-in-out infinite; }
+.slchat-chip--undo { color: var(--text-secondary); background: var(--bg-elevated); border-color: var(--border-color); animation: slchat-pop 0.22s ease; }
+@keyframes slchat-twinkle { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.25) rotate(20deg); } }
+@keyframes slchat-pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
+
 .slchat-send {
-  display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex-shrink: 0;
-  color: var(--bg-base); background: var(--color-primary); border: 0; border-radius: var(--radius-md); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0;
+  color: var(--bg-base); background: var(--color-primary); border: 0; border-radius: 50%; cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, opacity 0.2s ease;
 }
-.slchat-send:hover:not(:disabled) { background: var(--color-primary-hover); }
-.slchat-send:disabled { opacity: 0.4; cursor: not-allowed; }
+.slchat-send:hover:not(:disabled) { background: var(--color-primary-hover); transform: translateY(-1px) rotate(-8deg); }
+.slchat-send:active:not(:disabled) { transform: scale(0.92); }
+.slchat-send:disabled { opacity: 0.35; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  .slchat-box--busy::after, .slchat-chip--busy svg, .slchat-chip--undo { animation: none; }
+  .slchat-chip, .slchat-send, .slchat-ai { transition: none; }
+}
 .slchat-composer-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 0.7rem; color: var(--text-muted); }
 .slchat-count--over { color: var(--color-danger); font-weight: 600; }
 .slchat-error { padding: 8px 12px; font-size: 0.8rem; color: var(--color-danger); background: var(--color-danger-muted); border-radius: var(--radius-md); }
@@ -142,5 +184,5 @@
   .slchat-bubble { max-width: 88%; }
   .slchat-thread-head { padding: 8px 10px; }
   .slchat-messages { padding: 10px; }
-  .slchat-composer { padding: 8px 10px 10px; }
+  .slchat-composer { padding: 8px 10px 10px; padding-right: 76px; }
 }

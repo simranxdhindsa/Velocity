@@ -123,6 +123,7 @@ func chatsRouter(h *SlackChatsHandler) http.Handler {
 	api.Use(middleware.AdminOnly)
 	api.HandleFunc("", h.List).Methods("GET")
 	api.HandleFunc("/summary", h.Summary).Methods("GET")
+	api.HandleFunc("/rephrase", h.Rephrase).Methods("POST")
 	api.HandleFunc("/{channel}/messages", h.Messages).Methods("GET")
 	api.HandleFunc("/{channel}/reply", h.Reply).Methods("POST")
 	api.HandleFunc("/{channel}/mode", h.SetMode).Methods("PUT")
@@ -171,6 +172,7 @@ func TestChatsAreAdminOnlyOnEveryRoute(t *testing.T) {
 	routes := []struct{ method, path, body string }{
 		{"GET", "/api/slack-chats", ""},
 		{"GET", "/api/slack-chats/summary", ""},
+		{"POST", "/api/slack-chats/rephrase", `{"text":"hi","style":"polite"}`},
 		{"GET", "/api/slack-chats/D_H/messages", ""},
 		{"POST", "/api/slack-chats/D_H/reply", `{"text":"hi"}`},
 		{"PUT", "/api/slack-chats/D_H/mode", `{"mode":"muted"}`},
@@ -388,5 +390,46 @@ func TestChatListFillsNameAndPhotoFromSlack(t *testing.T) {
 	rec := do(router, "GET", "/api/slack-chats", "admin", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Slack lookup failure broke the list: %d", rec.Code)
+	}
+}
+
+func TestRephrase(t *testing.T) {
+	h, _, sender := newTestChats()
+	router := chatsRouter(h)
+	var gotSystem, gotUser string
+	h.rewrite = func(_ context.Context, system, user string) (string, error) {
+		gotSystem, gotUser = system, user
+		return `"Hey, could you send the report when you get a moment — thanks!"`, nil
+	}
+	rec := do(router, "POST", "/api/slack-chats/rephrase", "admin", `{"text":"send report now","style":"polite"}`)
+	data := decode(t, rec)["data"].(map[string]any)
+	if rec.Code != 200 || data["text"] != "Hey, could you send the report when you get a moment, thanks!" {
+		t.Fatalf("got %d %v (quotes and em dash must be cleaned)", rec.Code, data)
+	}
+	if !strings.Contains(gotSystem, "polite and warm") || !strings.Contains(gotUser, "send report now") {
+		t.Errorf("prompt not built from style and draft: %q / %q", gotSystem, gotUser)
+	}
+	if !strings.Contains(chatRephraseStyles["human"], "real person") {
+		t.Error("human style missing")
+	}
+	if len(sender.sent) != 0 {
+		t.Error("rephrase must never send anything")
+	}
+
+	for name, body := range map[string]string{"empty": `{"text":"  ","style":"polite"}`, "bad style": `{"text":"hi","style":"rude"}`, "bad json": `{`} {
+		if rec := do(router, "POST", "/api/slack-chats/rephrase", "admin", body); rec.Code != 400 {
+			t.Errorf("%s: code %d, want 400", name, rec.Code)
+		}
+	}
+	if rec := do(router, "POST", "/api/slack-chats/rephrase", "", `{"text":"hi","style":"polite"}`); rec.Code == 200 {
+		t.Error("non-admin could rephrase")
+	}
+	h.rewrite = func(context.Context, string, string) (string, error) { return "", errors.New("groq down") }
+	if rec := do(router, "POST", "/api/slack-chats/rephrase", "admin", `{"text":"hi","style":"human"}`); rec.Code != 502 {
+		t.Errorf("AI failure: code %d, want 502", rec.Code)
+	}
+	h.rewrite = nil
+	if rec := do(router, "POST", "/api/slack-chats/rephrase", "admin", `{"text":"hi","style":"human"}`); rec.Code != 503 {
+		t.Errorf("no AI: code %d, want 503", rec.Code)
 	}
 }

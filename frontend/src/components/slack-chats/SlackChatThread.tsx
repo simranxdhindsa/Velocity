@@ -1,15 +1,15 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Link2, Send, UserCheck } from 'lucide-react'
+import { ArrowLeft, Link2, UserCheck } from 'lucide-react'
 import type { SlackChat, SlackChatMessage, SlackChatMode } from '@/services/api'
 import { CustomDropdown } from '@/components/CustomDropdown'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { SlackMessageText } from '@/components/SlackMessageText'
 import { ChatAvatar } from './ChatAvatar'
+import { SlackChatComposer } from './SlackChatComposer'
 import {
   MODE_OPTIONS, bubbleCaption, bubbleSide, chatDateTime, chatName, chatTime, dayLabel,
 } from './slack-chats-utils'
 
-const MAX_REPLY = 3000
 const W = [55, 70, 48, 65, 58, 72]
 
 export function SlackChatThreadSkeleton() {
@@ -48,7 +48,6 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
   onMode: (mode: SlackChatMode) => void
   onResolve: () => void
 }) {
-  const [draft, setDraft] = useState('')
   const [confirmResolve, setConfirmResolve] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true) // follow new messages only while the admin is at the bottom
@@ -74,14 +73,6 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
   }, [messages])
 
   const canResolve = chat.relay_active || chat.needs_attention
-  const tooLong = draft.length > MAX_REPLY
-  const canSend = draft.trim().length > 0 && !tooLong && !sending
-
-  async function send() {
-    if (!canSend) return
-    stick.current = true
-    if (await onSend(draft.trim())) setDraft('')
-  }
 
   return (
     <section className="slchat-thread" aria-label={`Chat with ${name}`}>
@@ -139,34 +130,7 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
         )}
       </div>
 
-      <footer className="slchat-composer">
-        {error && <div className="slchat-error" role="alert">{error}</div>}
-        <div className="slchat-composer-row">
-          <textarea
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                send()
-              }
-            }}
-            placeholder={`Reply to ${name} as Velocity`}
-            aria-label={`Reply to ${name}`}
-            rows={2}
-            disabled={sending}
-          />
-          <button type="button" className="slchat-send" onClick={send} disabled={!canSend} aria-label="Send reply">
-            <Send size={16} aria-hidden="true" />
-          </button>
-        </div>
-        <div className="slchat-composer-foot">
-          <span>Sent as Velocity with your name, and their answer comes back here.</span>
-          {draft.length > MAX_REPLY - 500 && (
-            <span className={tooLong ? 'slchat-count slchat-count--over' : 'slchat-count'}>{draft.length}/{MAX_REPLY}</span>
-          )}
-        </div>
-      </footer>
+      <SlackChatComposer key={chat.channel_id} name={name} error={error} sending={sending} onSend={text => { stick.current = true; return onSend(text) }} />
 
       <ConfirmModal
         open={confirmResolve}

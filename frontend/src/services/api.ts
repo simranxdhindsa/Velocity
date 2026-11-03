@@ -2130,6 +2130,14 @@ class ApiService {
     })
   }
 
+  /** Asks the AI to rewrite a draft reply. Nothing is sent. */
+  async rephraseSlackChat(text: string, style: 'polite' | 'human') {
+    return this.request<{ text: string }>('/slack-chats/rephrase', {
+      method: 'POST',
+      body: JSON.stringify({ text, style }),
+    })
+  }
+
   async setSlackChatMode(channelId: string, mode: SlackChatMode) {
     return this.request<void>(`/slack-chats/${encodeURIComponent(channelId)}/mode`, {
       method: 'PUT',
