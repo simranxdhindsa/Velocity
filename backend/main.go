@@ -676,6 +676,7 @@ func main() {
 	r.HandleFunc("/.well-known/oauth-protected-resource/api/mcp", oauthHandler.ProtectedResourceMetadata).Methods("GET", "OPTIONS")
 	r.HandleFunc("/oauth/register", oauthHandler.RegisterClient).Methods("POST", "OPTIONS")
 	r.HandleFunc("/oauth/token", oauthHandler.Token).Methods("POST", "OPTIONS")
+	r.HandleFunc("/oauth/client-info", oauthHandler.ClientInfo).Methods("GET", "OPTIONS")
 	// JWT-protected: frontend calls this after user approves the OAuth consent screen
 	oauthProtectedRoutes := api.PathPrefix("/oauth").Subrouter()
 	oauthProtectedRoutes.Use(middleware.AuthMiddleware)
@@ -690,6 +691,10 @@ func main() {
 	}
 	fs := http.FileServer(http.Dir(publicDir))
 	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Nobody may embed Velocity in another site (stops clickjacking of the connector Approve button).
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		fullPath := filepath.Join(publicDir, filepath.Clean("/"+req.URL.Path))
 		if _, err := os.Stat(fullPath); err == nil && fullPath != publicDir {
 			fs.ServeHTTP(w, req)

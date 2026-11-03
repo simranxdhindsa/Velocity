@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -22,10 +23,20 @@ type OAuthClient struct {
 	CreatedAt    time.Time
 }
 
+// ErrTooManyClients means client registration is being hammered; the caller answers 429.
+var ErrTooManyClients = errors.New("too many client registrations")
+
+const oauthMaxClientsPerHour = 60
+
 func (r *OAuthRepository) RegisterClient(ctx context.Context, name string, redirectURIs []string) (*OAuthClient, error) {
 	pool := GetPool()
 	if pool == nil {
 		return nil, fmt.Errorf("database not available")
+	}
+	r.cleanup(ctx)
+	var recent int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM mcp_oauth_clients WHERE created_at > NOW() - INTERVAL '1 hour'`).Scan(&recent); err == nil && recent >= oauthMaxClientsPerHour {
+		return nil, ErrTooManyClients
 	}
 	id := oauthRandHex(16)
 	uriBytes, _ := json.Marshal(redirectURIs)
@@ -119,4 +130,19 @@ func VerifyPKCE(challenge, method, verifier string) error {
 		return fmt.Errorf("pkce mismatch")
 	}
 	return nil
+}
+
+// cleanup removes spent or expired codes and clients that never got a token, so open
+// registration cannot grow these tables forever. Best effort.
+func (r *OAuthRepository) cleanup(ctx context.Context) {
+	pool := GetPool()
+	if pool == nil {
+		return
+	}
+	_, _ = pool.Exec(ctx, `DELETE FROM mcp_oauth_codes WHERE expires_at < NOW() - INTERVAL '1 day'`)
+	_, _ = pool.Exec(ctx, `
+		DELETE FROM mcp_oauth_clients c
+		WHERE c.created_at < NOW() - INTERVAL '1 day'
+		  AND NOT EXISTS (SELECT 1 FROM user_mcp_tokens t WHERE t.client_id = c.client_id)
+		  AND NOT EXISTS (SELECT 1 FROM mcp_oauth_codes k WHERE k.client_id = c.client_id)`)
 }

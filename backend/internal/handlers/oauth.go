@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
@@ -75,7 +76,13 @@ func (h *OAuthHandler) RegisterClient(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri", "error_description": err.Error()})
 		return
 	}
+	body.ClientName = cleanClientName(body.ClientName)
 	client, err := h.repo.RegisterClient(r.Context(), body.ClientName, body.RedirectURIs)
+	if errors.Is(err, database.ErrTooManyClients) {
+		w.Header().Set("Retry-After", "600")
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "temporarily_unavailable"})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
@@ -209,4 +216,48 @@ func redirectHost(raw string) string {
 		return u.Host
 	}
 	return "?"
+}
+
+// GET /oauth/client-info?client_id=&redirect_uri= tells the consent page whether this sign-in
+// request is genuine: the client must exist and the redirect must be one it registered and that
+// passes the allowlist. The page shows the Approve and Deny buttons only when ok is true, so a
+// crafted link can never make the page redirect somewhere unchecked.
+func (h *OAuthHandler) ClientInfo(w http.ResponseWriter, r *http.Request) {
+	clientID, redirectURI := r.URL.Query().Get("client_id"), r.URL.Query().Get("redirect_uri")
+	w.Header().Set("Cache-Control", "no-store")
+	bad := func() { writeJSON(w, http.StatusOK, map[string]any{"ok": false}) }
+	if clientID == "" || len(clientID) > 128 || validateRedirectURI(redirectURI) != nil {
+		bad()
+		return
+	}
+	client, _ := h.repo.GetClient(r.Context(), clientID)
+	info, ok := consentInfo(client, redirectURI)
+	if !ok {
+		bad()
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// consentInfo decides whether a sign-in request may be shown for approval. The redirect must be
+// one the client registered and must pass the allowlist.
+func consentInfo(client *database.OAuthClient, redirectURI string) (map[string]any, bool) {
+	if client == nil || validateRedirectURI(redirectURI) != nil {
+		return nil, false
+	}
+	registered := false
+	for _, u := range client.RedirectURIs {
+		if u == redirectURI {
+			registered = true
+			break
+		}
+	}
+	if !registered {
+		return nil, false
+	}
+	host := redirectHost(redirectURI)
+	return map[string]any{
+		"ok": true, "client_name": cleanClientName(client.ClientName), "redirect_host": host,
+		"trusted": oauthTrustedHost(strings.Split(host, ":")[0]),
+	}, true
 }
