@@ -786,6 +786,20 @@ func (s *Service) DeleteMessage(ctx context.Context, userID, channelID, ts strin
 	return NewClient(integration.BotToken).DeleteMessage(ctx, channelID, ts)
 }
 
+// SyncMessageParts posts text as one or more Slack messages, or edits the ones from an
+// earlier send (existingTS, in order) so the channel shows exactly this text. Text longer
+// than Slack's limit is split across consecutive "(continued)" messages instead of being
+// truncated. Returns every part's ts, even on error. source tags the Slack Messages hub log.
+func (s *Service) SyncMessageParts(ctx context.Context, userID, channelID, source string, existingTS []string, text string) ([]string, error) {
+	integration, err := s.integrationRepo.GetSlackIntegration(ctx, userID)
+	if err != nil || !integration.Connected {
+		return existingTS, fmt.Errorf("slack not connected")
+	}
+	return NewClient(integration.BotToken).SyncParts(ctx, channelID, existingTS, text, func(ts, part string) {
+		s.logSent(ctx, userID, source, channelID, "", part, ts)
+	})
+}
+
 // UpdateMessage edits a Slack message's text on behalf of a user's bot token.
 func (s *Service) UpdateMessage(ctx context.Context, userID, channelID, ts, text string) error {
 	integration, err := s.integrationRepo.GetSlackIntegration(ctx, userID)

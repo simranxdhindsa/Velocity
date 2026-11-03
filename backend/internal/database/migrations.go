@@ -1768,6 +1768,9 @@ STRICT RULES
 			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (user_id, entry_date)
 		)`,
+		// A long report is split across consecutive Slack messages: slack_ts is the first,
+		// extra_ts holds the "(continued)" parts in order so re-sends can edit them all.
+		`ALTER TABLE daytrack_daily_posts ADD COLUMN IF NOT EXISTS extra_ts TEXT[] NOT NULL DEFAULT '{}'`,
 
 		// ── DayTrack: daily auto-send toggle ─────────────────────────────────────
 		// Time itself (11:50 PM IST) is hardcoded in the scheduler, not stored per-user.

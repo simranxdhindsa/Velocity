@@ -1004,6 +1004,9 @@ export function DayTrackPage() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to post'
       toast(msg, 'warn')
+      // A long report can fail partway with some of it already in Slack, so the button
+      // should offer "Update" rather than a fresh "Post".
+      dayTrackApi.getSlackPostStatus(date).then(setSlackPostStatus).catch(() => {})
     } finally {
       setPosting(false)
     }

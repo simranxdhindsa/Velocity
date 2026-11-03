@@ -3,6 +3,7 @@ package slack
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // markdownBlockLimit stays under Slack's cap on a single Block Kit `markdown`
@@ -292,6 +293,10 @@ func chunkText(s string, limit int) []string {
 		}
 		if cut <= 0 {
 			cut = limit
+			// A hard cut must not split a multi-byte character (emoji, accents).
+			for cut > 0 && !utf8.RuneStart(remaining[cut]) {
+				cut--
+			}
 		}
 		out = append(out, remaining[:cut])
 		remaining = strings.TrimLeft(remaining[cut:], "\n")
@@ -312,15 +317,30 @@ func firstLine(text string) string {
 // splitPlainText handles the no-table case: split long plain text across
 // multiple whole messages (each tagged "(continued)") instead of truncating.
 func splitPlainText(text string) []SendPart {
-	chunks := chunkText(text, plainTextLimit)
+	// Chunks leave room for the "(continued)" prefix so a prefixed part never
+	// crosses the limit and gets truncated all over again by PostMessage.
+	chunks := chunkText(text, plainTextLimit-len(continuedPrefix))
 	parts := make([]SendPart, 0, len(chunks))
 	for i, c := range chunks {
 		if i > 0 {
-			c = "_(continued)_\n\n" + c
+			c = continuedPrefix + c
 		}
 		parts = append(parts, SendPart{Text: c})
 	}
 	return parts
+}
+
+const continuedPrefix = "_(continued)_\n\n"
+
+// SplitLongText splits plain mrkdwn text into Slack-sized messages, each after
+// the first tagged "(continued)". Text that already fits comes back as one part.
+func SplitLongText(text string) []string {
+	parts := splitPlainText(text)
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		out[i] = p.Text
+	}
+	return out
 }
 
 // chunkBlocks groups blocks into chat.postMessage-sized batches (Slack caps a

@@ -647,12 +647,19 @@ func (r *DayTrackRepository) EntryExistsByExternalRef(ctx context.Context, userI
 // every later click for the same date, instead of spamming a new message each time.
 
 type DayTrackDailyPost struct {
-	UserID    string    `json:"user_id"`
-	EntryDate string    `json:"entry_date"`
-	ChannelID string    `json:"channel_id"`
-	SlackTS   string    `json:"slack_ts"`
+	UserID    string `json:"user_id"`
+	EntryDate string `json:"entry_date"`
+	ChannelID string `json:"channel_id"`
+	SlackTS   string `json:"slack_ts"`
+	// ExtraTS are the "(continued)" messages of a report too long for one Slack message.
+	ExtraTS   []string  `json:"extra_ts"`
 	PostedAt  time.Time `json:"posted_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// AllTS returns the ts of every Slack message of the post, first message first.
+func (p *DayTrackDailyPost) AllTS() []string {
+	return append([]string{p.SlackTS}, p.ExtraTS...)
 }
 
 // GetDailyPost returns the existing post record for this user+date, or nil if never posted.
@@ -660,10 +667,10 @@ func (r *DayTrackRepository) GetDailyPost(ctx context.Context, userID, date stri
 	pool := GetPool()
 	var p DayTrackDailyPost
 	err := pool.QueryRow(ctx, `
-		SELECT user_id, entry_date::text, channel_id, slack_ts, posted_at, updated_at
+		SELECT user_id, entry_date::text, channel_id, slack_ts, extra_ts, posted_at, updated_at
 		FROM daytrack_daily_posts WHERE user_id=$1 AND entry_date=$2::date`,
 		userID, date,
-	).Scan(&p.UserID, &p.EntryDate, &p.ChannelID, &p.SlackTS, &p.PostedAt, &p.UpdatedAt)
+	).Scan(&p.UserID, &p.EntryDate, &p.ChannelID, &p.SlackTS, &p.ExtraTS, &p.PostedAt, &p.UpdatedAt)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
 			return nil, nil
@@ -673,17 +680,22 @@ func (r *DayTrackRepository) GetDailyPost(ctx context.Context, userID, date stri
 	return &p, nil
 }
 
-// UpsertDailyPost records a fresh post (first click of the day) or bumps updated_at for
-// an edit-in-place (later clicks the same day). channelID/slackTS are only meaningful on
-// first insert — ON CONFLICT intentionally leaves them untouched so the stored ts always
-// still points at the original message we're editing.
-func (r *DayTrackRepository) UpsertDailyPost(ctx context.Context, userID, date, channelID, slackTS string) error {
+// SavePostedParts records the Slack messages a report is currently posted as (tss, in
+// order: the first message, then its "(continued)" parts). A first send inserts the record;
+// a later send for the same date overwrites it, so the stored ts always match what is in
+// Slack, including after a report grows or shrinks or its channel changes.
+func (r *DayTrackRepository) SavePostedParts(ctx context.Context, userID, date, channelID string, tss []string) error {
+	if len(tss) == 0 {
+		return nil
+	}
 	pool := GetPool()
 	_, err := pool.Exec(ctx, `
-		INSERT INTO daytrack_daily_posts (user_id, entry_date, channel_id, slack_ts)
-		VALUES ($1, $2::date, $3, $4)
-		ON CONFLICT (user_id, entry_date) DO UPDATE SET updated_at = NOW()`,
-		userID, date, channelID, slackTS)
+		INSERT INTO daytrack_daily_posts (user_id, entry_date, channel_id, slack_ts, extra_ts)
+		VALUES ($1, $2::date, $3, $4, $5)
+		ON CONFLICT (user_id, entry_date) DO UPDATE
+		SET channel_id = EXCLUDED.channel_id, slack_ts = EXCLUDED.slack_ts,
+		    extra_ts = EXCLUDED.extra_ts, updated_at = NOW()`,
+		userID, date, channelID, tss[0], tss[1:])
 	return err
 }
 

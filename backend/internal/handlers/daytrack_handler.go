@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
@@ -897,10 +898,31 @@ func (h *DayTrackHandler) buildDayTrackReportText(ctx context.Context, userID, d
 	return header + standupFormatMrkdwn([]PersonUpdate{ownerUpdate}), nil
 }
 
+// dayTrackPostLocks holds one mutex per "user|date" (a few bytes each, one per day posted).
+var dayTrackPostLocks sync.Map
+
+// lockDayTrackPost takes the send lock for userID+date and returns its unlock func.
+func lockDayTrackPost(userID, date string) func() {
+	m, _ := dayTrackPostLocks.LoadOrStore(userID+"|"+date, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 // postDayTrackUpdate builds the Slack report for userID+date and posts it — or edits the
 // existing post for that date in place. Shared by the manual "Post to Slack" button and the
 // daily auto-send scheduler so both paths always send the exact same thing.
 func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, destChannelID, displayName string) (updated bool, err error) {
+	// One send at a time per user+date: a double-click, or the manual button overlapping the
+	// 11:50 PM auto-send, would otherwise both see "nothing posted yet" and post every part twice.
+	defer lockDayTrackPost(userID, date)()
+
+	// A long report is several Slack calls. If the browser tab closes midway, finish and
+	// record what was posted anyway — a cancelled request would leave a half-posted report
+	// the next send can't find and would post again from the top.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+
 	text, err := h.buildDayTrackReportText(ctx, userID, date, displayName)
 	if err != nil {
 		return false, err
@@ -910,25 +932,26 @@ func (h *DayTrackHandler) postDayTrackUpdate(ctx context.Context, userID, date, 
 	// Post once per (user, date); every later send for the same date edits that same
 	// message in place instead of spamming a new one, so the channel always reflects
 	// this day's latest entries under a single message.
-	existing, _ := h.repo.GetDailyPost(ctx, userID, date)
-	if existing != nil && existing.ChannelID == destChannelID {
-		if err := slackSvc.UpdateMessage(ctx, userID, destChannelID, existing.SlackTS, text); err != nil {
-			return false, err
-		}
-		if err := h.repo.UpsertDailyPost(ctx, userID, date, destChannelID, existing.SlackTS); err != nil {
-			log.Printf("[DayTrack] failed to bump daily post updated_at: %v", err)
-		}
-		return true, nil
+	// A report longer than Slack's per-message limit goes out as consecutive "(continued)"
+	// messages, so one date can own several Slack messages — all edited together.
+	var existingTS []string
+	if existing, _ := h.repo.GetDailyPost(ctx, userID, date); existing != nil && existing.ChannelID == destChannelID {
+		existingTS = existing.AllTS()
 	}
 
-	ts, err := slackSvc.PostMessage(ctx, userID, destChannelID, "daytrack", text)
+	tss, err := slackSvc.SyncMessageParts(ctx, userID, destChannelID, "daytrack", existingTS, text)
+	// Record whatever is in Slack even when a later part failed, so the next send edits
+	// those messages instead of posting the report again.
+	if saveErr := h.repo.SavePostedParts(ctx, userID, date, destChannelID, tss); saveErr != nil {
+		log.Printf("[DayTrack] failed to record daily post: %v", saveErr)
+	}
 	if err != nil {
+		if len(tss) > 0 && len(slacksvc.SplitLongText(text)) > 1 {
+			err = fmt.Errorf("Slack failed partway through the report (%w). Press Update to finish it", err)
+		}
 		return false, err
 	}
-	if err := h.repo.UpsertDailyPost(ctx, userID, date, destChannelID, ts); err != nil {
-		log.Printf("[DayTrack] failed to record daily post: %v", err)
-	}
-	return false, nil
+	return len(existingTS) > 0, nil
 }
 
 // PostToSlack formats DayTrack entries for a given date and posts to the configured destination channel.
@@ -1061,15 +1084,17 @@ func (h *DayTrackHandler) DeleteSlackPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 	slackSvc := slacksvc.NewService()
-	if err := slackSvc.DeleteMessage(r.Context(), user.ID, post.ChannelID, post.SlackTS); err != nil {
-		// If the message is already gone from Slack (deleted manually, or too old to
-		// delete), our own record is just stale — clear it instead of leaving the user
-		// stuck with a permanently-failing delete button.
-		if !strings.Contains(err.Error(), "message_not_found") {
-			http.Error(w, "failed to delete from Slack: "+err.Error(), http.StatusInternalServerError)
-			return
+	for _, ts := range post.AllTS() {
+		if err := slackSvc.DeleteMessage(r.Context(), user.ID, post.ChannelID, ts); err != nil {
+			// If a message is already gone from Slack (deleted manually, or too old to
+			// delete), our own record is just stale — carry on and clear it instead of
+			// leaving the user stuck with a permanently-failing delete button.
+			if !strings.Contains(err.Error(), "message_not_found") {
+				http.Error(w, "failed to delete from Slack: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			log.Printf("[DayTrack] Slack message %s already gone for user %s date %s, clearing local record", ts, user.ID, date)
 		}
-		log.Printf("[DayTrack] Slack message already gone for user %s date %s, clearing local record", user.ID, date)
 	}
 	if err := h.repo.DeleteDailyPost(r.Context(), user.ID, date); err != nil {
 		log.Printf("[DayTrack] failed to clear daily post record: %v", err)

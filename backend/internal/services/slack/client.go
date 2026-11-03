@@ -665,6 +665,100 @@ func (c *Client) DeleteMessage(ctx context.Context, channelID, ts string) error 
 	return nil
 }
 
+// partPause spaces out consecutive posts: Slack allows about one chat.postMessage per
+// second per channel, and a long report is several posts. A variable so tests skip it.
+var partPause = 1100 * time.Millisecond
+
+// pause waits d, returning early (with the error) if ctx ends first.
+func pause(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	select {
+	case <-time.After(d):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// SyncParts makes the messages in channelID mirror text, split into Slack-sized parts.
+// existingTS are the parts posted earlier, in order: each is edited in place, extra parts
+// are posted after them, and parts no longer needed are deleted. If a part was deleted in
+// Slack, it and every part after it are re-posted so the parts stay in order. onPosted, if
+// set, is called for every newly posted part.
+// It returns the ts of every part now in Slack, in order — on error too, so the caller
+// can keep tracking what exists instead of posting duplicates on the next try.
+func (c *Client) SyncParts(ctx context.Context, channelID string, existingTS []string, text string, onPosted func(ts, text string)) ([]string, error) {
+	chunks := SplitLongText(text)
+	tss := make([]string, 0, len(chunks))
+	posts := 0
+	post := func(chunk string) error {
+		if posts > 0 {
+			if err := pause(ctx, partPause); err != nil {
+				return err
+			}
+		}
+		ts, err := c.PostMessage(ctx, channelID, chunk)
+		if err != nil && strings.Contains(err.Error(), "ratelimited") {
+			if perr := pause(ctx, 3*partPause); perr != nil {
+				return perr
+			}
+			ts, err = c.PostMessage(ctx, channelID, chunk)
+		}
+		if err != nil {
+			return err
+		}
+		posts++
+		tss = append(tss, ts)
+		if onPosted != nil {
+			onPosted(ts, chunk)
+		}
+		return nil
+	}
+	gone := func(err error) bool { return err != nil && strings.Contains(err.Error(), "message_not_found") }
+
+	reflow := false // a part went missing: re-post it and everything after it
+	for i, chunk := range chunks {
+		switch {
+		case i >= len(existingTS):
+			if err := post(chunk); err != nil {
+				return tss, err
+			}
+		case reflow:
+			if err := c.DeleteMessage(ctx, channelID, existingTS[i]); err != nil && !gone(err) {
+				return append(tss, existingTS[i:]...), err
+			}
+			if err := post(chunk); err != nil {
+				return append(tss, existingTS[i+1:]...), err
+			}
+		default:
+			err := c.UpdateMessage(ctx, channelID, existingTS[i], chunk)
+			if err == nil {
+				tss = append(tss, existingTS[i])
+				continue
+			}
+			if !gone(err) {
+				return append(tss, existingTS[i:]...), err
+			}
+			reflow = true
+			if err := post(chunk); err != nil {
+				return append(tss, existingTS[i+1:]...), err
+			}
+		}
+	}
+
+	if len(existingTS) > len(chunks) {
+		stale := existingTS[len(chunks):]
+		for i, ts := range stale {
+			if err := c.DeleteMessage(ctx, channelID, ts); err != nil && !gone(err) {
+				return append(tss, stale[i:]...), err
+			}
+		}
+	}
+	return tss, nil
+}
+
 // UpdateMessage edits an existing Slack message (chat.update).
 func (c *Client) UpdateMessage(ctx context.Context, channelID, ts, text string) error {
 	payload := map[string]interface{}{
