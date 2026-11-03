@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -13,7 +14,9 @@ import (
 // "Rephrase with AI" for the Chats reply box: the admin writes a draft and asks for a politer or
 // more natural version before sending. Nothing is sent here, the text just comes back.
 
-const chatRephraseModel = "llama-3.3-70b-versatile"
+// Same model as the Slack bot. It is a reasoning model, so max_tokens must leave room for its
+// thinking as well as the answer.
+const chatRephraseModel = "openai/gpt-oss-20b"
 
 const chatRephraseBase = `You rewrite a short Slack direct message that a manager is about to send to a teammate.
 Rules:
@@ -35,7 +38,7 @@ func groqRewrite(ctx context.Context, system, user string) (string, error) {
 	if key == "" {
 		return "", errors.New("AI is not configured")
 	}
-	return callGroqChat(ctx, key, chatRephraseModel, system, user, 700)
+	return callGroqChat(ctx, key, chatRephraseModel, system, user, 2000)
 }
 
 // cleanRephrase tidies the model's answer: no wrapping quotes, no em dashes.
@@ -76,6 +79,7 @@ func (h *SlackChatsHandler) Rephrase(w http.ResponseWriter, r *http.Request) {
 	out, err := h.rewrite(ctx, system, "Draft message:\n"+text)
 	out = cleanRephrase(out)
 	if err != nil || out == "" {
+		log.Printf("[slack-chats] rephrase failed: err=%v empty=%t", err, out == "")
 		chatFail(w, http.StatusBadGateway, "AI could not rephrase this right now, try again")
 		return
 	}
