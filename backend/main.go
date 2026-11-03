@@ -575,6 +575,7 @@ func main() {
 	slackChatsRoutes.Use(middleware.AdminOnly)
 	slackChatsRoutes.HandleFunc("", slackChatsHandler.List).Methods("GET")
 	slackChatsRoutes.HandleFunc("/summary", slackChatsHandler.Summary).Methods("GET")
+	slackChatsRoutes.HandleFunc("/rephrase", slackChatsHandler.Rephrase).Methods("POST")
 	slackChatsRoutes.HandleFunc("/{channel}/messages", slackChatsHandler.Messages).Methods("GET")
 	slackChatsRoutes.HandleFunc("/{channel}/reply", slackChatsHandler.Reply).Methods("POST")
 	slackChatsRoutes.HandleFunc("/{channel}/mode", slackChatsHandler.SetMode).Methods("PUT")

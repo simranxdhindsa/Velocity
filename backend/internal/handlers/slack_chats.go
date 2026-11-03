@@ -45,6 +45,8 @@ type SlackChatsHandler struct {
 	userName func(ctx context.Context, velocityUserID string) string
 	// profile looks up a Slack person's name and photo for the signed-in admin (nil = skip).
 	profile func(ctx context.Context, adminID, slackUserID string) (slackProfile, bool)
+	// rewrite asks the AI to rewrite a draft (nil = AI not configured).
+	rewrite func(ctx context.Context, system, user string) (string, error)
 }
 
 func NewSlackChatsHandler() *SlackChatsHandler {
@@ -54,6 +56,7 @@ func NewSlackChatsHandler() *SlackChatsHandler {
 		store:   database.NewSlackDMRepository(),
 		sender:  updatesvc.NewService(),
 		profile: slackProfileLookup(integrations),
+		rewrite: groqRewrite,
 		userName: func(ctx context.Context, id string) string {
 			if u, err := users.GetByID(ctx, id); err == nil && u != nil {
 				return u.Name
