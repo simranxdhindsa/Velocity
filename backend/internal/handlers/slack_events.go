@@ -77,12 +77,14 @@ Match the length to what the message needs. Never pad, and never cut a needed an
 type SlackEventsHandler struct {
 	integrationRepo *database.IntegrationRepository
 	botRepo         *database.BotConfigRepository
+	dm              *dmRelay // DM chat log and relay rules (slack_dm_relay.go); nil = bot answers every DM
 }
 
 func NewSlackEventsHandler() *SlackEventsHandler {
 	return &SlackEventsHandler{
 		integrationRepo: database.NewIntegrationRepository(),
 		botRepo:         database.NewBotConfigRepository(),
+		dm:              newDMRelay(),
 	}
 }
 
@@ -188,6 +190,21 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 	senderEmail := resolveSlackSenderEmail(ctx, client, ev.User)
 	velocityUserID := resolveVelocityUser(ctx, senderEmail)
 
+	// A DM is stored for the admin Chats view first. If Velocity started this conversation for
+	// a user (Claude, queue or dashboard) and they are waiting on the answer, the bot stays
+	// quiet instead of joking back, and the user is told what was said (see slack_dm_relay.go).
+	if ev.Type == "message" && h.dm != nil {
+		relayCtx, cancelRelay := context.WithTimeout(ctx, 30*time.Second)
+		answer := h.dm.handleInbound(relayCtx, client, ev, dmSender{
+			SlackID: ev.User, Name: resolveSlackSenderName(relayCtx, client, ev.User),
+			Email: senderEmail, VelocityUserID: velocityUserID,
+		})
+		cancelRelay()
+		if !answer {
+			return
+		}
+	}
+
 	actorLabel := slackActorLabel(ev)
 	start := time.Now()
 	// Conversation memory: replay the thread / recent DM so follow-ups like
@@ -229,10 +246,8 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 		return
 	}
 
-	// In a channel (@mention), reply in-thread so it doesn't spam the channel;
-	// in a DM, post normally unless the person replied inside a thread, then
-	// answer in that same thread.
-	if isMentionEvent := ev.Type == "app_mention"; isMentionEvent || ev.ThreadTS != "" {
+	// In a channel (@mention), reply in-thread so it doesn't spam the channel.
+	if ev.Type == "app_mention" {
 		threadTS := ev.ThreadTS
 		if threadTS == "" {
 			threadTS = ev.TS
@@ -242,8 +257,15 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 		}
 		return
 	}
-	if _, err := client.PostMessage(ctx, ev.Channel, reply); err != nil {
+	// In a DM, post normally unless the person replied inside a thread, then answer in that
+	// same thread. The reply is stored with the rest of the conversation.
+	ts, err := client.PostInThread(ctx, ev.Channel, ev.ThreadTS, reply)
+	if err != nil {
 		log.Printf("[slack-events] failed to post DM reply: %v", err)
+		return
+	}
+	if h.dm != nil {
+		h.dm.record(ctx, ev.Channel, ts, ev.ThreadTS, database.DMKindAutoReply, reply)
 	}
 }
 
@@ -275,6 +297,34 @@ func resolveSlackSenderEmail(ctx context.Context, client *slacksvc.Client, slack
 	}
 	slackEmailCache.Store(slackUserID, email)
 	return email
+}
+
+var slackNameCache sync.Map // map[string]string: slackUserID -> display name (only real names are cached)
+
+// resolveSlackSenderName returns the person's Slack display name for the chat list, or "" if
+// Slack could not be asked right now (not cached, so the next message tries again).
+func resolveSlackSenderName(ctx context.Context, client *slacksvc.Client, slackUserID string) string {
+	if slackUserID == "" {
+		return ""
+	}
+	if v, ok := slackNameCache.Load(slackUserID); ok {
+		return v.(string)
+	}
+	u, err := client.GetUser(ctx, slackUserID)
+	if err != nil || u == nil {
+		return ""
+	}
+	name := u.Profile.DisplayName
+	if name == "" {
+		name = u.RealName
+	}
+	if name == "" {
+		name = u.Name
+	}
+	if name != "" {
+		slackNameCache.Store(slackUserID, name)
+	}
+	return name
 }
 
 // resolveVelocityUser maps a Slack sender's email to a Velocity app user ID,

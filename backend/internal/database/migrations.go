@@ -1851,6 +1851,7 @@ STRICT RULES
 	}
 
 	RunKBMigrations(ctx)
+	RunSlackDMMigrations(ctx)
 
 	log.Println("Database migrations completed successfully")
 	return nil

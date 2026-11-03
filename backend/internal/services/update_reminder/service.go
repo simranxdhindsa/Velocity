@@ -38,6 +38,7 @@ type Service struct {
 	integrationRepo slackIntegrations
 	sentRepo        sentLog
 	queueRepo       queueLog
+	dmLog           dmLog // nil = DMs are sent without being logged as chats
 }
 
 func NewService() *Service {
@@ -46,6 +47,64 @@ func NewService() *Service {
 		integrationRepo: database.NewIntegrationRepository(),
 		sentRepo:        database.NewSentSlackMessagesRepository(),
 		queueRepo:       database.NewPendingMessagesRepository(),
+		dmLog:           database.NewSlackDMRepository(),
+	}
+}
+
+// dmLog is the Slack DM chat store. A DM sent for a user opens a relay (so when the person
+// answers, the bot stays quiet and the user is told) and joins the conversation log.
+type dmLog interface {
+	BeginRelay(ctx context.Context, channelID, slackUserID, ownerID string, until time.Time) error
+	ExtendRelay(ctx context.Context, channelID, ownerID string, until time.Time) error
+	AbortRelay(ctx context.Context, channelID, ownerID string) error
+	RecordMessage(ctx context.Context, m database.SlackDMMessage) (bool, error)
+}
+
+// dmRelayPending is a short placeholder relay window set before a DM is posted, so a very fast
+// reply cannot arrive before the relay exists. It is extended to the full window once the send
+// succeeds, and never shortens a relay that is already open.
+const dmRelayPending = 2 * time.Minute
+
+// openDMRelay starts a relay before a DM for userID is posted. Best effort.
+func (s *Service) openDMRelay(ctx context.Context, userID, channelID, slackUserID string) {
+	if s.dmLog == nil || slackUserID == "" {
+		return
+	}
+	if err := s.dmLog.BeginRelay(ctx, channelID, slackUserID, userID, time.Now().Add(dmRelayPending)); err != nil {
+		fmt.Printf("[update_reminder] warning: failed to open DM relay: %v\n", err)
+	}
+}
+
+// logDM records a DM that was just posted for userID and confirms the full relay window once
+// the first part is out. Best effort: a logging failure never fails the send.
+func (s *Service) logDM(ctx context.Context, userID, channelID, slackUserID, ts, text, source string, first bool) {
+	if s.dmLog == nil || slackUserID == "" || ts == "" {
+		return
+	}
+	kind := database.DMKindClaude
+	if source == "quick_send" {
+		kind = database.DMKindDashboard
+	}
+	if _, err := s.dmLog.RecordMessage(ctx, database.SlackDMMessage{
+		ChannelID: channelID, SlackTS: ts, Direction: database.DMDirOut, Kind: kind, SentByUserID: userID, Text: text,
+	}); err != nil {
+		fmt.Printf("[update_reminder] warning: failed to log DM chat message: %v\n", err)
+	}
+	if first { // confirm the full window; the ack was already reset when the relay opened
+		if err := s.dmLog.ExtendRelay(ctx, channelID, userID, time.Now().Add(database.DMRelayWindow)); err != nil {
+			fmt.Printf("[update_reminder] warning: failed to confirm DM relay: %v\n", err)
+		}
+	}
+}
+
+// abortDMRelay undoes the placeholder relay when the DM could not be sent at all, so the
+// person's messages are not silenced for a message that never went out. Best effort.
+func (s *Service) abortDMRelay(ctx context.Context, userID, channelID string) {
+	if s.dmLog == nil {
+		return
+	}
+	if err := s.dmLog.AbortRelay(ctx, channelID, userID); err != nil {
+		fmt.Printf("[update_reminder] warning: failed to abort DM relay: %v\n", err)
 	}
 }
 
@@ -451,6 +510,7 @@ func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmU
 			return "", "", fmt.Errorf("open DM channel: %w", e)
 		}
 		targetChannel = ch
+		s.openDMRelay(ctx, userID, targetChannel, dmUserID)
 	}
 
 	parts := slacksvc.BuildSendParts(message)
@@ -467,6 +527,9 @@ func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmU
 		}
 		if e != nil {
 			if i == 0 {
+				if dmUserID != "" {
+					s.abortDMRelay(ctx, userID, targetChannel)
+				}
 				return "", targetChannel, e
 			}
 			return firstTS, targetChannel, fmt.Errorf("sent %d/%d parts, then failed: %w", i, len(parts), e)
@@ -479,6 +542,9 @@ func (s *Service) QuickSend(ctx context.Context, userID, channelID, message, dmU
 			logText = part.Text
 		}
 		s.logSent(ctx, userID, source, targetChannel, logText, ts)
+		if dmUserID != "" {
+			s.logDM(ctx, userID, targetChannel, dmUserID, ts, logText, source, i == 0)
+		}
 	}
 	return firstTS, targetChannel, nil
 }

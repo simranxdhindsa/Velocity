@@ -24,6 +24,8 @@ type fakeSlack struct {
 	next  int
 	msgs  map[string]string // channel|ts -> text
 	posts []string          // channel|ts in post order
+	// failPost makes chat.postMessage answer with an error, like Slack refusing a send.
+	failPost bool
 }
 
 func newFakeSlack(t *testing.T) *fakeSlack {
@@ -46,6 +48,10 @@ func (f *fakeSlack) serve(w http.ResponseWriter, r *http.Request) {
 	case "/conversations.open":
 		out["channel"] = map[string]string{"id": "D" + strings.ToUpper(str("users"))}
 	case "/chat.postMessage":
+		if f.failPost {
+			out = map[string]interface{}{"ok": false, "error": "internal_error"}
+			break
+		}
 		f.next++
 		ts := fmt.Sprintf("1700000000.%06d", f.next)
 		text := str("text")
