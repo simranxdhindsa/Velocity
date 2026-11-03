@@ -137,21 +137,21 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
   }
 
   return (
-    <div className="sc-page">
-      <div className="sc-toolbar">
+    <div className="slchat-page">
+      <div className="slchat-toolbar">
         <div>
           <h2><MessagesSquare size={18} aria-hidden="true" /> Chats</h2>
           <p>Direct messages between people and the Velocity bot. Only admins can see this page.</p>
         </div>
         {alertPermission === 'default' && (
-          <button type="button" className="sc-btn" onClick={onEnableAlerts}>
+          <button type="button" className="slchat-btn" onClick={onEnableAlerts}>
             <Bell size={14} aria-hidden="true" /> Turn on browser alerts
           </button>
         )}
       </div>
-      {listError && <div className="sc-error" role="alert">{listError}</div>}
+      {listError && <div className="slchat-error" role="alert">{listError}</div>}
 
-      <div className={`sc-wrap${selected ? ' sc-wrap--thread' : ''}`}>
+      <div className={`slchat-wrap${selected ? ' slchat-wrap--thread' : ''}`}>
         <SlackChatList
           chats={chats}
           selectedId={selectedId}
@@ -160,7 +160,7 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
           onSearch={setSearch}
           loading={loadingList}
         />
-        <div className="sc-main">
+        <div className="slchat-main">
           {selected ? (
             <SlackChatThread
               chat={selected}
@@ -174,7 +174,7 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
               onResolve={resolve}
             />
           ) : (
-            <div className="sc-empty sc-empty--main">
+            <div className="slchat-empty slchat-empty--main">
               <MessagesSquare size={28} aria-hidden="true" />
               <strong>Pick a chat</strong>
               <span>Choose someone on the left to read the conversation and reply.</span>

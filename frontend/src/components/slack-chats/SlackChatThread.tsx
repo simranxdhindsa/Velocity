@@ -13,10 +13,10 @@ const W = [55, 70, 48, 65, 58, 72]
 
 export function SlackChatThreadSkeleton() {
   return (
-    <div className="sc-messages" aria-hidden="true">
+    <div className="slchat-messages" aria-hidden="true">
       {Array.from({ length: 5 }).map((_, i) => (
-        <div className={`sc-row ${i % 2 ? 'sc-row--you' : 'sc-row--them'}`} key={i}>
-          <div className="skeleton sc-sk-bubble" style={{ width: `${W[i % 6]}%`, height: 44 + (i % 3) * 14 }} />
+        <div className={`slchat-row ${i % 2 ? 'slchat-row--you' : 'slchat-row--them'}`} key={i}>
+          <div className="skeleton slchat-sk-bubble" style={{ width: `${W[i % 6]}%`, height: 44 + (i % 3) * 14 }} />
         </div>
       ))}
     </div>
@@ -26,11 +26,11 @@ export function SlackChatThreadSkeleton() {
 const Bubble = memo(function Bubble({ m }: { m: SlackChatMessage }) {
   const side = bubbleSide(m)
   return (
-    <div className={`sc-row sc-row--${side}`}>
-      <div className={`sc-bubble sc-bubble--${side}`}>
-        <div className="sc-bubble-cap">{bubbleCaption(m)}</div>
-        <SlackMessageText text={m.text} className="sc-bubble-text" />
-        <div className="sc-bubble-time" title={chatDateTime(m.created_at)}>{chatTime(m.created_at)}</div>
+    <div className={`slchat-row slchat-row--${side}`}>
+      <div className={`slchat-bubble slchat-bubble--${side}`}>
+        <div className="slchat-bubble-cap">{bubbleCaption(m)}</div>
+        <SlackMessageText text={m.text} className="slchat-bubble-text" />
+        <div className="slchat-bubble-time" title={chatDateTime(m.created_at)}>{chatTime(m.created_at)}</div>
       </div>
     </div>
   )
@@ -83,35 +83,35 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
   }
 
   return (
-    <section className="sc-thread" aria-label={`Chat with ${name}`}>
-      <header className="sc-thread-head">
-        <button type="button" className="sc-back" onClick={onBack} aria-label="Back to people">
+    <section className="slchat-thread" aria-label={`Chat with ${name}`}>
+      <header className="slchat-thread-head">
+        <button type="button" className="slchat-back" onClick={onBack} aria-label="Back to people">
           <ArrowLeft size={18} />
         </button>
-        <span className="sc-avatar sc-avatar--lg" aria-hidden="true">{initials(name)}</span>
-        <div className="sc-thread-title">
+        <span className="slchat-avatar slchat-avatar--lg" aria-hidden="true">{initials(name)}</span>
+        <div className="slchat-thread-title">
           <h3>{name}</h3>
-          {chat.slack_user_email && <span className="sc-thread-sub">{chat.slack_user_email}</span>}
+          {chat.slack_user_email && <span className="slchat-thread-sub">{chat.slack_user_email}</span>}
         </div>
-        <div className="sc-thread-actions">
+        <div className="slchat-thread-actions">
           <CustomDropdown
             options={MODE_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
             value={chat.mode}
             onChange={v => onMode(v as SlackChatMode)}
             searchable={false}
-            className="sc-mode"
+            className="slchat-mode"
           />
           {canResolve && (
-            <button type="button" className="sc-btn" onClick={() => setConfirmResolve(true)}>
+            <button type="button" className="slchat-btn" onClick={() => setConfirmResolve(true)}>
               <UserCheck size={14} aria-hidden="true" /> Hand back to bot
             </button>
           )}
         </div>
       </header>
 
-      <div className="sc-mode-hint">{modeHint}</div>
+      <div className="slchat-mode-hint">{modeHint}</div>
       {chat.relay_active && (
-        <div className="sc-relay" role="status">
+        <div className="slchat-relay" role="status">
           <Link2 size={14} aria-hidden="true" />
           <span>
             Their answers are being passed on to <strong>{chat.relay_owner_name || 'a Velocity user'}</strong>
@@ -120,27 +120,27 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
         </div>
       )}
 
-      <div className="sc-messages" ref={scroller} onScroll={e => {
+      <div className="slchat-messages" ref={scroller} onScroll={e => {
         const el = e.currentTarget
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
       }}>
         {loading ? (
           <SlackChatThreadSkeleton />
         ) : messages.length === 0 ? (
-          <div className="sc-empty">No messages in this chat yet.</div>
+          <div className="slchat-empty">No messages in this chat yet.</div>
         ) : (
           groups.map(g => (
-            <div key={g.label} className="sc-day">
-              <div className="sc-day-label"><span>{g.label}</span></div>
+            <div key={g.label} className="slchat-day">
+              <div className="slchat-day-label"><span>{g.label}</span></div>
               {g.items.map(m => <Bubble key={m.id} m={m} />)}
             </div>
           ))
         )}
       </div>
 
-      <footer className="sc-composer">
-        {error && <div className="sc-error" role="alert">{error}</div>}
-        <div className="sc-composer-row">
+      <footer className="slchat-composer">
+        {error && <div className="slchat-error" role="alert">{error}</div>}
+        <div className="slchat-composer-row">
           <textarea
             value={draft}
             onChange={e => setDraft(e.target.value)}
@@ -155,14 +155,14 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
             rows={2}
             disabled={sending}
           />
-          <button type="button" className="sc-send" onClick={send} disabled={!canSend} aria-label="Send reply">
+          <button type="button" className="slchat-send" onClick={send} disabled={!canSend} aria-label="Send reply">
             <Send size={16} aria-hidden="true" />
           </button>
         </div>
-        <div className="sc-composer-foot">
+        <div className="slchat-composer-foot">
           <span>Sent as Velocity with your name, and their answer comes back here.</span>
           {draft.length > MAX_REPLY - 500 && (
-            <span className={tooLong ? 'sc-count sc-count--over' : 'sc-count'}>{draft.length}/{MAX_REPLY}</span>
+            <span className={tooLong ? 'slchat-count slchat-count--over' : 'slchat-count'}>{draft.length}/{MAX_REPLY}</span>
           )}
         </div>
       </footer>
