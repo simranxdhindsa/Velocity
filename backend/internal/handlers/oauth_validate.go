@@ -19,7 +19,7 @@ const (
 )
 
 // Hosts allowed to receive codes. Loopback addresses cover desktop and CLI clients (Claude Code,
-// Codex) that listen on a local port. MCP_OAUTH_EXTRA_REDIRECT_HOSTS adds more (comma separated).
+// Codex) that listen on a local port. MCP_OAUTH_EXTRA_REDIRECT_HOSTS adds more exact hosts (comma separated).
 var oauthDefaultRedirectHosts = []string{"claude.ai", "claude.com"}
 
 func oauthIsLoopback(host string) bool {
@@ -34,8 +34,8 @@ func oauthHostAllowed(host string) bool {
 			hosts = append(hosts, h)
 		}
 	}
-	for _, h := range hosts {
-		if host == h || strings.HasSuffix(host, "."+h) {
+	for _, h := range hosts { // exact match only: a lookalike or sibling subdomain must not qualify
+		if host == h {
 			return true
 		}
 	}
@@ -81,4 +81,24 @@ func validateClientRegistration(name string, uris []string) error {
 		}
 	}
 	return nil
+}
+
+// oauthTrustedHost reports whether the redirect goes to Claude itself or to the user's own machine,
+// the two places a normal connector sign-in ends up. Anything else gets a warning on the consent page.
+func oauthTrustedHost(host string) bool {
+	host = strings.ToLower(host)
+	return oauthIsLoopback(host) || host == "claude.ai" || host == "claude.com"
+}
+
+// cleanClientName drops control characters and collapses spaces so a registered name cannot
+// forge lines in logs or in the consent page.
+func cleanClientName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }

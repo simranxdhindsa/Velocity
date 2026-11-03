@@ -887,6 +887,13 @@ class ApiService {
     })
   }
 
+  /** Asks the server whether a connector sign-in request is genuine before it is shown for approval. */
+  async getOAuthClientInfo(clientId: string, redirectUri: string) {
+    const q = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri })
+    const res = await fetch(`${API_URL.replace(/\/api\/?$/, '')}/oauth/client-info?${q}`)
+    return (await res.json()) as { ok: boolean; client_name?: string; redirect_host?: string; trusted?: boolean }
+  }
+
   async createOAuthCode(params: {
     client_id: string
     redirect_uri: string

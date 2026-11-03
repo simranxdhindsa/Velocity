@@ -308,6 +308,11 @@
 }
 .oa-switch:hover:not(:disabled) { color: var(--color-primary-hover); }
 .oa-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+.oa-warn {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; font-size: 12.5px; text-align: left;
+  color: var(--color-warning); background: var(--color-warning-muted); border-radius: 10px;
+}
+.oa-warn svg { flex-shrink: 0; }
 .oa-who-host { font-size: 11px; color: var(--text-muted); }
 /* Small green "signed in" dot */
 .oa-user-dot {

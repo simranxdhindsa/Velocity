@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, Check, Bot, Shield, CheckCircle2, ChevronRight } from 'lucide-react'
+import { Zap, Check, Bot, Shield, CheckCircle2, ChevronRight, AlertTriangle } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import Login from '@/pages/Login'
 import api from '@/services/api'
@@ -20,9 +20,23 @@ function parseParams() {
   }
 }
 
+type ClientInfo = { ok: boolean; client_name?: string; redirect_host?: string; trusted?: boolean }
+
+// Only ever called with a redirect the server has confirmed is registered and allowed; the
+// scheme check is a second guard so a javascript: URL can never be navigated to.
+function safeRedirect(raw: string): URL | null {
+  try {
+    const url = new URL(raw)
+    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    if (url.protocol === 'https:' || (url.protocol === 'http:' && loopback)) return url
+  } catch { /* fall through */ }
+  return null
+}
+
 function deny(redirectUri: string, state: string) {
   try {
-    const url = new URL(redirectUri)
+    const url = safeRedirect(redirectUri)
+    if (!url) throw new Error('unsafe redirect')
     url.searchParams.set('error', 'access_denied')
     if (state) url.searchParams.set('state', state)
     window.location.href = url.toString()
@@ -105,9 +119,9 @@ function ConnectingChevrons() {
 
 // ── Phase content — idle (consent card body) ────────────────────────────────
 function IdleContent({
-  user, initials, displayEmail, perms, redirectHost, onSwitch, onApprove, onDeny, approving, error
+  user, initials, displayEmail, perms, redirectHost, clientName, trusted, onSwitch, onApprove, onDeny, approving, error
 }: {
-  user: any; initials: string; displayEmail: string; perms: string[]; redirectHost: string
+  user: any; initials: string; displayEmail: string; perms: string[]; redirectHost: string; clientName: string; trusted: boolean
   onSwitch: () => void; onApprove: () => void; onDeny: () => void; approving: boolean; error: string
 }) {
   return (
@@ -142,8 +156,15 @@ function IdleContent({
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.22, duration: 0.38 }}
       >
-        Claude.ai wants to connect to Velocity
+        {clientName} wants to connect to Velocity
       </motion.h1>
+
+      {!trusted && (
+        <div className="oa-warn" role="alert">
+          <AlertTriangle size={14} aria-hidden="true" />
+          <span>This is not Claude. Only approve if you started this connection yourself.</span>
+        </div>
+      )}
 
       {/* Which account is being connected: the one thing a person must check before approving */}
       <motion.div
@@ -369,6 +390,17 @@ export default function OAuthAuthorizePage() {
 
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState('')
+  const [info, setInfo] = useState<ClientInfo | null>(null)
+
+  // The page only offers Approve and Deny once the server has confirmed this request is real.
+  useEffect(() => {
+    if (isPreview || !isAuthenticated || !params.clientId || !params.redirectUri) return
+    let live = true
+    api.getOAuthClientInfo(params.clientId, params.redirectUri)
+      .then(r => { if (live) setInfo(r) })
+      .catch(() => { if (live) setInfo({ ok: false }) })
+    return () => { live = false }
+  }, [isPreview, isAuthenticated, params.clientId, params.redirectUri])
 
   if (isLoading) {
     return <div className="oa-root"><div className="oa-spinner" /></div>
@@ -379,6 +411,18 @@ export default function OAuthAuthorizePage() {
       <div className="oa-root">
         <motion.div className="oa-card" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}>
           <p className="oa-error">This connection request is incomplete. Start the connection again from Claude.</p>
+        </motion.div>
+      </div>
+    )
+  }
+
+  const checked: ClientInfo | null = isPreview ? { ok: true, client_name: 'Claude', redirect_host: 'claude.ai', trusted: true } : info
+  if (!checked) return <div className="oa-root"><div className="oa-spinner" /></div>
+  if (!checked.ok) {
+    return (
+      <div className="oa-root">
+        <motion.div className="oa-card" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}>
+          <p className="oa-error">This connection request is not valid, so it was blocked. Start the connection again from Claude.</p>
         </motion.div>
       </div>
     )
@@ -416,7 +460,8 @@ export default function OAuthAuthorizePage() {
 
       if (!isPreview) {
         setTimeout(() => {
-          const url = new URL(params.redirectUri)
+          const url = safeRedirect(params.redirectUri)
+          if (!url) return
           url.searchParams.set('code', code)
           if (params.state) url.searchParams.set('state', params.state)
           window.location.href = url.toString()
@@ -438,8 +483,8 @@ export default function OAuthAuthorizePage() {
     try { await logout() } finally { window.location.reload() }
   }
 
-  let redirectHost = ''
-  try { redirectHost = new URL(params.redirectUri).host } catch { /* shown only when valid */ }
+  const redirectHost = checked.redirect_host ?? ''
+  const clientName = checked.trusted ? 'Claude' : (checked.client_name || 'An unknown app')
 
   return (
     <div className="oa-root">
@@ -477,6 +522,8 @@ export default function OAuthAuthorizePage() {
               displayEmail={displayEmail}
               perms={PERMS}
               redirectHost={redirectHost}
+              clientName={clientName}
+              trusted={!!checked.trusted}
               onSwitch={handleSwitch}
               onApprove={handleApprove}
               onDeny={handleDeny}
