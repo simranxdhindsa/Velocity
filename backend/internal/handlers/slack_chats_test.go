@@ -360,3 +360,33 @@ func TestChatSummaryCountsConversationsNeedingTheAdmin(t *testing.T) {
 		t.Errorf("badge count wrong: %+v", data)
 	}
 }
+
+// A chat Velocity opened only knows the Slack ID; the list must still show the person's real
+// name and photo, and a failed Slack lookup must not break the page.
+func TestChatListFillsNameAndPhotoFromSlack(t *testing.T) {
+	h, store, _ := newTestChats()
+	store.items = []database.SlackDMListItem{{SlackDMConversation: database.SlackDMConversation{ChannelID: "D_X", SlackUserID: "U08V0GRUQLU"}}}
+	store.convs["D_X"] = &store.items[0].SlackDMConversation
+	h.profile = func(_ context.Context, _, id string) (slackProfile, bool) {
+		if id == "U08V0GRUQLU" {
+			return slackProfile{Name: "Simranjot Singh", Image: "https://img/p.png"}, true
+		}
+		return slackProfile{}, false
+	}
+	router := chatsRouter(h)
+
+	list := decode(t, do(router, "GET", "/api/slack-chats", "admin", ""))["data"].([]any)[0].(map[string]any)
+	if list["slack_user_name"] != "Simranjot Singh" || list["slack_user_image"] != "https://img/p.png" {
+		t.Fatalf("list item = %v", list)
+	}
+	conv := decode(t, do(router, "GET", "/api/slack-chats/D_X/messages", "admin", ""))["conversation"].(map[string]any)
+	if conv["slack_user_name"] != "Simranjot Singh" || conv["slack_user_image"] != "https://img/p.png" {
+		t.Fatalf("conversation = %v", conv)
+	}
+
+	h.profile = func(context.Context, string, string) (slackProfile, bool) { return slackProfile{}, false }
+	rec := do(router, "GET", "/api/slack-chats", "admin", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Slack lookup failure broke the list: %d", rec.Code)
+	}
+}

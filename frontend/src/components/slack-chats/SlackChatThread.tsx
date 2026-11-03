@@ -4,8 +4,9 @@ import type { SlackChat, SlackChatMessage, SlackChatMode } from '@/services/api'
 import { CustomDropdown } from '@/components/CustomDropdown'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { SlackMessageText } from '@/components/SlackMessageText'
+import { ChatAvatar } from './ChatAvatar'
 import {
-  MODE_OPTIONS, bubbleCaption, bubbleSide, chatDateTime, chatName, chatTime, dayLabel, initials,
+  MODE_OPTIONS, bubbleCaption, bubbleSide, chatDateTime, chatName, chatTime, dayLabel,
 } from './slack-chats-utils'
 
 const MAX_REPLY = 3000
@@ -88,7 +89,7 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
         <button type="button" className="slchat-back" onClick={onBack} aria-label="Back to people">
           <ArrowLeft size={18} />
         </button>
-        <span className="slchat-avatar slchat-avatar--lg" aria-hidden="true">{initials(name)}</span>
+        <ChatAvatar name={name} image={chat.slack_user_image} large />
         <div className="slchat-thread-title">
           <h3>{name}</h3>
           {chat.slack_user_email && <span className="slchat-thread-sub">{chat.slack_user_email}</span>}
