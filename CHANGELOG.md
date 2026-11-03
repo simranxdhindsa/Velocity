@@ -3,6 +3,7 @@
 ## 2026-11-03
 
 ### Bug Fixes
+- Closed a hole where the Claude connector Deny button could be abused by a crafted link, and locked the sign-in page so it cannot be embedded in other sites
 - Closed a security hole in the Claude connector sign-in so a connector can only ever be linked to the account you chose, with a clear Connecting as screen and a Switch account button
 - Fixed the Chats AI buttons (polite and sound human) failing with a try again error
 - Chats now show each person's real name and Slack profile photo instead of a raw user ID and initials
