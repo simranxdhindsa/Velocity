@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-03
+
+### Bug Fixes
+- Long Day Track updates now post to Slack in full as continued messages instead of being cut off, and updating or deleting them handles every part
+
+
 ## 2026-10-30
 
 ### Enhancements
