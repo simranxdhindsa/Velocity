@@ -3,6 +3,7 @@
 ## 2026-11-03
 
 ### Bug Fixes
+- Fixed the Chats page layout breaking in the middle, where the empty state was squeezed into a narrow column with its text cut off
 - Long Day Track updates now post to Slack in full as continued messages instead of being cut off, and updating or deleting them handles every part
 
 
