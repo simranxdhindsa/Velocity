@@ -203,6 +203,87 @@ func TestSlackDMPruneIdleConversationsKeepsOnesWithHistory(t *testing.T) {
 	}
 }
 
+// The queries behind the admin Chats page.
+func TestSlackDMChatsPageQueries(t *testing.T) {
+	r, ctx := newTestDMRepo(t)
+	base := time.Now().Unix()
+	ts := func(off int64, n int) string { return fmt.Sprintf("%d.%06d", base+off, n) }
+	rec := func(ch, ts, dir, kind, text string) {
+		t.Helper()
+		if _, err := r.RecordMessage(ctx, SlackDMMessage{ChannelID: ch, SlackTS: ts, Direction: dir, Kind: kind, Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// D20: Harpreet, waiting on the admin. D21: has a row but no messages. D22: quiet, older.
+	_ = r.EnsureConversation(ctx, SlackDMConversation{ChannelID: "D20", SlackUserID: "U20", SlackUserName: "Harpreet"})
+	_ = r.EnsureConversation(ctx, SlackDMConversation{ChannelID: "D21", SlackUserID: "U21"})
+	_ = r.EnsureConversation(ctx, SlackDMConversation{ChannelID: "D22", SlackUserID: "U22", SlackUserName: "Rohit"})
+	rec("D22", ts(-300, 1), DMDirIn, DMKindHuman, "older chat")
+	rec("D20", ts(-30, 1), DMDirOut, DMKindClaude, "status of ARD-3033?")
+	rec("D20", ts(-20, 1), DMDirIn, DMKindHuman, strings.Repeat("long ", 60))
+	rec("D20", ts(-10, 1), DMDirOut, DMKindAck, "passed on")
+	_ = r.BeginRelay(ctx, "D20", "U20", "user-simran", time.Now().Add(time.Hour))
+	_ = r.MarkNeedsAttention(ctx, "D20")
+	before, _ := r.CountNeedingAttention(ctx)
+
+	items, err := r.ListConversations(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pos := map[string]int{}
+	var d20 SlackDMListItem
+	for i, it := range items {
+		pos[it.ChannelID] = i
+		if it.ChannelID == "D20" {
+			d20 = it
+		}
+	}
+	if _, ok := pos["D21"]; ok {
+		t.Error("a conversation with no messages is not a chat")
+	}
+	if pos["D20"] >= pos["D22"] {
+		t.Errorf("a chat needing the admin comes first: D20 at %d, D22 at %d", pos["D20"], pos["D22"])
+	}
+	if d20.LastKind != DMKindAck || d20.LastPreview != "passed on" || d20.LastDirection != DMDirOut || !d20.NeedsAttention {
+		t.Errorf("the list shows the latest message and the flag: %+v", d20)
+	}
+
+	all, _ := r.ListMessages(ctx, "D20", 0, 100)
+	if len(all) != 3 || all[0].Kind != DMKindClaude || all[2].Kind != DMKindAck {
+		t.Fatalf("messages come oldest first: %+v", all)
+	}
+	if newer, _ := r.ListMessages(ctx, "D20", all[0].ID, 100); len(newer) != 2 || newer[0].ID != all[1].ID {
+		t.Errorf("after_id returns only newer messages: %+v", newer)
+	}
+	if last2, _ := r.ListMessages(ctx, "D20", 0, 2); len(last2) != 2 || last2[0].ID != all[1].ID || last2[1].ID != all[2].ID {
+		t.Errorf("limit keeps the LATEST messages, still oldest first: %+v", last2)
+	}
+
+	if _, err := r.SetMode(ctx, "D20", "loud"); err == nil {
+		t.Error("an unknown mode must be rejected")
+	}
+	if found, _ := r.SetMode(ctx, "DNOPE", DMModeMuted); found {
+		t.Error("an unknown conversation reports not found")
+	}
+	if found, err := r.SetMode(ctx, "D20", DMModeMuted); !found || err != nil {
+		t.Fatalf("set mode: %v %v", found, err)
+	}
+	if c, _ := r.GetConversation(ctx, "D20"); c.Mode != DMModeMuted {
+		t.Errorf("mode not stored: %s", c.Mode)
+	}
+
+	if found, err := r.ResolveRelay(ctx, "D20"); !found || err != nil {
+		t.Fatalf("resolve: %v %v", found, err)
+	}
+	c, _ := r.GetConversation(ctx, "D20")
+	if c.RelayOwnerID != "" || c.RelayUntil != nil || c.RelayAcked || c.NeedsAttention || c.Mode != DMModeMuted {
+		t.Errorf("resolve ends the relay and the flag, and keeps the admin's mode choice: %+v", c)
+	}
+	if after, _ := r.CountNeedingAttention(ctx); after != before-1 {
+		t.Errorf("the badge drops by one: %d -> %d", before, after)
+	}
+}
+
 func TestSlackDMClaimAckHappensExactlyOnceUnderRace(t *testing.T) {
 	r, ctx := newTestDMRepo(t)
 	if err := r.BeginRelay(ctx, "D4", "U4", "user-simran", time.Now().Add(time.Hour)); err != nil {

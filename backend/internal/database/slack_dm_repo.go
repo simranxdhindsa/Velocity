@@ -269,6 +269,148 @@ func (r *SlackDMRepository) PruneMessagesOlderThan(ctx context.Context, days int
 	return tag.RowsAffected(), nil
 }
 
+// ── Admin Chats page ────────────────────────────────────────────────────────
+
+// SlackDMListItem is one row of the Chats people list: the conversation plus its last message.
+type SlackDMListItem struct {
+	SlackDMConversation
+	LastPreview   string `json:"last_preview"`
+	LastKind      string `json:"last_kind"`
+	LastDirection string `json:"last_direction"`
+}
+
+// ListConversations returns conversations that have at least one message: those that need
+// the admin first, then by latest activity.
+func (r *SlackDMRepository) ListConversations(ctx context.Context, limit int) ([]SlackDMListItem, error) {
+	pool := GetPool()
+	if pool == nil {
+		return []SlackDMListItem{}, nil
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT c.channel_id, c.slack_user_id, c.slack_user_name, c.slack_user_email, c.mode, c.relay_owner_id,
+		       c.relay_until, c.relay_acked, c.needs_attention, c.last_message_at, m.text, m.kind, m.direction
+		FROM slack_dm_conversations c
+		JOIN LATERAL (
+			SELECT text, kind, direction FROM slack_dm_messages
+			WHERE channel_id = c.channel_id ORDER BY created_at DESC, id DESC LIMIT 1
+		) m ON true
+		ORDER BY c.needs_attention DESC, c.last_message_at DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SlackDMListItem{}
+	for rows.Next() {
+		var it SlackDMListItem
+		if err := rows.Scan(&it.ChannelID, &it.SlackUserID, &it.SlackUserName, &it.SlackUserEmail, &it.Mode, &it.RelayOwnerID,
+			&it.RelayUntil, &it.RelayAcked, &it.NeedsAttention, &it.LastMessageAt, &it.LastPreview, &it.LastKind, &it.LastDirection); err != nil {
+			return nil, err
+		}
+		if rs := []rune(it.LastPreview); len(rs) > 140 {
+			it.LastPreview = string(rs[:140]) + "..."
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// ListMessages returns a conversation's messages oldest first. With afterID > 0 it returns only
+// newer ones (for polling); otherwise the latest `limit` messages.
+func (r *SlackDMRepository) ListMessages(ctx context.Context, channelID string, afterID int64, limit int) ([]SlackDMMessage, error) {
+	pool := GetPool()
+	if pool == nil {
+		return []SlackDMMessage{}, nil
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	const cols = `id, channel_id, slack_ts, thread_ts, direction, kind, author_slack_id, sent_by_user_id, text, created_at`
+	var q string
+	args := []interface{}{channelID, limit}
+	if afterID > 0 {
+		q = `SELECT ` + cols + ` FROM slack_dm_messages WHERE channel_id = $1 AND id > $3 ORDER BY created_at, id LIMIT $2`
+		args = append(args, afterID)
+	} else {
+		q = `SELECT * FROM (SELECT ` + cols + ` FROM slack_dm_messages WHERE channel_id = $1
+		     ORDER BY created_at DESC, id DESC LIMIT $2) t ORDER BY created_at, id`
+	}
+	rows, err := pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SlackDMMessage{}
+	for rows.Next() {
+		var m SlackDMMessage
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.SlackTS, &m.ThreadTS, &m.Direction, &m.Kind, &m.AuthorSlackID,
+			&m.SentByUserID, &m.Text, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// SetMode changes how the bot treats this conversation (smart, auto or muted). It reports
+// whether the conversation exists.
+func (r *SlackDMRepository) SetMode(ctx context.Context, channelID, mode string) (bool, error) {
+	if mode != DMModeSmart && mode != DMModeAuto && mode != DMModeMuted {
+		return false, errors.New("invalid mode")
+	}
+	pool := GetPool()
+	if pool == nil {
+		return false, nil
+	}
+	tag, err := pool.Exec(ctx, `UPDATE slack_dm_conversations SET mode = $2 WHERE channel_id = $1`, channelID, mode)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// ClearAttention marks the conversation as seen by the admin.
+func (r *SlackDMRepository) ClearAttention(ctx context.Context, channelID string) error {
+	pool := GetPool()
+	if pool == nil {
+		return nil
+	}
+	_, err := pool.Exec(ctx, `UPDATE slack_dm_conversations SET needs_attention = false WHERE channel_id = $1`, channelID)
+	return err
+}
+
+// ResolveRelay ends the relay and clears the flag, so the bot answers this person again.
+func (r *SlackDMRepository) ResolveRelay(ctx context.Context, channelID string) (bool, error) {
+	pool := GetPool()
+	if pool == nil {
+		return false, nil
+	}
+	tag, err := pool.Exec(ctx, `
+		UPDATE slack_dm_conversations
+		SET relay_owner_id = '', relay_until = NULL, relay_acked = false, needs_attention = false
+		WHERE channel_id = $1`, channelID)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// CountNeedingAttention is the number behind the Chats badge.
+func (r *SlackDMRepository) CountNeedingAttention(ctx context.Context) (int, error) {
+	pool := GetPool()
+	if pool == nil {
+		return 0, nil
+	}
+	var n int
+	err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM slack_dm_conversations c
+		WHERE c.needs_attention AND EXISTS (SELECT 1 FROM slack_dm_messages m WHERE m.channel_id = c.channel_id)`).Scan(&n)
+	return n, err
+}
+
 // PruneIdleConversations deletes conversation rows that have no messages left and have been
 // quiet for the retention period, so a person's name, email and relay owner don't outlive
 // their chat history.
