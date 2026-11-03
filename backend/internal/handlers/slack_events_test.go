@@ -96,10 +96,13 @@ func TestVerifySlackSignature_MissingSecret(t *testing.T) {
 
 func TestSanitizeDashes(t *testing.T) {
 	cases := map[string]string{
-		"hey there — nice work":    "hey there ,  nice work",
+		"hey there — nice work":    "hey there, nice work",
 		"double--dash here":        "double, dash here",
-		"en dash – also stripped":  "en dash ,  also stripped",
+		"en dash – also stripped":  "en dash, also stripped",
+		"spaced -- double dash":    "spaced, double dash",
+		"glued—together":           "glued, together",
 		"no dashes here, all good": "no dashes here, all good",
+		"a - lone hyphen stays":    "a - lone hyphen stays",
 	}
 	for in, want := range cases {
 		if got := sanitizeDashes(in); got != want {
