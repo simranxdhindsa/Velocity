@@ -13,6 +13,7 @@
 - Velocity bot replies now fit the message, from a two word thanks to a few short lines, and stay accurate
 
 ### Features
+- New Chats reply box that no longer hides under the assistant bubble, with AI buttons to make a message polite or sound human, and an undo
 - New Chats tab in Slack where admins read DM conversations, reply as Velocity, and hand a chat back to the bot
 - When someone answers a DM Velocity sent for you, the bot stays quiet and tells you what they said instead of joking back
 
