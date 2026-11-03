@@ -2099,6 +2099,49 @@ class ApiService {
     >
   }
 
+  // ── Admin Slack chats: every DM between people and the Velocity bot ───────
+  async getSlackChats() {
+    return this.request<SlackChat[]>('/slack-chats')
+  }
+
+  /** How many chats are waiting on the admin (the Chats tab badge). */
+  async getSlackChatsSummary() {
+    return this.request<{ needs_attention: number }>('/slack-chats/summary')
+  }
+
+  /**
+   * A chat's messages, oldest first. With afterId only newer ones (polling). markRead says the
+   * admin is looking at it, which clears its "needs you" flag.
+   */
+  async getSlackChatMessages(channelId: string, opts: { afterId?: number; markRead?: boolean } = {}) {
+    const q = new URLSearchParams()
+    if (opts.afterId) q.set('after_id', String(opts.afterId))
+    if (opts.markRead) q.set('mark_read', '1')
+    const qs = q.toString()
+    return this.request<SlackChatMessage[]>(
+      `/slack-chats/${encodeURIComponent(channelId)}/messages${qs ? `?${qs}` : ''}`,
+    ) as Promise<ApiResponse<SlackChatMessage[]> & { conversation?: SlackChat }>
+  }
+
+  async replySlackChat(channelId: string, text: string) {
+    return this.request<void>(`/slack-chats/${encodeURIComponent(channelId)}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    })
+  }
+
+  async setSlackChatMode(channelId: string, mode: SlackChatMode) {
+    return this.request<void>(`/slack-chats/${encodeURIComponent(channelId)}/mode`, {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
+    })
+  }
+
+  /** Ends the relay so the bot answers this person again, and clears the "needs you" flag. */
+  async resolveSlackChat(channelId: string) {
+    return this.request<void>(`/slack-chats/${encodeURIComponent(channelId)}/resolve`, { method: 'POST' })
+  }
+
   // ── Team knowledge base (admin only) ──────────────────────────────────────
   async getKBDocuments() {
     return this.request<KBDocument[]>('/kb/documents') as Promise<
@@ -2270,6 +2313,46 @@ export interface SlackBotConversation {
   success: boolean
   error_message: string
   created_at: string
+}
+
+/** How the bot treats a DM: smart stays quiet while a chat Velocity started is open. */
+export type SlackChatMode = 'smart' | 'auto' | 'muted'
+
+/** One person's DM conversation with the Velocity bot (a row of the Chats list). */
+export interface SlackChat {
+  channel_id: string
+  slack_user_id: string
+  slack_user_name: string
+  slack_user_email: string
+  mode: SlackChatMode
+  /** Velocity user the person's answers are being passed to, while a relay is open. */
+  relay_owner_id: string
+  relay_until: string | null
+  relay_acked: boolean
+  needs_attention: boolean
+  last_message_at: string
+  last_preview: string
+  last_kind: SlackChatMessageKind | ''
+  last_direction: 'in' | 'out' | ''
+  relay_active: boolean
+  relay_owner_name: string
+}
+
+export type SlackChatMessageKind = 'human' | 'claude' | 'dashboard' | 'auto_reply' | 'ack' | 'notice'
+
+export interface SlackChatMessage {
+  id: number
+  channel_id: string
+  slack_ts: string
+  thread_ts: string
+  direction: 'in' | 'out'
+  kind: SlackChatMessageKind
+  author_slack_id: string
+  sent_by_user_id: string
+  text: string
+  created_at: string
+  /** Who wrote it: the person, the Velocity user, or Velocity itself. */
+  author_label: string
 }
 
 // Types

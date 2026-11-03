@@ -12,13 +12,15 @@ import type { Preset } from './SlackTabs'
 import { SlackMessagesHub } from './SlackMessagesHub'
 import { BotConversationsView } from '@/components/SlackBotConversations'
 import { McpActivityView } from '@/components/McpActivityView'
+import { SlackChatsView } from '@/components/slack-chats/SlackChatsView'
+import { useSlackChatsBadge } from '@/hooks/useSlackChatsBadge'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import { useAuth } from '@/contexts/AuthContext'
 import '../styles/pages/slack.css'
 import { CountUp } from '../components/CountUp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Tab = 'inbox' | 'messages' | 'mcp-activity'
+type Tab = 'inbox' | 'messages' | 'mcp-activity' | 'chats'
 type InboxView = 'mentions' | 'threads'
 type InboxFilter = 'Needs Action' | 'Pinned' | 'All' | 'Snoozed' | 'Resolved'
 
@@ -46,6 +48,8 @@ export function SlackIntelligencePage({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const showClaudeActions = isAdmin && activityView === 'claude'
+  // Admin-only Chats tab: how many DM chats wait on the admin, plus browser alerts for new ones.
+  const chatsBadge = useSlackChatsBadge(isAdmin)
   const [inboxView, setInboxView] = useState<InboxView>('mentions')
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>('Needs Action')
   const [search, setSearch] = useState('')
@@ -54,6 +58,12 @@ export function SlackIntelligencePage({
 
   useEffect(() => { setTab(initialTab) }, [initialTab])
   const handleTabChange = (t: Tab) => { setTab(t); onTabChange?.(t) }
+  // Chats is admin-only. Someone else opening /slack/chats directly goes to Messages (only once
+  // the user is loaded, so an admin refreshing on Chats is never bounced while the session loads).
+  useEffect(() => {
+    if (tab === 'chats' && user && !isAdmin) { setTab('messages'); onTabChange?.('messages') }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, user, isAdmin])
   const goToInbox = (view: InboxView, filter?: InboxFilter) => {
     handleTabChange('inbox')
     setInboxView(view)
@@ -295,6 +305,7 @@ export function SlackIntelligencePage({
   const TABS: Array<{ id: Tab; label: string; badge?: number | 'dot' }> = [
     { id: 'messages', label: 'Messages' },
     { id: 'inbox',    label: 'Inbox', badge: needsActionCount > 0 ? needsActionCount : undefined },
+    ...(isAdmin ? [{ id: 'chats' as const, label: 'Chats', badge: chatsBadge.count > 0 ? chatsBadge.count : undefined }] : []),
     { id: 'mcp-activity', label: 'MCP Activity' },
   ]
 
@@ -475,6 +486,14 @@ export function SlackIntelligencePage({
         )}
 
         {tab === 'messages' && <SlackMessagesHub />}
+
+        {tab === 'chats' && isAdmin && (
+          <SlackChatsView
+            alertPermission={chatsBadge.permission}
+            onEnableAlerts={chatsBadge.enableAlerts}
+            onChanged={chatsBadge.refresh}
+          />
+        )}
 
         {tab === 'mcp-activity' && isAdmin && (
           <div className="si2-controls">
