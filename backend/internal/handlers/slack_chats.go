@@ -43,13 +43,17 @@ type SlackChatsHandler struct {
 	store    chatStore
 	sender   chatSender
 	userName func(ctx context.Context, velocityUserID string) string
+	// profile looks up a Slack person's name and photo for the signed-in admin (nil = skip).
+	profile func(ctx context.Context, adminID, slackUserID string) (slackProfile, bool)
 }
 
 func NewSlackChatsHandler() *SlackChatsHandler {
 	users := database.NewUserRepository()
+	integrations := database.NewIntegrationRepository()
 	return &SlackChatsHandler{
-		store:  database.NewSlackDMRepository(),
-		sender: updatesvc.NewService(),
+		store:   database.NewSlackDMRepository(),
+		sender:  updatesvc.NewService(),
+		profile: slackProfileLookup(integrations),
 		userName: func(ctx context.Context, id string) string {
 			if u, err := users.GetByID(ctx, id); err == nil && u != nil {
 				return u.Name
@@ -63,6 +67,7 @@ type chatListItem struct {
 	database.SlackDMListItem
 	RelayActive    bool   `json:"relay_active"`
 	RelayOwnerName string `json:"relay_owner_name"`
+	SlackUserImage string `json:"slack_user_image"`
 }
 
 type chatMessage struct {
@@ -97,9 +102,16 @@ func (h *SlackChatsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	names := map[string]string{}
+	profiles := h.profiles(r, slackIDsOf(items))
 	out := make([]chatListItem, 0, len(items))
 	for _, it := range items {
 		li := chatListItem{SlackDMListItem: it, RelayActive: relayActive(it.SlackDMConversation, now)}
+		if p, ok := profiles[it.SlackUserID]; ok {
+			li.SlackUserImage = p.Image
+			if li.SlackUserName == "" {
+				li.SlackUserName = p.Name
+			}
+		}
 		if li.RelayActive {
 			if _, ok := names[it.RelayOwnerID]; !ok {
 				names[it.RelayOwnerID] = h.userName(r.Context(), it.RelayOwnerID)
@@ -152,6 +164,10 @@ func (h *SlackChatsHandler) Messages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	prof, hasProf := h.profiles(r, []string{conv.SlackUserID})[conv.SlackUserID]
+	if hasProf && conv.SlackUserName == "" {
+		conv.SlackUserName = prof.Name
+	}
 	names := map[string]string{}
 	out := make([]chatMessage, 0, len(msgs))
 	for _, m := range msgs {
@@ -167,6 +183,7 @@ func (h *SlackChatsHandler) Messages(w http.ResponseWriter, r *http.Request) {
 		"conversation": chatListItem{
 			SlackDMListItem: database.SlackDMListItem{SlackDMConversation: *conv},
 			RelayActive:     relayActive(*conv, now), RelayOwnerName: ownerName,
+			SlackUserImage: prof.Image,
 		},
 	})
 }

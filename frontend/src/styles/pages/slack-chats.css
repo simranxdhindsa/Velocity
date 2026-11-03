@@ -59,6 +59,7 @@
   color: var(--color-primary); background: rgba(var(--color-primary-rgb), 0.16);
 }
 .slchat-avatar--lg { width: 40px; height: 40px; }
+.slchat-avatar--img { object-fit: cover; background: var(--bg-elevated); }
 
 /* ── Thread ────────────────────────────────────────────────────────────────── */
 .slchat-thread { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }

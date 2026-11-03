@@ -2324,6 +2324,8 @@ export interface SlackChat {
   slack_user_id: string
   slack_user_name: string
   slack_user_email: string
+  /** Slack profile photo URL, empty when Slack has none or could not be asked. */
+  slack_user_image?: string
   mode: SlackChatMode
   /** Velocity user the person's answers are being passed to, while a relay is open. */
   relay_owner_id: string

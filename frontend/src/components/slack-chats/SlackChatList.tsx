@@ -1,7 +1,8 @@
 import { memo } from 'react'
 import { BellOff, Link2, Search } from 'lucide-react'
 import type { SlackChat } from '@/services/api'
-import { chatAgo, chatName, initials, previewLine } from './slack-chats-utils'
+import { chatAgo, chatName, previewLine } from './slack-chats-utils'
+import { ChatAvatar } from './ChatAvatar'
 
 const W = [55, 70, 48, 65, 58, 72]
 
@@ -30,7 +31,7 @@ const ChatRow = memo(function ChatRow({ chat, active, onSelect }: { chat: SlackC
       onClick={() => onSelect(chat.channel_id)}
       aria-current={active ? 'true' : undefined}
     >
-      <span className="slchat-avatar" aria-hidden="true">{initials(name)}</span>
+      <ChatAvatar name={name} image={chat.slack_user_image} />
       <span className="slchat-item-main">
         <span className="slchat-item-top">
           <span className="slchat-item-name">{name}</span>

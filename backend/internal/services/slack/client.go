@@ -116,6 +116,7 @@ type Profile struct {
 	DisplayName string `json:"display_name"`
 	Email       string `json:"email"`
 	Image48     string `json:"image_48"`
+	Image72     string `json:"image_72"`
 }
 
 // TeamInfo represents Slack team/workspace info
