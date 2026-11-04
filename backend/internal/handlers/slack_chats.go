@@ -47,6 +47,8 @@ type SlackChatsHandler struct {
 	profile func(ctx context.Context, adminID, slackUserID string) (slackProfile, bool)
 	// rewrite asks the AI to rewrite a draft (nil = AI not configured).
 	rewrite func(ctx context.Context, system, user string) (string, error)
+	// prompt returns the rephrase prompt for a style (nil = built-in text).
+	prompt func(ctx context.Context, style string) string
 }
 
 func NewSlackChatsHandler() *SlackChatsHandler {
@@ -57,6 +59,7 @@ func NewSlackChatsHandler() *SlackChatsHandler {
 		sender:  updatesvc.NewService(),
 		profile: slackProfileLookup(integrations),
 		rewrite: groqRewrite,
+		prompt:  rephrasePrompt,
 		userName: func(ctx context.Context, id string) string {
 			if u, err := users.GetByID(ctx, id); err == nil && u != nil {
 				return u.Name
@@ -216,8 +219,8 @@ func (h *SlackChatsHandler) authorLabel(ctx context.Context, conv *database.Slac
 	}
 }
 
-// Reply handles POST /api/slack-chats/{channel}/reply {text}. The message goes out as Velocity
-// with a short signature naming the admin, and opens a relay so the person's answer comes back
+// Reply handles POST /api/slack-chats/{channel}/reply {text}. The message goes out as Velocity,
+// exactly as written with no name added, and opens a relay so the person's answer comes back
 // here instead of getting a joke from the bot.
 func (h *SlackChatsHandler) Reply(w http.ResponseWriter, r *http.Request) {
 	ch, ok := channelParam(w, r)
@@ -255,14 +258,8 @@ func (h *SlackChatsHandler) Reply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := h.userName(r.Context(), user.ID)
-	if name == "" {
-		name = user.Name
-	}
+	// The message goes out exactly as written: no name or signature is added for the person to see.
 	message := text
-	if name != "" {
-		message += "\n_" + name + " (via Velocity)_"
-	}
 	// Finish the send even if the browser tab closes midway, same as the Day Track send.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 45*time.Second)
 	defer cancel()

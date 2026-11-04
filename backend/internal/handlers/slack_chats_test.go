@@ -295,7 +295,7 @@ func TestChatReplyGoesOutAsVelocityWithASignatureAndClearsTheFlag(t *testing.T) 
 	if s.userID != "user-simran" || s.dmUserID != "UHARPREET" || s.source != "quick_send" {
 		t.Errorf("must go to Harpreet's Slack user as a dashboard send for the admin: %+v", s)
 	}
-	if s.message != "Thanks Harpreet, can you share the ETA?\n_Simran (via Velocity)_" {
+	if s.message != "Thanks Harpreet, can you share the ETA?" {
 		t.Errorf("signature wrong (trimmed text, then a short line naming the admin): %q", s.message)
 	}
 	if strings.Contains(s.message, "—") {
@@ -399,17 +399,17 @@ func TestRephrase(t *testing.T) {
 	var gotSystem, gotUser string
 	h.rewrite = func(_ context.Context, system, user string) (string, error) {
 		gotSystem, gotUser = system, user
-		return `"Hey, could you send the report when you get a moment — thanks!"`, nil
+		return `"Hey, could you send the report when you get a moment — it's blocking us - thanks! I'm waiting -- really."`, nil
 	}
 	rec := do(router, "POST", "/api/slack-chats/rephrase", "admin", `{"text":"send report now","style":"polite"}`)
 	data := decode(t, rec)["data"].(map[string]any)
-	if rec.Code != 200 || data["text"] != "Hey, could you send the report when you get a moment, thanks!" {
-		t.Fatalf("got %d %v (quotes and em dash must be cleaned)", rec.Code, data)
+	if rec.Code != 200 || data["text"] != "Hey, could you send the report when you get a moment, its blocking us, thanks! im waiting, really." {
+		t.Fatalf("got %d %v (quotes, dashes and apostrophes must be cleaned)", rec.Code, data)
 	}
-	if !strings.Contains(gotSystem, "polite and warm") || !strings.Contains(gotUser, "send report now") {
+	if !strings.Contains(gotSystem, "polite and warm") || !strings.Contains(gotSystem, "No apostrophes") || !strings.Contains(gotUser, "send report now") {
 		t.Errorf("prompt not built from style and draft: %q / %q", gotSystem, gotUser)
 	}
-	if !strings.Contains(chatRephraseStyles["human"], "real person") {
+	if !strings.Contains(chatRephraseStyles["human"], "real person") || strings.Contains(chatRephraseStyles["human"], "Never use dashes") == false {
 		t.Error("human style missing")
 	}
 	if len(sender.sent) != 0 {

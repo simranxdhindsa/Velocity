@@ -126,7 +126,7 @@ export function SlackChatComposer({ name, error, sending, onSend }: {
         </div>
       </div>
       <div className="slchat-composer-foot">
-        <span>Sent as Velocity with your name, and their answer comes back here.</span>
+        <span>Sent as Velocity, and their answer comes back here.</span>
         {draft.length > MAX_REPLY - 500 && (
           <span className={tooLong ? 'slchat-count slchat-count--over' : 'slchat-count'}>{draft.length}/{MAX_REPLY}</span>
         )}
