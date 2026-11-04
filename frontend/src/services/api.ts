@@ -2113,7 +2113,7 @@ class ApiService {
 
   /** How many chats are waiting on the admin (the Chats tab badge). */
   async getSlackChatsSummary() {
-    return this.request<{ needs_attention: number }>('/slack-chats/summary')
+    return this.request<{ needs_attention: number; latest_inbound_at: string | null }>('/slack-chats/summary')
   }
 
   /**
@@ -2152,9 +2152,9 @@ class ApiService {
     })
   }
 
-  /** Ends the relay so the bot answers this person again, and clears the "needs you" flag. */
+  /** Passes the chat back to the bot. answering is true when it is replying to a waiting message. */
   async resolveSlackChat(channelId: string) {
-    return this.request<void>(`/slack-chats/${encodeURIComponent(channelId)}/resolve`, { method: 'POST' })
+    return this.request<void>(`/slack-chats/${encodeURIComponent(channelId)}/resolve`, { method: 'POST' }) as Promise<ApiResponse<void> & { answering?: boolean }>
   }
 
   // ── Team knowledge base (admin only) ──────────────────────────────────────

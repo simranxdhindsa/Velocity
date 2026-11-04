@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSlackChatsBadge } from '@/hooks/useSlackChatsBadge'
 import { StatCarousel } from '@/components/StatCarousel'
 import WorldClock from '@/components/WorldClock'
 import { PERSIST } from '@/hooks/usePersistedState'
@@ -126,6 +127,11 @@ export default function Dashboard() {
   const slackTab: SlackTab = (SLACK_TABS as readonly string[]).includes(subTab ?? '')
     ? (subTab as SlackTab)
     : 'messages'
+
+  // The open chat lives in the URL (/slack/chats/<id>) so a refresh reopens it.
+  const slackChatId = slackTab === 'chats' ? pathSegments[2] ?? '' : ''
+  // Admin-only Chats: the Slack tab badge, browser alerts and the dot on Slack in the left nav.
+  const chatsBadge = useSlackChatsBadge(user?.role === 'admin', currentPage === 'slack' && slackTab === 'chats')
 
   // Derived sub-tab for integrations (with validation)
   const integrationsTab: IntegrationsTab = (INTEGRATIONS_TABS as readonly string[]).includes(subTab ?? '')
@@ -457,8 +463,13 @@ export default function Dashboard() {
             </button>
             <button
                 className={`sidebar-nav-item ${currentPage === 'slack' ? 'active' : ''}`}
-                onClick={() => setCurrentPage('slack')}
+                onClick={() => {
+                  // A new message takes the admin straight to Chats, where the dot clears.
+                  setCurrentPage('slack')
+                  if (chatsBadge.hasNew) navigate('/slack/chats')
+                }}
               >
+                <span className="sidebar-nav-icon-rel">
                 <svg width="20" height="20" viewBox="0 0 54 54" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M19.7 32.5a4.9 4.9 0 1 1-4.9-4.9h4.9v4.9Z" fill="#E01E5A"/>
                   <path d="M22.2 32.5a4.9 4.9 0 0 1 9.8 0v12.3a4.9 4.9 0 0 1-9.8 0V32.5Z" fill="#E01E5A"/>
@@ -469,6 +480,8 @@ export default function Dashboard() {
                   <path d="M32.5 39.9a4.9 4.9 0 1 1-4.9 4.9V39.9h4.9Z" fill="#ECB22E"/>
                   <path d="M32.5 37.4a4.9 4.9 0 0 1 0-9.8h12.3a4.9 4.9 0 0 1 0 9.8H32.5Z" fill="#ECB22E"/>
                 </svg>
+                {chatsBadge.hasNew && <span className="sidebar-nav-badge-dot" aria-label="New Slack messages" />}
+                </span>
                 <span>Slack</span>
               </button>
           </div>
@@ -712,6 +725,9 @@ export default function Dashboard() {
             <SlackIntelligencePage
               initialTab={slackTab}
               onTabChange={(tab) => navigate(`/slack/${tab}`)}
+              chatId={slackChatId}
+              onChatChange={(id) => navigate(id ? `/slack/chats/${encodeURIComponent(id)}` : '/slack/chats')}
+              chatsBadge={chatsBadge}
             />
           </div>
         )}

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { slackEmojify } from './slackEmoji'
 import { slackPlainText, slackToMarkdown } from './slackMarkdown'
-import { mergeConversation, needsCaption, previewLine, sameAuthor } from '../components/slack-chats/slack-chats-utils'
+import { hasNewChatMessage, mergeConversation, needsCaption, passToBotNotice, previewLine, sameAuthor } from '../components/slack-chats/slack-chats-utils'
 import type { SlackChat, SlackChatMessage } from '../services/api'
 
 test('turns the code from the bug report into the real emoji', () => {
@@ -90,4 +90,21 @@ test('opening a chat keeps its list preview, name and photo', () => {
   assert.equal(merged.slack_user_name, 'Asha')
   assert.equal(merged.slack_user_image, 'a.png')
   assert.equal(merged.needs_attention, false)
+})
+
+test('passing a chat to the bot says what will happen', () => {
+  assert.equal(passToBotNotice(true, 'smart'), 'Passed to the bot. It is answering now.')
+  assert.equal(passToBotNotice(false, 'smart'), 'Passed to the bot. It will answer their next message.')
+  assert.equal(passToBotNotice(false, 'muted'), 'Passed back. This chat is muted, so the bot stays quiet.')
+})
+
+test('the nav dot shows for waiting chats and messages newer than the last visit', () => {
+  const earlier = '2026-11-04T10:00:00Z'
+  const later = '2026-11-04T11:00:00Z'
+  assert.equal(hasNewChatMessage(0, later, earlier), true)
+  assert.equal(hasNewChatMessage(0, earlier, later), false)
+  assert.equal(hasNewChatMessage(0, later, later), false)
+  assert.equal(hasNewChatMessage(2, earlier, later), true)
+  assert.equal(hasNewChatMessage(0, '', ''), false)
+  assert.equal(hasNewChatMessage(0, later, ''), false)
 })

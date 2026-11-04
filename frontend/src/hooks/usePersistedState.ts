@@ -15,6 +15,8 @@ import { useState, useCallback } from 'react'
 // ── Central registry of all persisted state keys ─────────────────────────────
 // Add a new entry here whenever a new piece of UI state should survive refresh.
 export const PERSIST = {
+  /** Slack Chats: when the newest message had arrived the last time Chats was viewed (the nav dot) */
+  SLACK_CHATS_SEEN: 'velocity_slack_chats_seen',
   /** Main Dashboard tab last visited (e.g. 'board', 'pm-reports') */
   LAST_PAGE:        'velocity_last_page',
   /** PM Reports — which of the 10 tracking views was last active */

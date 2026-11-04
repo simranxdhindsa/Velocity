@@ -4,7 +4,7 @@ import api from '@/services/api'
 import type { SlackChat, SlackChatMessage, SlackChatMode } from '@/services/api'
 import { SlackChatList } from './SlackChatList'
 import { SlackChatThread } from './SlackChatThread'
-import { mergeConversation } from './slack-chats-utils'
+import { mergeConversation, passToBotNotice } from './slack-chats-utils'
 import '@/styles/pages/slack-chats.css'
 
 const LIST_POLL_MS = 10_000
@@ -13,17 +13,20 @@ const THREAD_POLL_MS = 5_000
 // Admin-only "Chats" tab of the Slack page: every DM between people and the Velocity bot as a
 // Slack-style people list and thread, with a reply box. The backend (/api/slack-chats, behind
 // AdminOnly) is the access boundary, this component only renders what it is allowed to fetch.
-export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
+export function SlackChatsView({ selectedId, onSelect, alertPermission, onEnableAlerts, onChanged }: {
+  /** The open chat, from the URL (/slack/chats/<id>), so a refresh or a shared link reopens it. */
+  selectedId: string
+  onSelect: (id: string) => void
   alertPermission: NotificationPermission | 'unsupported'
   onEnableAlerts: () => void
   /** Called after anything that changes what needs the admin, so the tab badge refreshes. */
   onChanged: () => void
 }) {
   const [chats, setChats] = useState<SlackChat[]>([])
+  const [passNotice, setPassNotice] = useState<{ chat: string; text: string } | null>(null)
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState('')
   const [search, setSearch] = useState('')
-  const [selectedId, setSelectedId] = useState('') // not persisted: on a phone it would skip the people list
   const [messages, setMessages] = useState<SlackChatMessage[]>([])
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [threadError, setThreadError] = useState('')
@@ -126,14 +129,22 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
     }
   }
 
+  // The confirmation under the header fades away on its own.
+  useEffect(() => {
+    if (!passNotice) return
+    const t = window.setTimeout(() => setPassNotice(null), 8000)
+    return () => window.clearTimeout(t)
+  }, [passNotice])
+
   async function resolve() {
     if (!selected) return
     try {
-      await api.resolveSlackChat(selected.channel_id)
+      const res = await api.resolveSlackChat(selected.channel_id)
+      setPassNotice({ chat: selected.channel_id, text: passToBotNotice(!!res.answering, selected.mode) })
       await loadChats()
       onChanged()
     } catch (e) {
-      setThreadError(e instanceof Error ? e.message : 'Could not hand this back.')
+      setThreadError(e instanceof Error ? e.message : 'Could not pass this to the bot.')
     }
   }
 
@@ -156,7 +167,7 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
         <SlackChatList
           chats={chats}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          onSelect={onSelect}
           search={search}
           onSearch={setSearch}
           loading={loadingList}
@@ -169,10 +180,11 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
               loading={loadingMsgs}
               error={threadError}
               sending={sending}
-              onBack={() => setSelectedId('')}
+              onBack={() => onSelect('')}
               onSend={send}
               onMode={changeMode}
               onResolve={resolve}
+              notice={passNotice?.chat === selected.channel_id ? passNotice.text : ''}
             />
           ) : (
             <div className="slchat-empty slchat-empty--main">

@@ -13,7 +13,7 @@ import { SlackMessagesHub } from './SlackMessagesHub'
 import { BotConversationsView } from '@/components/SlackBotConversations'
 import { McpActivityView } from '@/components/McpActivityView'
 import { SlackChatsView } from '@/components/slack-chats/SlackChatsView'
-import { useSlackChatsBadge } from '@/hooks/useSlackChatsBadge'
+import type { useSlackChatsBadge } from '@/hooks/useSlackChatsBadge'
 import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
 import { useAuth } from '@/contexts/AuthContext'
 import '../styles/pages/slack.css'
@@ -28,12 +28,20 @@ type InboxFilter = 'Needs Action' | 'Pinned' | 'All' | 'Snoozed' | 'Resolved'
 interface SlackIntelligencePageProps {
   initialTab?: Tab
   onTabChange?: (tab: Tab) => void
+  /** The open chat from the URL, and how to change it. */
+  chatId?: string
+  onChatChange?: (id: string) => void
+  /** Owned by Dashboard, because the left nav shows the same state. */
+  chatsBadge: ReturnType<typeof useSlackChatsBadge>
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export function SlackIntelligencePage({
   initialTab = 'messages',
   onTabChange,
+  chatId = '',
+  onChatChange,
+  chatsBadge,
 }: SlackIntelligencePageProps) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
@@ -48,8 +56,6 @@ export function SlackIntelligencePage({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const showClaudeActions = isAdmin && activityView === 'claude'
-  // Admin-only Chats tab: how many DM chats wait on the admin, plus browser alerts for new ones.
-  const chatsBadge = useSlackChatsBadge(isAdmin)
   const [inboxView, setInboxView] = useState<InboxView>('mentions')
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>('Needs Action')
   const [search, setSearch] = useState('')
@@ -489,6 +495,8 @@ export function SlackIntelligencePage({
 
         {tab === 'chats' && isAdmin && (
           <SlackChatsView
+            selectedId={chatId}
+            onSelect={id => onChatChange?.(id)}
             alertPermission={chatsBadge.permission}
             onEnableAlerts={chatsBadge.enableAlerts}
             onChanged={chatsBadge.refresh}

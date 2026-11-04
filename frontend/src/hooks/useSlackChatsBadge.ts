@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import api from '@/services/api'
+import { usePersistedState, PERSIST } from '@/hooks/usePersistedState'
+import { hasNewChatMessage } from '@/components/slack-chats/slack-chats-utils'
 
 const POLL_MS = 30_000
 
@@ -12,10 +14,14 @@ function currentPermission(): Permission {
 /**
  * How many Slack chats are waiting on the admin (the Chats tab badge), polled while the tab is
  * visible. When the count goes up and the browser allows it, shows a browser notification, so
- * an answer from someone is noticed even while another page is open.
+ * an answer from someone is noticed even while another page is open. Also says whether a message
+ * arrived since Chats was last viewed, for the dot on Slack in the left nav.
  */
-export function useSlackChatsBadge(enabled: boolean) {
+export function useSlackChatsBadge(enabled: boolean, viewing = false) {
   const [count, setCount] = useState(0)
+  const [latest, setLatest] = useState('')
+  const [seenAt, setSeenAt] = usePersistedState<string>(PERSIST.SLACK_CHATS_SEEN, '')
+  const viewingRef = useRef(viewing)
   const [permission, setPermission] = useState<Permission>(currentPermission)
   const prev = useRef<number | null>(null) // null until the first load, so opening the app never notifies
 
@@ -25,6 +31,10 @@ export function useSlackChatsBadge(enabled: boolean) {
       if (!res.success || !res.data) return
       const n = res.data.needs_attention
       setCount(n)
+      const newest = res.data.latest_inbound_at ?? ''
+      setLatest(newest)
+      // The first load starts from now, so old messages never light the dot.
+      if (newest) setSeenAt(seen => (!seen || viewingRef.current ? newest : seen))
       if (prev.current !== null && n > prev.current && currentPermission() === 'granted') {
         try {
           const body = n === 1 ? 'A chat is waiting for your reply.' : `${n} chats are waiting for your reply.`
@@ -37,7 +47,15 @@ export function useSlackChatsBadge(enabled: boolean) {
     } catch {
       // The badge is a convenience; a failed poll just leaves the last number.
     }
-  }, [])
+  }, [setSeenAt])
+
+  // Opening Chats counts as seeing what came in.
+  useEffect(() => {
+    viewingRef.current = viewing
+    if (!enabled || !viewing) return
+    const t = window.setTimeout(refresh, 0)
+    return () => window.clearTimeout(t)
+  }, [enabled, viewing, refresh])
 
   useEffect(() => {
     if (!enabled) return
@@ -64,5 +82,5 @@ export function useSlackChatsBadge(enabled: boolean) {
     }
   }, [])
 
-  return { count, refresh, permission, enableAlerts }
+  return { count, refresh, permission, enableAlerts, hasNew: enabled && !viewing && hasNewChatMessage(count, latest, seenAt) }
 }

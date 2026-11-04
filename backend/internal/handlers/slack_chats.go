@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
@@ -32,6 +33,7 @@ type chatStore interface {
 	ClearAttention(ctx context.Context, channelID string) error
 	ResolveRelay(ctx context.Context, channelID string) (bool, error)
 	CountNeedingAttention(ctx context.Context) (int, error)
+	LatestInboundAt(ctx context.Context) (*time.Time, error)
 }
 
 // chatSender posts a DM as Velocity for a user and records it (update_reminder.Service).
@@ -49,6 +51,11 @@ type SlackChatsHandler struct {
 	userImage func(ctx context.Context, adminID, velocityUserID string) string
 	// rewrite asks the AI to rewrite a draft (nil = AI not configured).
 	rewrite func(ctx context.Context, system, user string) (string, error)
+	// botToken and answer let the bot reply to a message still waiting when a chat is passed back.
+	botToken func(ctx context.Context, adminID string) string
+	answer   func(ctx context.Context, botToken string, ev slackInnerEvent)
+	// answering holds the channels the bot is replying in right now, so it never answers twice.
+	answering sync.Map
 	// prompt returns the rephrase prompt for a style (nil = built-in text).
 	prompt func(ctx context.Context, style string) string
 }
@@ -56,7 +63,15 @@ type SlackChatsHandler struct {
 func NewSlackChatsHandler() *SlackChatsHandler {
 	users := database.NewUserRepository()
 	integrations := database.NewIntegrationRepository()
+	events := NewSlackEventsHandler()
 	return &SlackChatsHandler{
+		answer: events.AnswerWaitingDM,
+		botToken: func(ctx context.Context, adminID string) string {
+			if integ, err := integrations.GetSlackIntegration(ctx, adminID); err == nil && integ != nil && integ.Connected {
+				return integ.BotToken
+			}
+			return ""
+		},
 		store:     database.NewSlackDMRepository(),
 		sender:    updatesvc.NewService(),
 		profile:   slackProfileLookup(integrations),
@@ -133,14 +148,20 @@ func (h *SlackChatsHandler) List(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, http.StatusOK, map[string]any{"success": true, "data": out})
 }
 
-// Summary handles GET /api/slack-chats/summary -> how many chats need the admin (the badge).
+// Summary handles GET /api/slack-chats/summary -> how many chats need the admin (the badge), and
+// when the newest message from a person arrived (the dot on Slack in the left nav).
 func (h *SlackChatsHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	n, err := h.store.CountNeedingAttention(r.Context())
 	if err != nil {
 		chatFail(w, http.StatusInternalServerError, "failed to load summary")
 		return
 	}
-	sendJSON(w, http.StatusOK, map[string]any{"success": true, "data": map[string]int{"needs_attention": n}})
+	latest, err := h.store.LatestInboundAt(r.Context())
+	if err != nil {
+		chatFail(w, http.StatusInternalServerError, "failed to load summary")
+		return
+	}
+	sendJSON(w, http.StatusOK, map[string]any{"success": true, "data": map[string]any{"needs_attention": n, "latest_inbound_at": latest}})
 }
 
 // Messages handles GET /api/slack-chats/{channel}/messages?after_id=N&limit=N&mark_read=1.
@@ -328,11 +349,16 @@ func (h *SlackChatsHandler) SetMode(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-// Resolve handles POST /api/slack-chats/{channel}/resolve: ends the relay so the bot answers
-// this person again, and clears the "needs you" flag.
+// Resolve handles POST /api/slack-chats/{channel}/resolve: passes the chat back to the bot. The
+// relay ends, the "needs you" flag clears, and the bot answers a message that is still waiting.
 func (h *SlackChatsHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 	ch, ok := channelParam(w, r)
 	if !ok {
+		return
+	}
+	conv, err := h.store.GetConversation(r.Context(), ch)
+	if err != nil {
+		chatFail(w, http.StatusInternalServerError, "failed to resolve")
 		return
 	}
 	found, err := h.store.ResolveRelay(r.Context(), ch)
@@ -344,5 +370,57 @@ func (h *SlackChatsHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 		chatFail(w, http.StatusNotFound, "conversation not found")
 		return
 	}
-	sendJSON(w, http.StatusOK, map[string]any{"success": true})
+	sendJSON(w, http.StatusOK, map[string]any{"success": true, "answering": h.answerIfWaiting(r, conv)})
+}
+
+// answerIfWaiting has the bot answer the person's latest message when nobody has yet. It only runs
+// when the chat was being held for an admin, so a repeated click cannot make the bot answer twice.
+func (h *SlackChatsHandler) answerIfWaiting(r *http.Request, conv *database.SlackDMConversation) bool {
+	user := middleware.GetUserFromContext(r)
+	if h.answer == nil || h.botToken == nil || user == nil || conv == nil || conv.Mode == database.DMModeMuted {
+		return false
+	}
+	if conv.RelayOwnerID == "" && !conv.NeedsAttention {
+		return false
+	}
+	msgs, err := h.store.ListMessages(r.Context(), conv.ChannelID, 0, 20)
+	if err != nil {
+		return false
+	}
+	waiting := waitingMessage(msgs)
+	if waiting == nil {
+		return false
+	}
+	token := h.botToken(r.Context(), user.ID)
+	if token == "" {
+		return false
+	}
+	if _, busy := h.answering.LoadOrStore(conv.ChannelID, true); busy {
+		return false
+	}
+	ev := slackInnerEvent{Type: "message", ChannelType: "im", Channel: conv.ChannelID, User: conv.SlackUserID,
+		Text: waiting.Text, TS: waiting.SlackTS, ThreadTS: waiting.ThreadTS}
+	go func() {
+		defer h.answering.Delete(conv.ChannelID)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		h.answer(ctx, token, ev)
+	}()
+	return true
+}
+
+// waitingMessage returns the person's latest message if nothing has answered it yet. The bot's
+// "passed this on" line and the alert to the admin are not answers, so they are skipped.
+func waitingMessage(msgs []database.SlackDMMessage) *database.SlackDMMessage {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		switch msgs[i].Kind {
+		case database.DMKindAck, database.DMKindNotice:
+			continue
+		case database.DMKindHuman:
+			return &msgs[i]
+		default:
+			return nil
+		}
+	}
+	return nil
 }
