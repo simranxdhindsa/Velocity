@@ -45,6 +45,8 @@ type SlackChatsHandler struct {
 	userName func(ctx context.Context, velocityUserID string) string
 	// profile looks up a Slack person's name and photo for the signed-in admin (nil = skip).
 	profile func(ctx context.Context, adminID, slackUserID string) (slackProfile, bool)
+	// userImage finds a Velocity user's photo, for messages sent through Velocity (nil = skip).
+	userImage func(ctx context.Context, adminID, velocityUserID string) string
 	// rewrite asks the AI to rewrite a draft (nil = AI not configured).
 	rewrite func(ctx context.Context, system, user string) (string, error)
 	// prompt returns the rephrase prompt for a style (nil = built-in text).
@@ -55,11 +57,12 @@ func NewSlackChatsHandler() *SlackChatsHandler {
 	users := database.NewUserRepository()
 	integrations := database.NewIntegrationRepository()
 	return &SlackChatsHandler{
-		store:   database.NewSlackDMRepository(),
-		sender:  updatesvc.NewService(),
-		profile: slackProfileLookup(integrations),
-		rewrite: groqRewrite,
-		prompt:  rephrasePrompt,
+		store:     database.NewSlackDMRepository(),
+		sender:    updatesvc.NewService(),
+		profile:   slackProfileLookup(integrations),
+		userImage: velocityUserImage(users, integrations),
+		rewrite:   groqRewrite,
+		prompt:    rephrasePrompt,
 		userName: func(ctx context.Context, id string) string {
 			if u, err := users.GetByID(ctx, id); err == nil && u != nil {
 				return u.Name
@@ -79,6 +82,7 @@ type chatListItem struct {
 type chatMessage struct {
 	database.SlackDMMessage
 	AuthorLabel string `json:"author_label"`
+	AuthorImage string `json:"author_image"`
 }
 
 func chatFail(w http.ResponseWriter, status int, msg string) {
@@ -175,9 +179,11 @@ func (h *SlackChatsHandler) Messages(w http.ResponseWriter, r *http.Request) {
 		conv.SlackUserName = prof.Name
 	}
 	names := map[string]string{}
+	images := map[string]string{}
 	out := make([]chatMessage, 0, len(msgs))
 	for _, m := range msgs {
-		out = append(out, chatMessage{SlackDMMessage: m, AuthorLabel: h.authorLabel(r.Context(), conv, m, names)})
+		out = append(out, chatMessage{SlackDMMessage: m, AuthorLabel: h.authorLabel(r.Context(), conv, m, names),
+			AuthorImage: h.authorImage(r, prof, m, images)})
 	}
 	now := time.Now()
 	ownerName := ""
@@ -192,6 +198,27 @@ func (h *SlackChatsHandler) Messages(w http.ResponseWriter, r *http.Request) {
 			SlackUserImage: prof.Image,
 		},
 	})
+}
+
+// authorImage finds the photo for a message: the person's Slack photo, or the Velocity user's for
+// messages sent through Claude or the dashboard. Velocity's own messages have none, and the page
+// shows the Velocity mark for those.
+func (h *SlackChatsHandler) authorImage(r *http.Request, person slackProfile, m database.SlackDMMessage, cache map[string]string) string {
+	switch m.Kind {
+	case database.DMKindHuman:
+		return person.Image
+	case database.DMKindClaude, database.DMKindDashboard:
+		user := middleware.GetUserFromContext(r)
+		if h.userImage == nil || user == nil || m.SentByUserID == "" {
+			return ""
+		}
+		if _, ok := cache[m.SentByUserID]; !ok {
+			cache[m.SentByUserID] = h.userImage(r.Context(), user.ID, m.SentByUserID)
+		}
+		return cache[m.SentByUserID]
+	default:
+		return ""
+	}
 }
 
 // authorLabel names who wrote a message: the person, a Velocity user (for messages sent through

@@ -4,6 +4,7 @@ import api from '@/services/api'
 import type { SlackChat, SlackChatMessage, SlackChatMode } from '@/services/api'
 import { SlackChatList } from './SlackChatList'
 import { SlackChatThread } from './SlackChatThread'
+import { mergeConversation } from './slack-chats-utils'
 import '@/styles/pages/slack-chats.css'
 
 const LIST_POLL_MS = 10_000
@@ -64,7 +65,7 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
       }
       if (res.conversation) {
         const conv = res.conversation
-        setChats(prev => prev.map(c => (c.channel_id === id ? { ...c, ...conv } : c)))
+        setChats(prev => prev.map(c => (c.channel_id === id ? mergeConversation(c, conv) : c)))
       }
       setThreadError('')
     } catch (e) {

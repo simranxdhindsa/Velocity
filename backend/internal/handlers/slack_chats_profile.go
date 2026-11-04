@@ -89,6 +89,34 @@ func slackProfileLookup(integrations *database.IntegrationRepository) func(conte
 	}
 }
 
+// velocityUserImage finds a Velocity user's Slack photo by their email, falling back to the photo
+// from their Velocity account. The cache key is prefixed so it can never clash with a Slack ID.
+func velocityUserImage(users *database.UserRepository, integrations *database.IntegrationRepository) func(context.Context, string, string) string {
+	return func(ctx context.Context, adminID, velocityUserID string) string {
+		key := "velocity:" + velocityUserID
+		if p, _, hit := cachedSlackProfile(key); hit {
+			return p.Image
+		}
+		u, err := users.GetByID(ctx, velocityUserID)
+		if err != nil || u == nil {
+			storeSlackProfile(key, slackProfile{}, false)
+			return ""
+		}
+		image := u.Picture
+		if integ, err := integrations.GetSlackIntegration(ctx, adminID); err == nil && integ != nil && integ.BotToken != "" && u.Email != "" {
+			if su, err := slacksvc.NewClient(integ.BotToken).GetUserByEmail(ctx, u.Email); err == nil && su != nil {
+				if su.Profile.Image72 != "" {
+					image = su.Profile.Image72
+				} else if su.Profile.Image48 != "" {
+					image = su.Profile.Image48
+				}
+			}
+		}
+		storeSlackProfile(key, slackProfile{Image: image}, image != "")
+		return image
+	}
+}
+
 func slackIDsOf(items []database.SlackDMListItem) []string {
 	ids := make([]string, 0, len(items))
 	for _, it := range items {

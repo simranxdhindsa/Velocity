@@ -93,16 +93,20 @@ export function SlackChatComposer({ name, error, sending, onSend }: {
           rows={1}
           disabled={sending || !!busy}
         />
-        <div className="slchat-box-bar">
-          <div className={`slchat-ai${hasText ? ' slchat-ai--on' : ''}`} aria-hidden={!hasText}>
+        <button type="button" className="slchat-send" onClick={send} disabled={!canSend} aria-label="Send reply">
+          <Send size={15} aria-hidden="true" />
+        </button>
+      </div>
+      <div className="slchat-composer-foot">
+        {hasText ? (
+          <div className="slchat-ai">
             {STYLES.map(({ id, label, hint, Icon }) => (
               <button
                 key={id}
                 type="button"
                 className={`slchat-chip${busy === id ? ' slchat-chip--busy' : ''}`}
                 onClick={() => rephrase(id)}
-                disabled={!hasText || !!busy || sending || tooLong}
-                tabIndex={hasText ? 0 : -1}
+                disabled={!!busy || sending || tooLong}
                 title={hint}
               >
                 {busy === id ? <Sparkles size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}
@@ -120,13 +124,9 @@ export function SlackChatComposer({ name, error, sending, onSend }: {
               </button>
             )}
           </div>
-          <button type="button" className="slchat-send" onClick={send} disabled={!canSend} aria-label="Send reply">
-            <Send size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-      <div className="slchat-composer-foot">
-        <span>Sent as Velocity, and their answer comes back here.</span>
+        ) : (
+          <span>Sent as Velocity, and their answer comes back here.</span>
+        )}
         {draft.length > MAX_REPLY - 500 && (
           <span className={tooLong ? 'slchat-count slchat-count--over' : 'slchat-count'}>{draft.length}/{MAX_REPLY}</span>
         )}
