@@ -3,11 +3,13 @@
 ## 2026-11-04
 
 ### Enhancements
+- Pass to bot button is the right size and keeps a steady pointer on hover
 - Chats AI rewrites keep possessives and hyphenated words correct, and renaming a rephrase bot on the Bots page keeps it working
 - Chats AI rewrites never use apostrophes or dashes, their prompts are now editable on the Bots page, and replies sent from Chats no longer add your name
 
 
 ### Bug Fixes
+- Confirmation popups now show a proper confirm button that matches the app, and close with the Escape key
 - Slack emoji now show as real emoji in Chats and other message views instead of codes like :wave:
 
 ### Features
