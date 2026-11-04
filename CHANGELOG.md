@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-04
+
+### Enhancements
+- Chats AI rewrites never use apostrophes or dashes, their prompts are now editable on the Bots page, and replies sent from Chats no longer add your name
+
+
 ## 2026-11-03
 
 ### Bug Fixes
