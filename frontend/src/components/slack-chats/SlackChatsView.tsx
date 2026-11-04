@@ -4,7 +4,7 @@ import api from '@/services/api'
 import type { SlackChat, SlackChatMessage, SlackChatMode } from '@/services/api'
 import { SlackChatList } from './SlackChatList'
 import { SlackChatThread } from './SlackChatThread'
-import { mergeConversation } from './slack-chats-utils'
+import { mergeConversation, passToBotNotice } from './slack-chats-utils'
 import '@/styles/pages/slack-chats.css'
 
 const LIST_POLL_MS = 10_000
@@ -20,6 +20,7 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
   onChanged: () => void
 }) {
   const [chats, setChats] = useState<SlackChat[]>([])
+  const [passNotice, setPassNotice] = useState<{ chat: string; text: string } | null>(null)
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState('')
   const [search, setSearch] = useState('')
@@ -126,14 +127,22 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
     }
   }
 
+  // The confirmation under the header fades away on its own.
+  useEffect(() => {
+    if (!passNotice) return
+    const t = window.setTimeout(() => setPassNotice(null), 8000)
+    return () => window.clearTimeout(t)
+  }, [passNotice])
+
   async function resolve() {
     if (!selected) return
     try {
-      await api.resolveSlackChat(selected.channel_id)
+      const res = await api.resolveSlackChat(selected.channel_id)
+      setPassNotice({ chat: selected.channel_id, text: passToBotNotice(!!res.answering, selected.mode) })
       await loadChats()
       onChanged()
     } catch (e) {
-      setThreadError(e instanceof Error ? e.message : 'Could not hand this back.')
+      setThreadError(e instanceof Error ? e.message : 'Could not pass this to the bot.')
     }
   }
 
@@ -173,6 +182,7 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
               onSend={send}
               onMode={changeMode}
               onResolve={resolve}
+              notice={passNotice?.chat === selected.channel_id ? passNotice.text : ''}
             />
           ) : (
             <div className="slchat-empty slchat-empty--main">

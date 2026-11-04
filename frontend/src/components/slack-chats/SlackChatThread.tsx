@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, Link2, UserCheck, Zap } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Bot, Link2, Zap } from 'lucide-react'
 import type { SlackChat, SlackChatMessage, SlackChatMode } from '@/services/api'
 import { CustomDropdown } from '@/components/CustomDropdown'
 import { ConfirmModal } from '@/components/ConfirmModal'
@@ -49,12 +49,13 @@ const Bubble = memo(function Bubble({ m, first, last, caption }: { m: SlackChatM
   )
 })
 
-export function SlackChatThread({ chat, messages, loading, error, sending, onBack, onSend, onMode, onResolve }: {
+export function SlackChatThread({ chat, messages, loading, error, sending, notice, onBack, onSend, onMode, onResolve }: {
   chat: SlackChat
   messages: SlackChatMessage[]
   loading: boolean
   error: string
   sending: boolean
+  notice: string
   onBack: () => void
   onSend: (text: string) => Promise<boolean>
   onMode: (mode: SlackChatMode) => void
@@ -116,7 +117,8 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
     el.scrollTo({ top: el.scrollHeight, behavior: calm ? 'auto' : 'smooth' })
   }
 
-  const canResolve = chat.relay_active || chat.needs_attention
+  // While a relay is open the button sits in its banner, otherwise in the header.
+  const canPassInHeader = !chat.relay_active && chat.needs_attention
 
   return (
     <section className="slchat-thread" aria-label={`Chat with ${name}`}>
@@ -137,9 +139,9 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
             searchable={false}
             className="slchat-mode"
           />
-          {canResolve && (
+          {canPassInHeader && (
             <button type="button" className="slchat-btn" onClick={() => setConfirmResolve(true)}>
-              <UserCheck size={14} aria-hidden="true" /> Hand back to bot
+              <Bot size={14} aria-hidden="true" /> Pass to bot
             </button>
           )}
         </div>
@@ -153,8 +155,12 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
             Their answers are being passed on to <strong>{chat.relay_owner_name || 'a Velocity user'}</strong>
             {chat.relay_until ? <>, and the bot stays quiet until {chatDateTime(chat.relay_until)}.</> : '.'}
           </span>
+          <button type="button" className="slchat-btn slchat-relay-btn" onClick={() => setConfirmResolve(true)}>
+            <Bot size={14} aria-hidden="true" /> Pass to bot
+          </button>
         </div>
       )}
+      {notice && <div className="slchat-relay slchat-relay--done" role="status"><Bot size={14} aria-hidden="true" /><span>{notice}</span></div>}
 
       <div className="slchat-messages-wrap">
       <div className="slchat-messages" ref={scroller} onScroll={e => onScroll(e.currentTarget)}>
@@ -192,9 +198,11 @@ export function SlackChatThread({ chat, messages, loading, error, sending, onBac
       <ConfirmModal
         open={confirmResolve}
         variant="info"
-        title="Hand this chat back to the bot?"
-        message={`The bot will answer ${name}'s next message again, and this chat stops waiting for you.`}
-        confirmLabel="Hand back"
+        title="Pass this chat to the bot?"
+        message={chat.mode === 'muted'
+          ? `This chat stops waiting for you. It is muted, so the bot stays quiet until you change the mode.`
+          : `The bot will answer ${name}'s last message if it is still waiting, then keep answering from here. This chat stops waiting for you.`}
+        confirmLabel="Pass to bot"
         onConfirm={() => { setConfirmResolve(false); onResolve() }}
         onCancel={() => setConfirmResolve(false)}
       />

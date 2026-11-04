@@ -73,6 +73,12 @@ export function mergeConversation(row: SlackChat, conv: SlackChat): SlackChat {
   }
 }
 
+/** What the admin is told after passing a chat back to the bot. */
+export function passToBotNotice(answering: boolean, mode: SlackChatMode): string {
+  if (mode === 'muted') return 'Passed back. This chat is muted, so the bot stays quiet.'
+  return answering ? 'Passed to the bot. It is answering now.' : 'Passed to the bot. It will answer their next message.'
+}
+
 /** Who a message is from and how it should look: the person, a Velocity user, or Velocity itself. */
 export type BubbleSide = 'them' | 'you' | 'bot'
 
