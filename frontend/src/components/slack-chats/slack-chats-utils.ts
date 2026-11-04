@@ -1,4 +1,5 @@
 import { upperAmPm } from '@/components/ClockTimePicker'
+import { slackEmojify } from '@/utils/slackEmoji'
 import type { SlackChat, SlackChatMessage, SlackChatMode } from '@/services/api'
 
 // Pure helpers for the admin Chats page (no React).
@@ -80,7 +81,7 @@ export function bubbleCaption(m: SlackChatMessage): string {
 /** Preview line for the people list: "You: ..." for what you sent, "Velocity: ..." for the bot. */
 export function previewLine(c: SlackChat): string {
   if (!c.last_preview) return ''
-  const flat = c.last_preview.replace(/\s+/g, ' ')
+  const flat = slackEmojify(c.last_preview).replace(/\s+/g, ' ')
   if (c.last_kind === 'claude' || c.last_kind === 'dashboard') return `You: ${flat}`
   if (c.last_kind === 'auto_reply' || c.last_kind === 'ack' || c.last_kind === 'notice') return `Velocity: ${flat}`
   return flat

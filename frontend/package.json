@@ -8,6 +8,7 @@
     "start": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "esbuild src/utils/*.test.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.app.json --loader:.css=empty --outdir=node_modules/.cache/unit --out-extension:.js=.mjs --log-level=error && for f in node_modules/.cache/unit/*.mjs; do node $f || exit 1; done",
     "preview": "vite preview"
   },
   "dependencies": {
