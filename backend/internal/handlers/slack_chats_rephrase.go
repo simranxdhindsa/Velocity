@@ -9,6 +9,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/models"
 )
 
 // "Rephrase with AI" for the Chats reply box: the admin writes a draft and asks for a politer or
@@ -19,18 +22,84 @@ import (
 const chatRephraseModel = "openai/gpt-oss-20b"
 
 const chatRephraseBase = `You rewrite a short Slack direct message that a manager is about to send to a teammate.
-Rules:
-- Keep the meaning, every name, number, date, link and @mention exactly as written. Add no new facts, promises or questions.
-- Keep it about the same length or shorter. Plain words, no corporate filler, no emojis unless the draft already has them.
-- Never use em dashes or double dashes. Use a comma, "and", or a new sentence.
+
+## Rules
+- Keep the meaning, and keep every name, number, date, link and @mention exactly as written. Add no new facts, promises or questions.
+- Keep it about the same length or shorter. Plain everyday words, no corporate filler, no emojis unless the draft already has them.
+- No apostrophes anywhere. Write dont, cant, its, youre, wont, hasnt, didnt, thats, im.
+- Never use dashes of any kind: no em dashes, no en dashes, no double dashes, and no hyphen used as a pause. Use a comma, the word "and", or start a new sentence.
+- Capitalize the first letter of every sentence, like normal professional writing. No Title Case, no ALL CAPS.
 - Write in the same language as the draft. Keep line breaks sensible.
 - Reply with the rewritten message only. No quotes, no preface, no explanation.`
 
-var chatRephraseStyles = map[string]string{
-	"polite": chatRephraseBase + `
-Style: polite and warm. Friendly and respectful, never stiff or pushy. Soften commands into requests ("could you", "when you get a moment") and say thanks where it fits.`,
-	"human": chatRephraseBase + `
-Style: sound like a real person typing in Slack. Casual, natural, contractions, short sentences. Remove robotic or formal phrasing, and anything that reads like AI wrote it (no "I hope this finds you well", no "kindly", no lists unless the draft is a list).`,
+const chatRephrasePolite = chatRephraseBase + `
+
+## Style: polite and warm
+Friendly and respectful, never stiff or pushy. Soften commands into requests ("could you", "when you get a moment") and say thanks where it fits.`
+
+const chatRephraseHuman = chatRephraseBase + `
+
+## Style: sound like a real person
+Write like a real person typing in Slack: casual, natural, short sentences. Remove robotic or formal phrasing and anything that reads like an AI wrote it (no "I hope this finds you well", no "kindly", no lists unless the draft is a list).`
+
+// Bot Config entries (type chat_rephrase) hold the editable prompts, found by these names. The
+// built-in text above is used when an entry is missing, inactive or empty.
+const (
+	chatRephrasePoliteName = "Chat Rephrase: Polite"
+	chatRephraseHumanName  = "Chat Rephrase: Human"
+)
+
+var chatRephraseStyles = map[string]string{"polite": chatRephrasePolite, "human": chatRephraseHuman}
+
+var chatRephraseBotNames = map[string]string{"polite": chatRephrasePoliteName, "human": chatRephraseHumanName}
+
+// SeedChatRephraseBots adds the two rephrase prompts to Bot Config when they are not there yet,
+// so they show up on the Bots page and can be edited. Existing entries are never touched.
+func SeedChatRephraseBots(ctx context.Context) {
+	if database.GetPool() == nil {
+		return
+	}
+	repo := database.NewBotConfigRepository()
+	existing, err := repo.GetByType(ctx, models.BotTypeChatRephrase)
+	if err != nil {
+		log.Printf("[slack-chats] could not check rephrase bots: %v", err)
+		return
+	}
+	have := map[string]bool{}
+	for _, c := range existing {
+		have[c.Name] = true
+	}
+	seeds := []struct{ name, desc, prompt string }{
+		{chatRephrasePoliteName, "Used by the Chats reply box when you press Make it polite. Rewrites your draft before you send it.", chatRephrasePolite},
+		{chatRephraseHumanName, "Used by the Chats reply box when you press Sound human. Rewrites your draft so it reads like a person typed it.", chatRephraseHuman},
+	}
+	for _, sd := range seeds {
+		if have[sd.name] {
+			continue
+		}
+		c := &models.BotConfig{Name: sd.name, Description: sd.desc, BotType: models.BotTypeChatRephrase, Prompt: sd.prompt, Variables: "[]", IsActive: true, CreatedBy: "system"}
+		if err := repo.Create(ctx, c); err != nil {
+			log.Printf("[slack-chats] could not add %q to Bot Config: %v", sd.name, err)
+		}
+	}
+}
+
+// rephrasePrompt returns the Bot Config prompt for a style, or the built-in one.
+func rephrasePrompt(ctx context.Context, style string) string {
+	fallback := chatRephraseStyles[style]
+	if database.GetPool() == nil {
+		return fallback
+	}
+	configs, err := database.NewBotConfigRepository().GetByType(ctx, models.BotTypeChatRephrase)
+	if err != nil {
+		return fallback
+	}
+	for _, c := range configs {
+		if c.Name == chatRephraseBotNames[style] && c.IsActive && strings.TrimSpace(c.Prompt) != "" {
+			return c.Prompt
+		}
+	}
+	return fallback
 }
 
 func groqRewrite(ctx context.Context, system, user string) (string, error) {
@@ -41,13 +110,16 @@ func groqRewrite(ctx context.Context, system, user string) (string, error) {
 	return callGroqChat(ctx, key, chatRephraseModel, system, user, 2000)
 }
 
-// cleanRephrase tidies the model's answer: no wrapping quotes, no em dashes.
+// cleanRephrase tidies the model's answer: no wrapping quotes, and the no dashes and no
+// apostrophes rules enforced for certain, because the prompt alone is not always followed.
 func cleanRephrase(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
 		s = strings.TrimSpace(s[1 : len(s)-1])
 	}
-	return strings.TrimSpace(sanitizeDashes(s))
+	s = sanitizeDashes(s)
+	s = strings.ReplaceAll(s, " - ", ", ")
+	return strings.TrimSpace(sanitizeApostrophes(s))
 }
 
 // Rephrase handles POST /api/slack-chats/rephrase {text, style: "polite"|"human"}.
@@ -61,8 +133,7 @@ func (h *SlackChatsHandler) Rephrase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(body.Text)
-	system, ok := chatRephraseStyles[body.Style]
-	if text == "" || !ok {
+	if _, ok := chatRephraseStyles[body.Style]; text == "" || !ok {
 		chatFail(w, http.StatusBadRequest, "write a message first")
 		return
 	}
@@ -76,6 +147,7 @@ func (h *SlackChatsHandler) Rephrase(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	system := h.stylePrompt(ctx, body.Style)
 	out, err := h.rewrite(ctx, system, "Draft message:\n"+text)
 	out = cleanRephrase(out)
 	if err != nil || out == "" {
@@ -88,4 +160,11 @@ func (h *SlackChatsHandler) Rephrase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendJSON(w, http.StatusOK, map[string]any{"success": true, "data": map[string]string{"text": out}})
+}
+
+func (h *SlackChatsHandler) stylePrompt(ctx context.Context, style string) string {
+	if h.prompt != nil {
+		return h.prompt(ctx, style)
+	}
+	return chatRephraseStyles[style]
 }

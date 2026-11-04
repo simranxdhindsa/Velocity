@@ -14,6 +14,7 @@ const (
 	BotTypeDeploymentReport BotType = "deployment_report"
 	BotTypeTicketParser     BotType = "ticket_parser"
 	BotTypeSlackReply       BotType = "slack_reply"
+	BotTypeChatRephrase     BotType = "chat_rephrase"
 )
 
 // BotConfig represents a configurable bot

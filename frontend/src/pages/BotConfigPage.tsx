@@ -21,6 +21,7 @@ import {
   UploadCloud,
   Ticket,
   Smile,
+  PenLine,
   type LucideIcon,
 } from 'lucide-react'
 import api from '../services/api'
@@ -39,6 +40,7 @@ const BOT_TYPE_ICONS: Record<string, LucideIcon> = {
   deployment_report: UploadCloud,
   ticket_parser: Ticket,
   slack_reply: Smile,
+  chat_rephrase: PenLine,
 }
 
 const BOT_TYPE_ACCENTS: Record<string, string> = {
@@ -50,6 +52,7 @@ const BOT_TYPE_ACCENTS: Record<string, string> = {
   deployment_report: 'var(--color-info)',
   ticket_parser: 'var(--color-danger)',
   slack_reply: 'var(--color-primary-light)',
+  chat_rephrase: 'var(--color-success)',
 }
 
 function botTypeIcon(botType: string): LucideIcon {
@@ -62,7 +65,7 @@ function botTypeAccent(botType: string): string {
 
 // Only the types creatable from the editor — pm_assistant/stage_report/slack_analysis/
 // daily_report/custom (matches the original <select>'s options); ticket_parser and
-// slack_reply are system-managed bot types, not user-creatable from this form.
+// slack_reply and chat_rephrase are system-managed bot types, not user-creatable from this form.
 const BOT_TYPE_CREATE_LABELS: Record<string, string> = {
   pm_assistant: 'PM Assistant',
   stage_report: 'Stage Report',
@@ -183,6 +186,7 @@ function BotCard({
     deployment_report: 'Deployment Report',
     ticket_parser: 'Ticket Parser',
     slack_reply: 'Slack Reply',
+    chat_rephrase: 'Chat Rephrase',
   }
 
   const con = getBotCon(bot.id)

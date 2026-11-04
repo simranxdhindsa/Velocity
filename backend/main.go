@@ -49,6 +49,7 @@ func main() {
 		if err := database.RunMigrations(); err != nil {
 			log.Printf("⚠️  Migration warning: %v", err)
 		}
+		handlers.SeedChatRephraseBots(context.Background())
 	}
 
 	// Initialize router
