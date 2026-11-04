@@ -282,7 +282,7 @@ func TestChatEndpointsRejectBadOrUnknownConversations(t *testing.T) {
 
 // ── reply ────────────────────────────────────────────────────────────────────
 
-func TestChatReplyGoesOutAsVelocityWithASignatureAndClearsTheFlag(t *testing.T) {
+func TestChatReplyGoesOutExactlyAsWrittenAndClearsTheFlag(t *testing.T) {
 	h, store, sender := newTestChats()
 	rec := do(chatsRouter(h), "POST", "/api/slack-chats/D_H/reply", "admin", `{"text":"  Thanks Harpreet, can you share the ETA?  "}`)
 	if rec.Code != http.StatusOK {
@@ -296,7 +296,7 @@ func TestChatReplyGoesOutAsVelocityWithASignatureAndClearsTheFlag(t *testing.T) 
 		t.Errorf("must go to Harpreet's Slack user as a dashboard send for the admin: %+v", s)
 	}
 	if s.message != "Thanks Harpreet, can you share the ETA?" {
-		t.Errorf("signature wrong (trimmed text, then a short line naming the admin): %q", s.message)
+		t.Errorf("must be the trimmed text only, with no name or signature added: %q", s.message)
 	}
 	if strings.Contains(s.message, "—") {
 		t.Error("no em dash in text that goes to people")
@@ -431,5 +431,23 @@ func TestRephrase(t *testing.T) {
 	h.rewrite = nil
 	if rec := do(router, "POST", "/api/slack-chats/rephrase", "admin", `{"text":"hi","style":"human"}`); rec.Code != 503 {
 		t.Errorf("no AI: code %d, want 503", rec.Code)
+	}
+}
+
+// The prompt follows the bot by its fixed key, so a rename on the Bots page changes nothing.
+func TestRephrasePromptFollowsTheKeyNotTheName(t *testing.T) {
+	key := chatRephraseBotKeys["polite"]
+	renamed := &models.BotConfig{Name: "My polite rewrite", CreatedBy: key, IsActive: true, Prompt: "edited"}
+	if got := pickRephrasePrompt([]*models.BotConfig{renamed}, "polite"); got != "edited" {
+		t.Errorf("renamed bot ignored: %q", got)
+	}
+	if got := pickRephrasePrompt([]*models.BotConfig{renamed}, "human"); got != chatRephraseHuman {
+		t.Errorf("polite bot used for human: %q", got)
+	}
+	off := &models.BotConfig{CreatedBy: key, IsActive: false, Prompt: "edited"}
+	empty := &models.BotConfig{CreatedBy: key, IsActive: true, Prompt: "  "}
+	impostor := &models.BotConfig{Name: "Chat Rephrase: Polite", CreatedBy: "someone", IsActive: true, Prompt: "evil"}
+	if got := pickRephrasePrompt([]*models.BotConfig{off, empty, impostor}, "polite"); got != chatRephrasePolite {
+		t.Errorf("should fall back to the built-in text: %q", got)
 	}
 }

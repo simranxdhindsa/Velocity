@@ -258,12 +258,10 @@ func (h *SlackChatsHandler) Reply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The message goes out exactly as written: no name or signature is added for the person to see.
-	message := text
 	// Finish the send even if the browser tab closes midway, same as the Day Track send.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 45*time.Second)
 	defer cancel()
-	if _, _, err := h.sender.QuickSend(ctx, user.ID, "", message, conv.SlackUserID, "quick_send"); err != nil {
+	if _, _, err := h.sender.QuickSend(ctx, user.ID, "", text, conv.SlackUserID, "quick_send"); err != nil {
 		chatFail(w, http.StatusBadGateway, "Slack did not accept the message: "+err.Error())
 		return
 	}
