@@ -95,6 +95,7 @@
 .confirm-modal-actions {
   display: flex; gap: 0.65rem; justify-content: flex-end;
 }
+.cm-box .confirm-modal-actions { width: 100%; margin-top: 8px; }
 
 /* ── ConfirmModal portal (cm-*) — new portal-based API ─── */
 .cm-overlay {
@@ -109,8 +110,8 @@
   background: var(--bg-elevated);
   border: 1px solid rgba(var(--overlay-rgb), 0.1);
   border-radius: 14px;
-  padding: 28px 28px 22px;
-  width: 340px; max-width: 90vw;
+  padding: 28px 24px 20px;
+  width: 380px; max-width: 90vw;
   box-shadow: 0 16px 48px rgba(0,0,0,0.5);
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   animation: confirmSlideIn 0.2s cubic-bezier(0.34,1.56,0.64,1);
@@ -120,7 +121,8 @@
   background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 4px;
 }
 .cm-close:hover { color: var(--text-primary); background: rgba(var(--overlay-rgb), 0.06); }
-.cm-message { font-size: 14px; color: var(--text-primary); text-align: center; line-height: 1.5; margin: 0; }
+.cm-box .confirm-modal-title { margin: 2px 0 0; font-size: 16px; font-weight: 600; color: var(--text-primary); text-align: center; }
+.cm-message { font-size: 13.5px; color: var(--text-secondary); text-align: center; line-height: 1.55; margin: 0; }
 .cm-detail  { font-size: 12px; color: var(--text-muted); text-align: center; margin: 0; }
 
 .confirm-modal-btn--cancel {
@@ -130,6 +132,18 @@
   transition: background 0.15s;
 }
 .confirm-modal-btn--cancel:hover { background: var(--bg-elevated); }
+
+/* Every variant shares one size, so the two buttons always match. */
+.confirm-modal-btn--info { background: var(--color-primary); color: white; border: none; }
+.confirm-modal-btn--info:hover { background: var(--color-primary-hover); }
+.confirm-modal-btn--warning { background: var(--color-warning); color: var(--bg-base); border: none; }
+.confirm-modal-btn--warning:hover { filter: brightness(1.08); }
+.confirm-modal-btn--danger:hover { filter: brightness(1.08); }
+.cm-box .confirm-modal-btn {
+  flex: 1; min-width: 0; height: 38px; padding: 0 14px; font: inherit; font-size: 13px; font-weight: 600;
+  border-radius: var(--radius-md); cursor: pointer; transition: background 0.15s, border-color 0.15s, filter 0.15s;
+}
+.cm-box .confirm-modal-btn:focus-visible { outline: 2px solid var(--color-primary-light); outline-offset: 2px; }
 
 [data-theme="light"] .cm-box { background: rgb(var(--panel-rgb)); border-color: rgba(0,0,0,0.1); }
 

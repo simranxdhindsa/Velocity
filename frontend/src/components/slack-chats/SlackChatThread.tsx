@@ -198,10 +198,12 @@ export function SlackChatThread({ chat, messages, loading, error, sending, notic
       <ConfirmModal
         open={confirmResolve}
         variant="info"
+        icon={<Bot size={22} />}
         title="Pass this chat to the bot?"
         message={chat.mode === 'muted'
-          ? `This chat stops waiting for you. It is muted, so the bot stays quiet until you change the mode.`
-          : `The bot will answer ${name}'s last message if it is still waiting, then keep answering from here. This chat stops waiting for you.`}
+          ? 'This chat is muted, so the bot stays quiet until you change the mode.'
+          : `The bot will answer ${name}'s last message if it is still waiting, then keep answering from here.`}
+        detail="This chat stops waiting for you."
         confirmLabel="Pass to bot"
         onConfirm={() => { setConfirmResolve(false); onResolve() }}
         onCancel={() => setConfirmResolve(false)}
