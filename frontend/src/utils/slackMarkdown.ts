@@ -1,5 +1,6 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { slackEmojify } from './slackEmoji'
 
 // Slack message text → safe HTML, shared by SlackMessageText. Kept out of
 // the component file so React fast refresh works.
@@ -28,6 +29,9 @@ export function slackToMarkdown(text: string, userMap?: Map<string, string>): st
     // Slack's single-tilde ~strike~ → ~~strike~~
     .replace(/(^|[^~\w])~(?=\S)([^~\n]+?)(?<=\S)~(?![~\w])/g, '$1~~$2~~')
 
+  // :wave: → 👋, leaving inline `code` as written (odd parts of this split are the code spans).
+  s = s.split(/(`[^`\n]*`)/).map((part, i) => (i % 2 ? part : slackEmojify(part))).join('')
+
   return s.replace(/⟦F(\d+)⟧/g, (_, i: string) => fences[Number(i)])
 }
 
@@ -53,7 +57,7 @@ export function renderSlackMessage(text: string, userMap?: Map<string, string>):
  * "a · b · c" with separator rows dropped, whitespace collapsed.
  */
 export function slackPlainText(text: string, userMap?: Map<string, string>): string {
-  return text
+  return slackEmojify(text)
     .replace(/<@([A-Z0-9]+)(?:\|([^>]+))?>/g, (_, id: string, label?: string) => `@${userMap?.get(id) || label || 'user'}`)
     .replace(/<#C[A-Z0-9]+\|([^>]+)>/g, '#$1')
     .replace(/<#C[A-Z0-9]+>/g, '#channel')
