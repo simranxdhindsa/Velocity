@@ -73,6 +73,13 @@ export function mergeConversation(row: SlackChat, conv: SlackChat): SlackChat {
   }
 }
 
+/** The nav dot: a chat is waiting on the admin, or a message arrived after Chats was last viewed. */
+export function hasNewChatMessage(waiting: number, latest: string, seenAt: string): boolean {
+  if (waiting > 0) return true
+  if (!latest || !seenAt) return false
+  return Date.parse(latest) > Date.parse(seenAt)
+}
+
 /** What the admin is told after passing a chat back to the bot. */
 export function passToBotNotice(answering: boolean, mode: SlackChatMode): string {
   if (mode === 'muted') return 'Passed back. This chat is muted, so the bot stays quiet.'

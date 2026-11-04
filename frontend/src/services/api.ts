@@ -2113,7 +2113,7 @@ class ApiService {
 
   /** How many chats are waiting on the admin (the Chats tab badge). */
   async getSlackChatsSummary() {
-    return this.request<{ needs_attention: number }>('/slack-chats/summary')
+    return this.request<{ needs_attention: number; latest_inbound_at: string | null }>('/slack-chats/summary')
   }
 
   /**
