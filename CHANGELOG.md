@@ -10,6 +10,9 @@
 ### Bug Fixes
 - Slack emoji now show as real emoji in Chats and other message views instead of codes like :wave:
 
+### Features
+- Chats now show Slack profile photos, a jump to latest button, smoother new messages and a slimmer reply box that always stays on screen
+
 ## 2026-11-03
 
 ### Bug Fixes
