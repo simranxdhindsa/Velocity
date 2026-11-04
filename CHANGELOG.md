@@ -3,6 +3,7 @@
 ## 2026-11-04
 
 ### Enhancements
+- Chats AI rewrites keep possessives and hyphenated words correct, and renaming a rephrase bot on the Bots page keeps it working
 - Chats AI rewrites never use apostrophes or dashes, their prompts are now editable on the Bots page, and replies sent from Chats no longer add your name
 
 
