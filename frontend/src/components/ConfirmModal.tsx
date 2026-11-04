@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, Trash2, AlertCircle, X } from 'lucide-react'
 
@@ -15,6 +16,8 @@ export interface ConfirmModalProps {
   cancelLabel?: string
   /** Controls icon + confirm button colour. Default: 'danger' */
   variant?: ConfirmVariant
+  /** Replaces the variant's default icon */
+  icon?: React.ReactNode
   onConfirm: () => void
   onCancel: () => void
 }
@@ -44,18 +47,26 @@ export function ConfirmModal({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   variant = 'danger',
+  icon,
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onCancel])
+
   if (!open) return null
 
   return createPortal(
     <div className="cm-overlay" onClick={onCancel}>
-      <div className="cm-box" onClick={e => e.stopPropagation()}>
-        <button className="cm-close" onClick={onCancel}><X size={15} /></button>
+      <div className="cm-box" role="dialog" aria-modal="true" aria-label={title ?? message} onClick={e => e.stopPropagation()}>
+        <button className="cm-close" onClick={onCancel} aria-label="Close"><X size={15} /></button>
 
         <div className={`confirm-modal-icon confirm-modal-icon--${variant}`}>
-          {ICONS[variant]}
+          {icon ?? ICONS[variant]}
         </div>
 
         {title && <h3 className="confirm-modal-title">{title}</h3>}
