@@ -77,7 +77,9 @@
 .slchat-mode-hint { padding: 6px 14px; font-size: 0.74rem; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle); }
 
 .slchat-relay > span { flex: 1; min-width: 0; }
-.slchat-relay-btn { flex-shrink: 0; height: 28px; padding: 0 10px; font-size: 0.74rem; }
+.slchat-btn.slchat-relay-btn { flex-shrink: 0; height: 28px; padding: 0 10px; font-size: 0.74rem; }
+/* The pointer stays on the button itself instead of hopping onto the icon inside it. */
+.slchat-btn svg { pointer-events: none; }
 .slchat-relay {
   display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 0.78rem;
   color: var(--text-primary); background: rgba(var(--color-primary-rgb), 0.10); border-bottom: 1px solid var(--border-subtle);
