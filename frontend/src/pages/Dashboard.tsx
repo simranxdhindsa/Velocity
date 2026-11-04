@@ -128,6 +128,8 @@ export default function Dashboard() {
     ? (subTab as SlackTab)
     : 'messages'
 
+  // The open chat lives in the URL (/slack/chats/<id>) so a refresh reopens it.
+  const slackChatId = slackTab === 'chats' ? pathSegments[2] ?? '' : ''
   // Admin-only Chats: the Slack tab badge, browser alerts and the dot on Slack in the left nav.
   const chatsBadge = useSlackChatsBadge(user?.role === 'admin', currentPage === 'slack' && slackTab === 'chats')
 
@@ -723,6 +725,8 @@ export default function Dashboard() {
             <SlackIntelligencePage
               initialTab={slackTab}
               onTabChange={(tab) => navigate(`/slack/${tab}`)}
+              chatId={slackChatId}
+              onChatChange={(id) => navigate(id ? `/slack/chats/${encodeURIComponent(id)}` : '/slack/chats')}
               chatsBadge={chatsBadge}
             />
           </div>

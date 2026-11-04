@@ -28,6 +28,9 @@ type InboxFilter = 'Needs Action' | 'Pinned' | 'All' | 'Snoozed' | 'Resolved'
 interface SlackIntelligencePageProps {
   initialTab?: Tab
   onTabChange?: (tab: Tab) => void
+  /** The open chat from the URL, and how to change it. */
+  chatId?: string
+  onChatChange?: (id: string) => void
   /** Owned by Dashboard, because the left nav shows the same state. */
   chatsBadge: ReturnType<typeof useSlackChatsBadge>
 }
@@ -36,6 +39,8 @@ interface SlackIntelligencePageProps {
 export function SlackIntelligencePage({
   initialTab = 'messages',
   onTabChange,
+  chatId = '',
+  onChatChange,
   chatsBadge,
 }: SlackIntelligencePageProps) {
   const { user } = useAuth()
@@ -490,6 +495,8 @@ export function SlackIntelligencePage({
 
         {tab === 'chats' && isAdmin && (
           <SlackChatsView
+            selectedId={chatId}
+            onSelect={id => onChatChange?.(id)}
             alertPermission={chatsBadge.permission}
             onEnableAlerts={chatsBadge.enableAlerts}
             onChanged={chatsBadge.refresh}

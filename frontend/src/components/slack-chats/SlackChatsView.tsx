@@ -13,7 +13,10 @@ const THREAD_POLL_MS = 5_000
 // Admin-only "Chats" tab of the Slack page: every DM between people and the Velocity bot as a
 // Slack-style people list and thread, with a reply box. The backend (/api/slack-chats, behind
 // AdminOnly) is the access boundary, this component only renders what it is allowed to fetch.
-export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
+export function SlackChatsView({ selectedId, onSelect, alertPermission, onEnableAlerts, onChanged }: {
+  /** The open chat, from the URL (/slack/chats/<id>), so a refresh or a shared link reopens it. */
+  selectedId: string
+  onSelect: (id: string) => void
   alertPermission: NotificationPermission | 'unsupported'
   onEnableAlerts: () => void
   /** Called after anything that changes what needs the admin, so the tab badge refreshes. */
@@ -24,7 +27,6 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState('')
   const [search, setSearch] = useState('')
-  const [selectedId, setSelectedId] = useState('') // not persisted: on a phone it would skip the people list
   const [messages, setMessages] = useState<SlackChatMessage[]>([])
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [threadError, setThreadError] = useState('')
@@ -165,7 +167,7 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
         <SlackChatList
           chats={chats}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          onSelect={onSelect}
           search={search}
           onSearch={setSearch}
           loading={loadingList}
@@ -178,7 +180,7 @@ export function SlackChatsView({ alertPermission, onEnableAlerts, onChanged }: {
               loading={loadingMsgs}
               error={threadError}
               sending={sending}
-              onBack={() => setSelectedId('')}
+              onBack={() => onSelect('')}
               onSend={send}
               onMode={changeMode}
               onResolve={resolve}
