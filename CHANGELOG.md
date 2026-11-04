@@ -7,6 +7,9 @@
 - Chats AI rewrites never use apostrophes or dashes, their prompts are now editable on the Bots page, and replies sent from Chats no longer add your name
 
 
+### Bug Fixes
+- Slack emoji now show as real emoji in Chats and other message views instead of codes like :wave:
+
 ## 2026-11-03
 
 ### Bug Fixes
