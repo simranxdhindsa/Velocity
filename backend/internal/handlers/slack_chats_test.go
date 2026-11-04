@@ -451,3 +451,43 @@ func TestRephrasePromptFollowsTheKeyNotTheName(t *testing.T) {
 		t.Errorf("should fall back to the built-in text: %q", got)
 	}
 }
+
+// Each message carries the right photo: the person's, the sender's, or none for Velocity itself.
+func TestChatMessagesCarryAuthorPhotos(t *testing.T) {
+	h, store, _ := newTestChats()
+	store.msgs["D_H"] = []database.SlackDMMessage{
+		{ID: 1, ChannelID: "D_H", Kind: database.DMKindHuman, Text: "hi"},
+		{ID: 2, ChannelID: "D_H", Kind: database.DMKindDashboard, SentByUserID: "user-simran", Text: "a"},
+		{ID: 3, ChannelID: "D_H", Kind: database.DMKindClaude, SentByUserID: "user-simran", Text: "b"},
+		{ID: 4, ChannelID: "D_H", Kind: database.DMKindAutoReply, Text: "c"},
+		{ID: 5, ChannelID: "D_H", Kind: database.DMKindDashboard, Text: "no sender"},
+	}
+	h.profile = func(context.Context, string, string) (slackProfile, bool) {
+		return slackProfile{Name: "Harpreet", Image: "https://img/harpreet.png"}, true
+	}
+	lookups := 0
+	h.userImage = func(_ context.Context, _, id string) string {
+		lookups++
+		if id == "user-simran" {
+			return "https://img/simran.png"
+		}
+		return ""
+	}
+	data := decode(t, do(chatsRouter(h), "GET", "/api/slack-chats/D_H/messages", "admin", ""))["data"].([]any)
+	want := []string{"https://img/harpreet.png", "https://img/simran.png", "https://img/simran.png", "", ""}
+	for i, w := range want {
+		if got := data[i].(map[string]any)["author_image"]; got != w {
+			t.Errorf("message %d: photo %q, want %q", i+1, got, w)
+		}
+	}
+	if lookups != 1 {
+		t.Errorf("one sender should be looked up once per request, got %d", lookups)
+	}
+
+	// Without any photo source the messages still load.
+	h.profile, h.userImage = nil, nil
+	rec := do(chatsRouter(h), "GET", "/api/slack-chats/D_H/messages", "admin", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("messages failed without photos: %d", rec.Code)
+	}
+}

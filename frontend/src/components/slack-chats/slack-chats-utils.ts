@@ -57,6 +57,22 @@ export const MODE_OPTIONS: Array<{ value: SlackChatMode; label: string; hint: st
   { value: 'muted', label: 'Muted', hint: 'The bot never answers this person. You reply from here.' },
 ]
 
+/**
+ * Applies a thread's fresh details to its list row. The thread answer has no preview, and may have
+ * no name or photo if Slack could not be asked, so those keep what the list already knows.
+ */
+export function mergeConversation(row: SlackChat, conv: SlackChat): SlackChat {
+  return {
+    ...row,
+    ...conv,
+    last_preview: row.last_preview,
+    last_kind: row.last_kind,
+    last_direction: row.last_direction,
+    slack_user_name: conv.slack_user_name || row.slack_user_name,
+    slack_user_image: conv.slack_user_image || row.slack_user_image,
+  }
+}
+
 /** Who a message is from and how it should look: the person, a Velocity user, or Velocity itself. */
 export type BubbleSide = 'them' | 'you' | 'bot'
 
@@ -64,6 +80,16 @@ export function bubbleSide(m: SlackChatMessage): BubbleSide {
   if (m.kind === 'human') return 'them'
   if (m.kind === 'claude' || m.kind === 'dashboard') return 'you'
   return 'bot'
+}
+
+/** True when two neighbouring messages come from the same author, so the photo shows only once. */
+export function sameAuthor(a: SlackChatMessage, b: SlackChatMessage): boolean {
+  return bubbleSide(a) === bubbleSide(b) && a.author_label === b.author_label
+}
+
+/** A caption only when the speaker or the way it was sent changes, so a run of messages stays clean. */
+export function needsCaption(prev: SlackChatMessage | undefined, m: SlackChatMessage): boolean {
+  return !prev || !sameAuthor(prev, m) || prev.kind !== m.kind
 }
 
 /** The small caption above a bubble. */

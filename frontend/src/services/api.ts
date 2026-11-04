@@ -2370,6 +2370,8 @@ export interface SlackChatMessage {
   created_at: string
   /** Who wrote it: the person, the Velocity user, or Velocity itself. */
   author_label: string
+  /** The author's photo. Empty for Velocity's own messages or when there is none. */
+  author_image?: string
 }
 
 // Types

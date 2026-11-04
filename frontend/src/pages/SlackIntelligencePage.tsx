@@ -350,8 +350,8 @@ export function SlackIntelligencePage({
         </div>
       )}
 
-      {/* KPI row */}
-      <div className="si2-kpi-row">
+      {/* KPI row: about mentions and threads, so Chats gives that space to the conversation */}
+      {tab !== 'chats' && <div className="si2-kpi-row">
         {[
           { label: 'TOTAL MENTIONS',  value: mentions.length,                                  color: '#93c5fd', glow: '#3b82f6', sub: 'unreplied @mentions', view: 'mentions' as InboxView, filterTarget: 'All' as InboxFilter },
           { label: 'NEEDS ACTION',    value: needsActionCount,                                  color: '#f87171', glow: '#ef4444', sub: 'follow up needed',    view: 'mentions' as InboxView, filterTarget: 'Needs Action' as InboxFilter },
@@ -370,7 +370,7 @@ export function SlackIntelligencePage({
             <div className="si2-kpi-sub">{k.sub}</div>
           </div>
         ))}
-      </div>
+      </div>}
 
       {/* Tab bar */}
       <div className="si2-tabbar">
