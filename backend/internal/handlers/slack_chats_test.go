@@ -29,6 +29,7 @@ type fakeChatStore struct {
 	cleared   []string
 	resolved  []string
 	modes     map[string]string
+	latestIn  *time.Time
 }
 
 func newFakeChatStore() *fakeChatStore {
@@ -73,6 +74,7 @@ func (s *fakeChatStore) ClearAttention(_ context.Context, ch string) error {
 	s.cleared = append(s.cleared, ch)
 	return nil
 }
+func (s *fakeChatStore) LatestInboundAt(context.Context) (*time.Time, error) { return s.latestIn, nil }
 func (s *fakeChatStore) ResolveRelay(_ context.Context, ch string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -489,5 +491,115 @@ func TestChatMessagesCarryAuthorPhotos(t *testing.T) {
 	rec := do(chatsRouter(h), "GET", "/api/slack-chats/D_H/messages", "admin", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("messages failed without photos: %d", rec.Code)
+	}
+}
+
+func TestWaitingMessageLooksPastTheBotsOwnNotes(t *testing.T) {
+	human := database.SlackDMMessage{ID: 1, Kind: database.DMKindHuman, Text: "my question"}
+	ack := database.SlackDMMessage{ID: 2, Kind: database.DMKindAck}
+	notice := database.SlackDMMessage{ID: 3, Kind: database.DMKindNotice}
+	cases := map[string]struct {
+		msgs []database.SlackDMMessage
+		want bool
+	}{
+		"person spoke last":        {[]database.SlackDMMessage{human}, true},
+		"ack and alert after them": {[]database.SlackDMMessage{human, ack, notice}, true},
+		"admin already replied":    {[]database.SlackDMMessage{human, {Kind: database.DMKindDashboard}}, false},
+		"sent through Claude":      {[]database.SlackDMMessage{human, {Kind: database.DMKindClaude}}, false},
+		"bot already answered":     {[]database.SlackDMMessage{human, {Kind: database.DMKindAutoReply}, ack}, false},
+		"nothing from the person":  {[]database.SlackDMMessage{ack}, false},
+		"empty chat":               {nil, false},
+	}
+	for name, c := range cases {
+		if got := waitingMessage(c.msgs); (got != nil) != c.want {
+			t.Errorf("%s: got %+v", name, got)
+		} else if got != nil && got.Text != "my question" {
+			t.Errorf("%s: wrong message %+v", name, got)
+		}
+	}
+}
+
+func TestPassToBotAnswersTheWaitingMessageOnce(t *testing.T) {
+	h, store, _ := newTestChats()
+	store.msgs["D_H"] = []database.SlackDMMessage{
+		{ID: 1, ChannelID: "D_H", Kind: database.DMKindHuman, SlackTS: "111.1", Text: "what was my availability"},
+		{ID: 2, ChannelID: "D_H", Kind: database.DMKindAck, Text: "Thanks, passed on"},
+	}
+	h.botToken = func(context.Context, string) string { return "xoxb-test" }
+	got := make(chan slackInnerEvent, 2)
+	release := make(chan struct{})
+	h.answer = func(_ context.Context, token string, ev slackInnerEvent) {
+		if token != "xoxb-test" {
+			t.Errorf("token %q", token)
+		}
+		got <- ev
+		<-release
+	}
+	router := chatsRouter(h)
+
+	rec := do(router, "POST", "/api/slack-chats/D_H/resolve", "admin", "")
+	if rec.Code != 200 || decode(t, rec)["answering"] != true {
+		t.Fatalf("want answering true: %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case ev := <-got:
+		if ev.Channel != "D_H" || ev.User != "UHARPREET" || ev.Text != "what was my availability" || ev.TS != "111.1" || ev.Type != "message" {
+			t.Errorf("wrong event: %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("bot was never asked to answer")
+	}
+
+	// A second click while the bot is still writing must not answer again.
+	if rec := do(router, "POST", "/api/slack-chats/D_H/resolve", "admin", ""); decode(t, rec)["answering"] != false {
+		t.Errorf("double click answered twice: %s", rec.Body.String())
+	}
+	close(release)
+	if len(store.resolved) != 2 {
+		t.Errorf("relay should be cleared each time: %v", store.resolved)
+	}
+}
+
+func TestPassToBotStaysQuietWhenItShould(t *testing.T) {
+	waiting := []database.SlackDMMessage{{ID: 1, ChannelID: "D_H", Kind: database.DMKindHuman, Text: "hi"}}
+	cases := map[string]func(h *SlackChatsHandler, s *fakeChatStore){
+		"muted chat": func(_ *SlackChatsHandler, s *fakeChatStore) { s.convs["D_H"].Mode = "muted" },
+		"already answered": func(_ *SlackChatsHandler, s *fakeChatStore) {
+			s.msgs["D_H"] = append(waiting, database.SlackDMMessage{ID: 2, ChannelID: "D_H", Kind: database.DMKindDashboard})
+		},
+		"no Slack connection": func(h *SlackChatsHandler, _ *fakeChatStore) {
+			h.botToken = func(context.Context, string) string { return "" }
+		},
+		"not held for anyone": func(_ *SlackChatsHandler, s *fakeChatStore) {
+			s.convs["D_H"].RelayOwnerID = ""
+			s.convs["D_H"].NeedsAttention = false
+		},
+	}
+	for name, setup := range cases {
+		h, store, _ := newTestChats()
+		store.msgs["D_H"] = waiting
+		h.botToken = func(context.Context, string) string { return "xoxb-test" }
+		h.answer = func(context.Context, string, slackInnerEvent) { t.Errorf("%s: bot must not answer", name) }
+		setup(h, store)
+		rec := do(chatsRouter(h), "POST", "/api/slack-chats/D_H/resolve", "admin", "")
+		if rec.Code != 200 || decode(t, rec)["answering"] != false {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// The nav dot needs to know when the newest message from a person arrived.
+func TestChatSummaryReportsTheLatestInboundMessage(t *testing.T) {
+	h, store, _ := newTestChats()
+	router := chatsRouter(h)
+	data := decode(t, do(router, "GET", "/api/slack-chats/summary", "admin", ""))["data"].(map[string]any)
+	if data["latest_inbound_at"] != nil {
+		t.Errorf("no messages yet should be null: %v", data)
+	}
+	at := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	store.latestIn = &at
+	data = decode(t, do(router, "GET", "/api/slack-chats/summary", "admin", ""))["data"].(map[string]any)
+	if data["latest_inbound_at"] != "2026-11-04T12:00:00Z" {
+		t.Errorf("latest_inbound_at = %v", data["latest_inbound_at"])
 	}
 }

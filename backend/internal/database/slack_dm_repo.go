@@ -318,6 +318,17 @@ func (r *SlackDMRepository) ListConversations(ctx context.Context, limit int) ([
 	return out, rows.Err()
 }
 
+// LatestInboundAt returns when the newest message from a person arrived, or nil if there is none.
+func (r *SlackDMRepository) LatestInboundAt(ctx context.Context) (*time.Time, error) {
+	pool := GetPool()
+	if pool == nil {
+		return nil, nil
+	}
+	var at *time.Time
+	err := pool.QueryRow(ctx, `SELECT MAX(created_at) FROM slack_dm_messages WHERE direction = $1`, DMDirIn).Scan(&at)
+	return at, err
+}
+
 // ListMessages returns a conversation's messages oldest first. With afterID > 0 it returns only
 // newer ones (for polling); otherwise the latest `limit` messages.
 func (r *SlackDMRepository) ListMessages(ctx context.Context, channelID string, afterID int64, limit int) ([]SlackDMMessage, error) {

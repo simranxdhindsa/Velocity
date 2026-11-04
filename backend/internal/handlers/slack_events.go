@@ -205,6 +205,20 @@ func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev s
 		}
 	}
 
+	h.answerEvent(ctx, client, ev, senderEmail, velocityUserID)
+}
+
+// AnswerWaitingDM answers a DM that is already stored, for when an admin passes a chat back to
+// the bot while the person is still waiting. It goes straight to the reply, because the relay
+// step would see a message it has already recorded and stop.
+func (h *SlackEventsHandler) AnswerWaitingDM(ctx context.Context, botToken string, ev slackInnerEvent) {
+	client := slacksvc.NewClient(botToken)
+	senderEmail := resolveSlackSenderEmail(ctx, client, ev.User)
+	h.answerEvent(ctx, client, ev, senderEmail, resolveVelocityUser(ctx, senderEmail))
+}
+
+// answerEvent generates the bot's reply to a message and posts it.
+func (h *SlackEventsHandler) answerEvent(ctx context.Context, client *slacksvc.Client, ev slackInnerEvent, senderEmail, velocityUserID string) {
 	actorLabel := slackActorLabel(ev)
 	start := time.Now()
 	// Conversation memory: replay the thread / recent DM so follow-ups like
