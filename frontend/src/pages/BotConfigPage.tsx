@@ -73,6 +73,18 @@ const BOT_TYPE_CREATE_LABELS: Record<string, string> = {
   daily_report: 'Daily Report',
   custom: 'Custom',
 }
+const BOT_TYPE_LABELS: Record<string, string> = {
+  slack_analysis: 'Slack Analysis',
+  daily_report: 'Daily Report',
+  custom: 'Custom',
+  pm_assistant: 'PM Assistant',
+  stage_report: 'Stage Report',
+  deployment_report: 'Deployment Report',
+  ticket_parser: 'Ticket Parser',
+  slack_reply: 'Slack Reply',
+  chat_rephrase: 'Chat Rephrase',
+}
+
 const BOT_TYPE_OPTIONS: DropdownOption[] = Object.entries(BOT_TYPE_CREATE_LABELS).map(([value, label]) => {
   const Icon = botTypeIcon(value)
   return { value, label, icon: <Icon size={13} style={{ color: botTypeAccent(value) }} /> }
@@ -177,18 +189,6 @@ function BotCard({
 }) {
   const [expanded, setExpanded] = useState(false)
 
-  const botTypeLabels: Record<string, string> = {
-    slack_analysis: 'Slack Analysis',
-    daily_report: 'Daily Report',
-    custom: 'Custom',
-    pm_assistant: 'PM Assistant',
-    stage_report: 'Stage Report',
-    deployment_report: 'Deployment Report',
-    ticket_parser: 'Ticket Parser',
-    slack_reply: 'Slack Reply',
-    chat_rephrase: 'Chat Rephrase',
-  }
-
   const con = getBotCon(bot.id)
   const Icon = botTypeIcon(bot.bot_type)
   const accent = botTypeAccent(bot.bot_type)
@@ -227,7 +227,7 @@ function BotCard({
           </div>
           <div>
             <h3 className="bot-card-name">{bot.name}</h3>
-            <span className="bot-card-type">{botTypeLabels[bot.bot_type] || bot.bot_type}</span>
+            <span className="bot-card-type">{BOT_TYPE_LABELS[bot.bot_type] || bot.bot_type}</span>
           </div>
         </div>
         <div className="bot-card-actions">
@@ -411,12 +411,17 @@ function BotEditor({
             </div>
             <div className="form-group" style={{ flex: 1 }}>
               <label>Type</label>
-              <CustomDropdown
-                className="bot-type-dropdown"
-                value={botType}
-                onChange={(v) => setBotType(v as BotConfig['bot_type'])}
-                options={BOT_TYPE_OPTIONS}
-              />
+              {/* The type of a saved bot cannot change, and system types are not in the create list. */}
+              {bot ? (
+                <input className="form-input" value={BOT_TYPE_LABELS[botType] || botType} disabled aria-label="Type" />
+              ) : (
+                <CustomDropdown
+                  className="bot-type-dropdown"
+                  value={botType}
+                  onChange={(v) => setBotType(v as BotConfig['bot_type'])}
+                  options={BOT_TYPE_OPTIONS}
+                />
+              )}
             </div>
           </div>
 

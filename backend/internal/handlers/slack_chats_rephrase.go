@@ -21,6 +21,11 @@ import (
 // thinking as well as the answer.
 const chatRephraseModel = "openai/gpt-oss-20b"
 
+// Added after the first release; seeding upgrades untouched prompts that lack these lines.
+const chatRephraseGrammarRules = `- For a possessive, drop only the apostrophe and keep the s: rohit's review becomes rohits review.
+- Normal hyphenated words and ticket IDs stay exactly as they are, like follow-up and VEL-123.
+`
+
 const chatRephraseBase = `You rewrite a short Slack direct message that a manager is about to send to a teammate.
 
 ## Rules
@@ -28,7 +33,7 @@ const chatRephraseBase = `You rewrite a short Slack direct message that a manage
 - Keep it about the same length or shorter. Plain everyday words, no corporate filler, no emojis unless the draft already has them.
 - No apostrophes anywhere. Write dont, cant, its, youre, wont, hasnt, didnt, thats, im.
 - Never use dashes of any kind: no em dashes, no en dashes, no double dashes, and no hyphen used as a pause. Use a comma, the word "and", or start a new sentence.
-- Capitalize the first letter of every sentence, like normal professional writing. No Title Case, no ALL CAPS.
+` + chatRephraseGrammarRules + `- Capitalize the first letter of every sentence, like normal professional writing. No Title Case, no ALL CAPS.
 - Write in the same language as the draft. Keep line breaks sensible.
 - Reply with the rewritten message only. No quotes, no preface, no explanation.`
 
@@ -42,43 +47,32 @@ const chatRephraseHuman = chatRephraseBase + `
 ## Style: sound like a real person
 Write like a real person typing in Slack: casual, natural, short sentences. Remove robotic or formal phrasing and anything that reads like an AI wrote it (no "I hope this finds you well", no "kindly", no lists unless the draft is a list).`
 
-// Bot Config entries (type chat_rephrase) hold the editable prompts, found by these names. The
-// built-in text above is used when an entry is missing, inactive or empty.
-const (
-	chatRephrasePoliteName = "Chat Rephrase: Polite"
-	chatRephraseHumanName  = "Chat Rephrase: Human"
-)
+// Bot Config entries (type chat_rephrase) hold the editable prompts. Each is found by a fixed key
+// in created_by, so renaming one on the Bots page keeps it working. The built-in text above is
+// used when an entry is missing, inactive or empty.
+var chatRephraseBotKeys = map[string]string{
+	"polite": "system:chat_rephrase:polite",
+	"human":  "system:chat_rephrase:human",
+}
 
 var chatRephraseStyles = map[string]string{"polite": chatRephrasePolite, "human": chatRephraseHuman}
 
-var chatRephraseBotNames = map[string]string{"polite": chatRephrasePoliteName, "human": chatRephraseHumanName}
-
 // SeedChatRephraseBots adds the two rephrase prompts to Bot Config when they are not there yet,
-// so they show up on the Bots page and can be edited. Existing entries are never touched.
+// so they show up on the Bots page and can be edited. An admin's edits are never overwritten.
 func SeedChatRephraseBots(ctx context.Context) {
 	if database.GetPool() == nil {
 		return
 	}
 	repo := database.NewBotConfigRepository()
-	existing, err := repo.GetByType(ctx, models.BotTypeChatRephrase)
-	if err != nil {
-		log.Printf("[slack-chats] could not check rephrase bots: %v", err)
-		return
-	}
-	have := map[string]bool{}
-	for _, c := range existing {
-		have[c.Name] = true
-	}
-	seeds := []struct{ name, desc, prompt string }{
-		{chatRephrasePoliteName, "Used by the Chats reply box when you press Make it polite. Rewrites your draft before you send it.", chatRephrasePolite},
-		{chatRephraseHumanName, "Used by the Chats reply box when you press Sound human. Rewrites your draft so it reads like a person typed it.", chatRephraseHuman},
+	seeds := []struct{ style, name, desc string }{
+		{"polite", "Chat Rephrase: Polite", "Used by the Chats reply box when you press Make it polite. Rewrites your draft before you send it."},
+		{"human", "Chat Rephrase: Human", "Used by the Chats reply box when you press Sound human. Rewrites your draft so it reads like a person typed it."},
 	}
 	for _, sd := range seeds {
-		if have[sd.name] {
-			continue
-		}
-		c := &models.BotConfig{Name: sd.name, Description: sd.desc, BotType: models.BotTypeChatRephrase, Prompt: sd.prompt, Variables: "[]", IsActive: true, CreatedBy: "system"}
-		if err := repo.Create(ctx, c); err != nil {
+		prompt := chatRephraseStyles[sd.style]
+		c := &models.BotConfig{Name: sd.name, Description: sd.desc, BotType: models.BotTypeChatRephrase, Prompt: prompt,
+			Variables: "[]", IsActive: true, CreatedBy: chatRephraseBotKeys[sd.style]}
+		if err := repo.EnsureSystemBot(ctx, c, strings.Replace(prompt, chatRephraseGrammarRules, "", 1)); err != nil {
 			log.Printf("[slack-chats] could not add %q to Bot Config: %v", sd.name, err)
 		}
 	}
@@ -94,12 +88,16 @@ func rephrasePrompt(ctx context.Context, style string) string {
 	if err != nil {
 		return fallback
 	}
+	return pickRephrasePrompt(configs, style)
+}
+
+func pickRephrasePrompt(configs []*models.BotConfig, style string) string {
 	for _, c := range configs {
-		if c.Name == chatRephraseBotNames[style] && c.IsActive && strings.TrimSpace(c.Prompt) != "" {
+		if c.CreatedBy == chatRephraseBotKeys[style] && c.IsActive && strings.TrimSpace(c.Prompt) != "" {
 			return c.Prompt
 		}
 	}
-	return fallback
+	return chatRephraseStyles[style]
 }
 
 func groqRewrite(ctx context.Context, system, user string) (string, error) {

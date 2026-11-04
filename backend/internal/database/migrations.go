@@ -689,6 +689,10 @@ sprint_id: ID of the most recent non-completed sprint from the sprints list. Oth
 			'system'
 		WHERE NOT EXISTS (SELECT 1 FROM bot_configs WHERE bot_type = 'ticket_parser')`,
 
+		// One row per system-managed bot key (see EnsureSystemBot), so two servers starting at
+		// once cannot seed the same bot twice.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_configs_system_key ON bot_configs(created_by) WHERE created_by LIKE 'system:%'`,
+
 		// Seed default Velocity Bot config (powers the Slack Events webhook's
 		// DM/@mention auto-reply — editable from PM Assistant's Bot Config UI
 		// and from the get_slack_reply_config/update_slack_reply_config MCP

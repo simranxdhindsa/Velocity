@@ -106,6 +106,30 @@ func (r *BotConfigRepository) Create(ctx context.Context, config *models.BotConf
 	return err
 }
 
+// EnsureSystemBot makes sure a system-managed bot exists. c.CreatedBy is its fixed key, so an
+// admin can rename the bot freely. A row seeded before keys existed is adopted by name, and a
+// prompt still equal to previousPrompt (never edited) is upgraded. Edited prompts are left alone.
+func (r *BotConfigRepository) EnsureSystemBot(ctx context.Context, c *models.BotConfig, previousPrompt string) error {
+	pool := GetPool()
+	if _, err := pool.Exec(ctx, `
+		UPDATE bot_configs SET created_by = $1
+		WHERE bot_type = $2 AND name = $3 AND created_by = 'system'
+		  AND NOT EXISTS (SELECT 1 FROM bot_configs WHERE created_by = $1)
+	`, c.CreatedBy, c.BotType, c.Name); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO bot_configs (name, description, bot_type, prompt, variables, is_active, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT DO NOTHING
+	`, c.Name, c.Description, c.BotType, c.Prompt, c.Variables, c.IsActive, c.CreatedBy); err != nil {
+		return err
+	}
+	_, err := pool.Exec(ctx, `UPDATE bot_configs SET prompt = $2, updated_at = NOW() WHERE created_by = $1 AND prompt = $3`,
+		c.CreatedBy, c.Prompt, previousPrompt)
+	return err
+}
+
 // Update updates an existing bot config
 func (r *BotConfigRepository) Update(ctx context.Context, config *models.BotConfig) error {
 	pool := GetPool()
