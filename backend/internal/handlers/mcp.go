@@ -106,7 +106,12 @@ type MCPHandler struct {
 	slackSvc     *slacksvc.Service
 	updateSvc    *updatesvc.Service
 	botRepo      *database.BotConfigRepository
+	dayTrack     *DayTrackHandler
 }
+
+// UseDayTrack gives send_daytrack the server's Day Track handler, whose YouTrack access lets it
+// sync and prune tickets before posting. Without it the report still sends, minus those steps.
+func (h *MCPHandler) UseDayTrack(d *DayTrackHandler) { h.dayTrack = d }
 
 func NewMCPHandler() *MCPHandler {
 	return &MCPHandler{
@@ -236,6 +241,7 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			"protocolVersion": "2025-06-18",
 			"capabilities":    map[string]interface{}{"tools": map[string]bool{"listChanged": false}},
 			"serverInfo":      map[string]string{"name": "velocity", "version": "1.0.0"},
+			"instructions":    mcpServerInstructions,
 		})
 
 	case "tools/list":

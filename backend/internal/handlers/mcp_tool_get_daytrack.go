@@ -19,6 +19,7 @@ var getDaytrackToolSchema = map[string]interface{}{
 		"Pass either `date` (YYYY-MM-DD, 'today' or 'yesterday', in the user's DayTrack timezone) or `from` + `to` for a range of at most 62 days. " +
 		"For a single date the result also includes `report_text`, the exact text the DayTrack 'Copy DayTrack' button and Slack post use. " +
 		"Totals count top-level entries only (subtasks are part of their parent), same as the DayTrack page. " +
+		"Every entry has an `id` for update_daytrack_entry and delete_daytrack_entry. A single date also lists `planned` (Planned & Carry Over items, with ids) and `posted_to_slack`. " +
 		"Admins may pass `user_email` (or `user`, a name) to read someone else's DayTrack; everyone else only ever sees their own.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
@@ -61,6 +62,7 @@ var getDaytrackToolSchema = map[string]interface{}{
 }
 
 type mcpDTEntry struct {
+	ID              string       `json:"id"`
 	Name            string       `json:"name"`
 	Category        string       `json:"category"`
 	Emoji           string       `json:"emoji"`
@@ -86,6 +88,9 @@ type mcpDTDay struct {
 	EntryCount int          `json:"entry_count"`
 	DoneCount  int          `json:"done_count"`
 	ReportText *string      `json:"report_text,omitempty"`
+	// Single-date reads only: open items and whether this day's report is in Slack.
+	Planned       []mcpDTItem `json:"planned,omitempty"`
+	PostedToSlack *bool       `json:"posted_to_slack,omitempty"`
 }
 
 type mcpDTCatTotal struct {
@@ -216,6 +221,7 @@ func mcpGetDaytrack(ctx context.Context, h *MCPHandler, userID string, id interf
 	prefixes := mcpYouTrackProjectPrefixes(ctx, userID)
 	build := func(e database.DayTrackEntry) mcpDTEntry {
 		out := mcpDTEntry{
+			ID:        e.ID,
 			Name:      e.Name,
 			Category:  e.Category,
 			Emoji:     categoryEmoji(e.Category, customIcons),
@@ -298,6 +304,17 @@ func mcpGetDaytrack(ctx context.Context, h *MCPHandler, userID string, id interf
 			text, rErr := dt.reportText(ctx, target.ID, ds, target.Name)
 			if rErr == nil {
 				d.ReportText = &text
+			}
+		}
+		if single && !a.SummaryOnly {
+			if items, pErr := mcpDayTrackRepo.GetPlanned(ctx, target.ID, ds); pErr == nil {
+				for i := range items {
+					d.Planned = append(d.Planned, mcpDTItemFromPlanned(&items[i], customIcons))
+				}
+			}
+			if post, pErr := mcpDayTrackRepo.GetDailyPost(ctx, target.ID, ds); pErr == nil {
+				posted := post != nil
+				d.PostedToSlack = &posted
 			}
 		}
 		if single || d.EntryCount > 0 || includeReport {

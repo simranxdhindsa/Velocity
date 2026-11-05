@@ -44,6 +44,11 @@ var mcpToolHandlers = map[string]mcpToolFunc{
 	"get_slack_reply_config":       mcpGetSlackReplyConfig,
 	"update_slack_reply_config":    mcpUpdateSlackReplyConfig,
 	"get_daytrack":                 mcpGetDaytrack,
+	"add_daytrack_entries":         mcpAddDaytrackEntries,
+	"update_daytrack_entry":        mcpUpdateDaytrackEntry,
+	"delete_daytrack_entry":        mcpDeleteDaytrackEntry,
+	"send_daytrack":                mcpSendDaytrack,
+	"add_daytrack_category":        mcpAddDaytrackCategory,
 	"whoami":                       mcpWhoami,
 	"search_knowledge_base":        mcpSearchKnowledgeBase,
 	"read_slack_messages":          mcpReadSlackMessages,
@@ -77,6 +82,11 @@ var mcpToolActionLabels = map[string]string{
 	"get_slack_reply_config":       "Fetched Slack reply config",
 	"update_slack_reply_config":    "Updated Slack reply config",
 	"get_daytrack":                 "Fetched DayTrack",
+	"add_daytrack_entries":         "Added to DayTrack",
+	"update_daytrack_entry":        "Updated DayTrack entry",
+	"delete_daytrack_entry":        "Deleted from DayTrack",
+	"send_daytrack":                "Sent DayTrack to Slack",
+	"add_daytrack_category":        "Added DayTrack category",
 	"whoami":                       "Identified caller",
 	"search_knowledge_base":        "Searched knowledge base",
 	"read_slack_messages":          "Read Slack messages",
@@ -143,6 +153,8 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 func mcpActivityDetail(tool string, args json.RawMessage) string {
 	switch tool {
 	case "send_slack_message_now", "queue_slack_message", "edit_slack_message":
+	case "add_daytrack_entries":
+		return mcpDayTrackActivityDetail(args)
 	default:
 		return ""
 	}
@@ -157,6 +169,24 @@ func mcpActivityDetail(tool string, args json.RawMessage) string {
 		msg = strings.TrimSpace(string(r[:8000])) + "…"
 	}
 	return msg
+}
+
+// mcpDayTrackActivityDetail lists the task names an add_daytrack_entries call carried, one per
+// line, so the Claude actions list shows what was logged and not just how many.
+func mcpDayTrackActivityDetail(args json.RawMessage) string {
+	var a struct {
+		Entries []struct {
+			Name string `json:"name"`
+		} `json:"entries"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return ""
+	}
+	names := make([]string, 0, len(a.Entries))
+	for _, e := range a.Entries {
+		names = append(names, strings.TrimSpace(e.Name))
+	}
+	return strings.Join(names, "\n")
 }
 
 // mcpResultSummary pulls the plain-text result (or error) out of an rpcResponse

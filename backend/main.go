@@ -535,6 +535,7 @@ func main() {
 
 	// MCP server — Claude connector endpoint (token auth, not JWT)
 	mcpHandler := handlers.NewMCPHandler()
+	mcpHandler.UseDayTrack(dayTrackHandler)
 	api.HandleFunc("/mcp", mcpHandler.HandleSSE).Methods("GET")
 	api.HandleFunc("/mcp", mcpHandler.Handle).Methods("POST")
 	// MCP token management (JWT-protected)
