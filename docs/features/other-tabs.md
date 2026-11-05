@@ -12,6 +12,8 @@ Reminder creation and management. Backend polling started in `main.go` as a back
 
 Daily planner — log what you worked on, plan ahead for the next day. "Schedule For" dropdown and all other dropdowns use the `pm-custom-dropdown` portal pattern.
 
+Connected agents can add, update, delete and send Day Track through the MCP tools, following the same rules as this page: see [Day Track write tools notes](mcp-server.md#day-track-write-tools-notes).
+
 **Auto-entries from YouTrack** (`backend/internal/handlers/youtrack.go`, fired from the webhook handler on every `State` field change):
 - QA verification — a ticket moved into `Ready for Stage` / `Ready for PROD` / `Verified` logs a "Verified on {env}" entry (category `Testing`) for whoever moved it. `testedEnvFromState` / `logYouTrackTestedToDayTrack`.
 - Dev/hotfix completion — a ticket moved **directly from To Do/Backlog/In Progress** into `Dev` / `Stage` / `PROD` / `Mobile Done` logs a "Fixed on {env}" entry (category `Development`). `devEnvFromState` / `logYouTrackDevToDayTrack`.
