@@ -32,6 +32,7 @@ var mcpTools = []map[string]interface{}{
 	updateDaytrackEntryToolSchema,
 	deleteDaytrackEntryToolSchema,
 	sendDaytrackToolSchema,
+	addDaytrackCategoryToolSchema,
 	whoamiToolSchema,
 	searchKnowledgeBaseToolSchema,
 	readSlackMessagesToolSchema,
