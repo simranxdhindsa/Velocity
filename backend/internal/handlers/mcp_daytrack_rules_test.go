@@ -247,6 +247,17 @@ func TestDayTrackArgsErrorIsReadable(t *testing.T) {
 	}
 }
 
+func TestDayTrackDeleteSentenceNamesWhatWent(t *testing.T) {
+	one := []mcpDTItem{{Name: "a"}}
+	if got := mcpDTDeleteSentence(one); got != `Deleted "a" from Day Track.` {
+		t.Fatalf("got %s", got)
+	}
+	many := []mcpDTItem{{Name: "a"}, {Name: "b"}, {Name: "c"}, {Name: "d"}, {Name: "e"}}
+	if got := mcpDTDeleteSentence(many); got != `Deleted 5 Day Track items: "a", "b", "c" and 2 more.` {
+		t.Fatalf("got %s", got)
+	}
+}
+
 func TestMatchDayTrackCategory(t *testing.T) {
 	cats := []string{"Development", "Project Management"}
 	if got, ok := mcpMatchDayTrackCategory(" project management ", cats); !ok || got != "Project Management" {
