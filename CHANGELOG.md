@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-05
+
+### Features
+- finished work is now reported as one line per fix and added to Day Track one entry at a time
+- `add_daytrack_category`: create a custom Day Track category when you ask for one
+- `send_daytrack`: preview your Day Track report and post it to your Slack channel, or update the post already sent
+- `delete_daytrack_entry`: remove Day Track entries and see exactly what was removed
+- `update_daytrack_entry`: change a Day Track entry, mark it done or move it back to in progress
+- `add_daytrack_entries`: add your work to Day Track, one line per task, with the category and time filled in for you
+
+
+### Enhancements
+- `get_daytrack`: now lists entry IDs and your planned and in-progress items, and shows if the day was posted to Slack
+
 ## 2026-11-04
 
 ### Enhancements
