@@ -28,6 +28,7 @@ var mcpTools = []map[string]interface{}{
 	getSlackReplyConfigToolSchema,
 	updateSlackReplyConfigToolSchema,
 	getDaytrackToolSchema,
+	addDaytrackEntriesToolSchema,
 	whoamiToolSchema,
 	searchKnowledgeBaseToolSchema,
 	readSlackMessagesToolSchema,

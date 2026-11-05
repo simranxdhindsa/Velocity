@@ -122,16 +122,7 @@ func mcpFmt12h(t string) string {
 	if m < 0 {
 		return ""
 	}
-	h, mm := (m/60)%24, m%60
-	suffix := "AM"
-	if h >= 12 {
-		suffix = "PM"
-	}
-	h12 := h % 12
-	if h12 == 0 {
-		h12 = 12
-	}
-	return fmt.Sprintf("%d:%02d %s", h12, mm, suffix)
+	return mcpMinsTo12h(m)
 }
 
 // mcpEntryDuration returns the stored duration_mins, or (like the frontend's
