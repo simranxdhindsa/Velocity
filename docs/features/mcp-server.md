@@ -233,7 +233,12 @@ A bare "10" is refused, since guessing AM or PM logs the wrong half of the day. 
 
 ### Server instructions (`mcp_instructions.go`)
 
-The `initialize` response carries `instructions`, so every connected agent gets the work log rule: report finished work as `• <Project>: <what changed>` bullets, then add them to Day Track with one `add_daytrack_entries` call, one entry per bullet. Only research, development, testing and custom category work count, not answers or lookups. Clients may ignore this field, so `add_daytrack_entries` repeats the rule in its description. It reaches everyone connected to Velocity, each into their own Day Track.
+The `initialize` response carries `instructions`, so every connected agent gets the work log rule: report finished work as `• <Project>: <what changed>` bullets, and never add anything to Day Track on its own. Clients may ignore this field, so `add_daytrack_entries` repeats the rule in its description and enforces it in two steps:
+
+1. A call without `user_requested: true` is refused ("Nothing was added"). The agent sets it only when the user explicitly asked to log work.
+2. With `user_requested` but without `confirmed: true`, nothing is saved: the result is a preview of the exact entries. The agent shows it, and only after the user says yes calls again with `confirmed: true`.
+
+`confirmed` alone is refused too. The gate runs before any database or Slack work (`mcp_daytrack_consent_test.go`).
 
 ### `search_knowledge_base` notes
 
