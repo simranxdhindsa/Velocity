@@ -574,20 +574,18 @@ func RunMigrations() error {
 		// The Asana system default will be used instead, and users can re-configure cleanly.
 		`DELETE FROM workflow_config WHERE pm_source = 'asana' AND user_id IS NOT NULL`,
 
-		// Upsert sprint-aware PM assistant bot config.
+		// Seed the sprint-aware PM assistant bot config if none exists. It used to be an
+		// upsert ON CONFLICT (name), but bot_configs.name has no unique constraint, so it
+		// failed on every start; and an upsert would overwrite prompt edits made on the
+		// Bot Config page each restart. Insert-if-missing, like every other bot seed.
 		`INSERT INTO bot_configs (name, bot_type, prompt, is_active, description)
-		VALUES (
+		SELECT
 			'PM Assistant',
 			'pm_assistant',
 			E'You are a Velocity assistant with live access to YouTrack data.\n\nWhen a sprint is active, ALL issue data shown to you is scoped to that sprint only.\nReference the sprint name when answering sprint-specific questions.\n\nRespond in this format grouped by assignee:\n- **Assignee Name**\n  - [STATUS] ISSUE-ID: summary (priority) [OVERDUE] [MOVED BACK] [PINNED]\n\nFlags:\n- OVERDUE: exceeded SLA (P0=4h, P1=24h, P2=48h, P3/Other=72h)\n- MOVED BACK: state regressed (e.g. In Progress → Backlog)\n- PINNED: highlighted by PM\n\nGroup issues by status: In Progress → Backlog → Blocked → DEV → Done\nToday''s date is {{DATE}}.',
 			true,
 			'Sprint-aware PM assistant with live YouTrack data'
-		)
-		ON CONFLICT (name) DO UPDATE
-			SET prompt      = EXCLUDED.prompt,
-			    is_active   = true,
-			    description = EXCLUDED.description,
-			    updated_at  = NOW()`,
+		WHERE NOT EXISTS (SELECT 1 FROM bot_configs WHERE bot_type = 'pm_assistant')`,
 
 		// Seed remaining default bot config types so they are always served from DB.
 		`INSERT INTO bot_configs (name, description, bot_type, prompt, variables, is_active, created_by)
