@@ -187,9 +187,37 @@ func TestMCPDayTrackE2E(t *testing.T) {
 		}
 	})
 
+	t.Run("nothing is added unless the user asked and then confirmed", func(t *testing.T) {
+		me.t, other.t = t, t
+		before := len(me.entries(today))
+		task := []map[string]any{{"name": "Velocity: should only land after a yes"}}
+
+		// The agent adds on its own: refused.
+		if s, _, ok := me.tool("add_daytrack_entries", map[string]any{"entries": task}); ok || !strings.Contains(s, "Nothing was added") {
+			t.Fatalf("call without user_requested was not refused: %s", s)
+		}
+		// The user asked, but hasn't confirmed: a preview only.
+		s, _ := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "entries": task})
+		if !strings.Contains(s, "Nothing was added yet") || !strings.Contains(s, "• Velocity: should only land after a yes") {
+			t.Fatalf("expected a preview listing the entry, got %s", s)
+		}
+		// confirmed without user_requested is still refused.
+		if _, _, ok := me.tool("add_daytrack_entries", map[string]any{"confirmed": true, "entries": task}); ok {
+			t.Fatal("confirmed alone should be refused")
+		}
+		if got := len(me.entries(today)); got != before {
+			t.Fatalf("something was saved before confirmation: %d -> %d", before, got)
+		}
+		// The user said yes: saved once.
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": task})
+		if len(dtItems(d, "created")) != 1 || len(me.entries(today)) != before+1 {
+			t.Fatalf("confirmed call did not save: %v", d)
+		}
+	})
+
 	t.Run("several tasks split 1-1-1 with no invented time", func(t *testing.T) {
 		me.t, other.t = t, t
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"entries": []map[string]any{
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{
 			{"name": "• Velocity: fixed the login redirect\n• Velocity: tested the signup flow\n• researched pgvector indexes"},
 		}})
 		created := dtItems(d, "created")
@@ -217,7 +245,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 	t.Run("a retry changes nothing", func(t *testing.T) {
 		me.t, other.t = t, t
 		before := len(me.entries(today))
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "Velocity: fixed the login redirect"}}})
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: fixed the login redirect"}}})
 		if len(dtItems(d, "created")) != 0 || len(dtItems(d, "skipped")) != 1 || len(me.entries(today)) != before {
 			t.Fatalf("retry was not skipped: %v", d)
 		}
@@ -230,7 +258,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				me.tool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "Velocity: concurrent retry check"}}})
+				me.tool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: concurrent retry check"}}})
 			}()
 		}
 		wg.Wait()
@@ -250,11 +278,11 @@ func TestMCPDayTrackE2E(t *testing.T) {
 		before := len(me.entries(today))
 		long := strings.Repeat("x", mcpDayTrackMaxLine+1)
 		cases := []map[string]any{
-			{"entries": []map[string]any{{"name": "Velocity: good line"}, {"name": long}}},
-			{"entries": []map[string]any{{"name": "Velocity: good line"}, {"name": "x", "category": "Nope"}}},
-			{"entries": []map[string]any{{"name": "Velocity: good line"}, {"name": "x", "start_time": "10"}}},
-			{"entries": []map[string]any{{"name": "a\nb", "duration_mins": 30}}},
-			{"date": "2099-01-01", "entries": []map[string]any{{"name": "from the future"}}},
+			{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: good line"}, {"name": long}}},
+			{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: good line"}, {"name": "x", "category": "Nope"}}},
+			{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: good line"}, {"name": "x", "start_time": "10"}}},
+			{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "a\nb", "duration_mins": 30}}},
+			{"user_requested": true, "confirmed": true, "date": "2099-01-01", "entries": []map[string]any{{"name": "from the future"}}},
 		}
 		for _, args := range cases {
 			if s, _, ok := me.tool("add_daytrack_entries", args); ok {
@@ -268,7 +296,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 
 	t.Run("given times are stored in 12 hour form with a duration", func(t *testing.T) {
 		me.t, other.t = t, t
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"date": "yesterday", "entries": []map[string]any{
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "date": "yesterday", "entries": []map[string]any{
 			{"name": "Velocity: past work with times", "start_time": "14:30", "end_time": "4pm"},
 			{"name": "Velocity: past work without times"},
 		}})
@@ -284,7 +312,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 	var inProgressID string
 	t.Run("in progress goes to Planned and shows in the report, never Today's Log", func(t *testing.T) {
 		me.t, other.t = t, t
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "Velocity: long running task", "status": "in_progress"}}})
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: long running task", "status": "in_progress"}}})
 		item := dtItems(d, "created")[0]
 		inProgressID = dtField(item, "id")
 		if dtField(item, "list") != "planned" || dtField(item, "start_time") == "" {
@@ -303,7 +331,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 		if len(dtItems(day, "planned")) != 1 || dtField(dtItems(day, "entries")[0], "id") == "" {
 			t.Fatalf("get_daytrack must return ids and planned items: %v", day)
 		}
-		_, dup := me.mustTool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "Velocity: long running task"}}})
+		_, dup := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: long running task"}}})
 		if len(dtItems(dup, "skipped")) != 1 {
 			t.Fatalf("the same work must not sit in both lists: %v", dup)
 		}
@@ -326,9 +354,9 @@ func TestMCPDayTrackE2E(t *testing.T) {
 	var parentID, subID string
 	t.Run("subtasks stretch the parent and carry with it", func(t *testing.T) {
 		me.t, other.t = t, t
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"date": "yesterday", "entries": []map[string]any{{"name": "Velocity: parent task", "start_time": "9am", "end_time": "10am"}}})
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "date": "yesterday", "entries": []map[string]any{{"name": "Velocity: parent task", "start_time": "9am", "end_time": "10am"}}})
 		parentID = dtField(dtItems(d, "created")[0], "id")
-		_, s := me.mustTool("add_daytrack_entries", map[string]any{"date": "yesterday", "entries": []map[string]any{{"name": "child part", "parent_entry_id": parentID, "start_time": "10am", "end_time": "11:30am"}}})
+		_, s := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "date": "yesterday", "entries": []map[string]any{{"name": "child part", "parent_entry_id": parentID, "start_time": "10am", "end_time": "11:30am"}}})
 		sub := dtItems(s, "created")[0]
 		subID = dtField(sub, "id")
 		if dtField(sub, "category") != "Development" || dtField(sub, "category_source") != "parent" {
@@ -338,7 +366,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 		if err != nil || parent.EndTime != "11:30 AM" || parent.DurationMins == nil || *parent.DurationMins != 150 {
 			t.Fatalf("parent not stretched: %+v, %v", parent, err)
 		}
-		if _, _, ok := me.tool("add_daytrack_entries", map[string]any{"date": "yesterday", "entries": []map[string]any{{"name": "too early", "parent_entry_id": parentID, "start_time": "8am", "end_time": "8:30am"}}}); ok {
+		if _, _, ok := me.tool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "date": "yesterday", "entries": []map[string]any{{"name": "too early", "parent_entry_id": parentID, "start_time": "8am", "end_time": "8:30am"}}}); ok {
 			t.Fatal("a subtask can't start before its parent")
 		}
 		if _, _, ok := me.tool("update_daytrack_entry", map[string]any{"entry_id": subID, "status": "in_progress"}); ok {
@@ -365,7 +393,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 
 	t.Run("update changes only what it is given", func(t *testing.T) {
 		me.t, other.t = t, t
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"date": "yesterday", "entries": []map[string]any{{"name": "Velocity: to be edited", "start_time": "1pm", "end_time": "2pm", "notes": "keep this"}}})
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "date": "yesterday", "entries": []map[string]any{{"name": "Velocity: to be edited", "start_time": "1pm", "end_time": "2pm", "notes": "keep this"}}})
 		id := dtField(dtItems(d, "created")[0], "id")
 		_, u := me.mustTool("update_daytrack_entry", map[string]any{"entry_id": id, "end_time": "3pm"})
 		item, _ := u["item"].(map[string]any)
@@ -392,7 +420,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 
 	t.Run("custom categories exist only when asked for, then get detected", func(t *testing.T) {
 		me.t, other.t = t, t
-		if s, _, ok := me.tool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "x", "category": "Website Work"}}}); ok {
+		if s, _, ok := me.tool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "x", "category": "Website Work"}}}); ok {
 			t.Fatalf("an unknown category must not be created silently: %s", s)
 		}
 		if _, _, ok := me.tool("add_daytrack_category", map[string]any{"name": "Website Work", "icon": "not-an-emoji"}); ok {
@@ -402,7 +430,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 		if _, _, ok := me.tool("add_daytrack_category", map[string]any{"name": "website work", "icon": "🌐"}); ok {
 			t.Fatal("a duplicate must be refused")
 		}
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "Website Work: pricing page copy"}}})
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Website Work: pricing page copy"}}})
 		c := dtItems(d, "created")[0]
 		if dtField(c, "category") != "Website Work" || dtField(c, "emoji") != "🌐" {
 			t.Fatalf("got %v", c)
@@ -411,7 +439,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 
 	t.Run("nobody can reach another user's entries", func(t *testing.T) {
 		me.t, other.t = t, t
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "Velocity: private entry"}}})
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: private entry"}}})
 		id := dtField(dtItems(d, "created")[0], "id")
 		if s, _, ok := other.tool("update_daytrack_entry", map[string]any{"entry_id": id, "name": "hacked"}); ok {
 			t.Fatalf("update crossed users: %s", s)
@@ -419,7 +447,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 		if s, _, ok := other.tool("delete_daytrack_entry", map[string]any{"entry_ids": []string{id}}); ok {
 			t.Fatalf("delete crossed users: %s", s)
 		}
-		if _, _, ok := other.tool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "x", "parent_entry_id": id}}}); ok {
+		if _, _, ok := other.tool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "x", "parent_entry_id": id}}}); ok {
 			t.Fatal("a subtask crossed users")
 		}
 		if e, _ := mcpDayTrackRepo.FindEntry(context.Background(), id, me.userID); e == nil || e.Name != "Velocity: private entry" {
@@ -429,9 +457,9 @@ func TestMCPDayTrackE2E(t *testing.T) {
 
 	t.Run("delete reports what went and takes subtasks with it", func(t *testing.T) {
 		me.t, other.t = t, t
-		_, d := me.mustTool("add_daytrack_entries", map[string]any{"date": "yesterday", "entries": []map[string]any{{"name": "Velocity: delete me", "start_time": "5pm", "end_time": "6pm"}}})
+		_, d := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "date": "yesterday", "entries": []map[string]any{{"name": "Velocity: delete me", "start_time": "5pm", "end_time": "6pm"}}})
 		parent := dtField(dtItems(d, "created")[0], "id")
-		_, s := me.mustTool("add_daytrack_entries", map[string]any{"date": "yesterday", "entries": []map[string]any{{"name": "delete my child", "parent_entry_id": parent, "start_time": "5pm", "end_time": "5:30pm"}}})
+		_, s := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "date": "yesterday", "entries": []map[string]any{{"name": "delete my child", "parent_entry_id": parent, "start_time": "5pm", "end_time": "5:30pm"}}})
 		child := dtField(dtItems(s, "created")[0], "id")
 		_, r := me.mustTool("delete_daytrack_entry", map[string]any{"entry_ids": []string{parent, child, "00000000-0000-0000-0000-000000000000"}})
 		if len(dtItems(r, "deleted")) != 2 {
@@ -504,7 +532,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 		// Preview with the server's real handler runs the sync. The fake reports no open
 		// tickets, so the sync must drop the stale in-progress item, and must never write.
 		stale := ticket(9)
-		other.mustTool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "Velocity: work to report"}}})
+		other.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: work to report"}}})
 		h.UseDayTrack(NewDayTrackHandler(NewYouTrackHandler()))
 		defer h.UseDayTrack(nil)
 		_, p := other.mustTool("send_daytrack", map[string]any{"preview": true})
@@ -618,7 +646,7 @@ func TestMCPDayTrackE2E(t *testing.T) {
 			t.Fatalf("Slack text: %s", text)
 		}
 
-		_, a := me.mustTool("add_daytrack_entries", map[string]any{"entries": []map[string]any{{"name": "Velocity: added after the post"}}})
+		_, a := me.mustTool("add_daytrack_entries", map[string]any{"user_requested": true, "confirmed": true, "entries": []map[string]any{{"name": "Velocity: added after the post"}}})
 		if w, _ := a["warnings"].([]any); len(w) == 0 {
 			t.Fatalf("should warn that Slack is out of date: %v", a)
 		}

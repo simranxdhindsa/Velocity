@@ -19,10 +19,19 @@ var addDaytrackEntriesToolSchema = map[string]interface{}{
 		"Leave out times unless the user stated them: a single task runs from one minute after the last entry until now, several tasks in one call are stamped with the current time and no duration, and on a past date times stay blank. Never invent times or durations. " +
 		"`status` done (default) goes to Today's Log. in_progress and planned go to Planned & Carry Over, because Today's Log only holds finished work. " +
 		"A task already logged that day is skipped and listed under `skipped`, so retrying is safe. " +
-		"After finishing a request that used tools, call this once with the finished research, development and testing work (or work for a custom category) as one entry per bullet of your summary. Do not log answers, lookups or Day Track changes.",
+		"NEVER call this on your own after finishing a task. Call it only when the user explicitly asked in this conversation to add work to Day Track, with user_requested: true. " +
+		"That first call saves nothing and returns a preview: show it to the user and ask them to confirm. Only after they reply yes, call again with the same entries and confirmed: true. If they say no, add nothing.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
+			"user_requested": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Must be true, and only when the user explicitly asked in this conversation to add these to Day Track. Finishing a task is not a request.",
+			},
+			"confirmed": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Set true only after you showed the user the preview from a call without it and they replied yes. Without it nothing is saved.",
+			},
 			"date": map[string]interface{}{
 				"type":        "string",
 				"description": "YYYY-MM-DD, 'today' or 'yesterday', in the user's Day Track timezone. Defaults to today. Finished work can't be logged on a future date.",
@@ -80,7 +89,7 @@ var addDaytrackEntriesToolSchema = map[string]interface{}{
 				"description": "Log a task even if the same name is already in Today's Log that day. Only when the user really did it twice. Default false.",
 			},
 		},
-		"required": []string{"entries"},
+		"required": []string{"user_requested", "entries"},
 	},
 }
 
@@ -102,6 +111,24 @@ type mcpDTTask struct {
 	Parent         *database.DayTrackEntry
 	CategorySource string
 	Times          dayTrackTimes
+}
+
+// mcpDTPreview lists what a confirmed call would add, so the user can say yes or no first.
+func mcpDTPreview(date string, tasks []mcpDTTask) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Nothing was added yet. Show the user these %d Day Track entries for %s and ask them to confirm:\n", len(tasks), date)
+	for _, t := range tasks {
+		line := "• " + t.Name
+		if t.Category != "" {
+			line += " (" + t.Category + ")"
+		}
+		if t.Status != "" && t.Status != "done" {
+			line += " [" + t.Status + "]"
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("Only after the user replies yes, call add_daytrack_entries again with the same entries, user_requested: true and confirmed: true. If they say no, add nothing.")
+	return b.String()
 }
 
 type mcpDTSkipped struct {
@@ -297,9 +324,15 @@ func mcpAddDaytrackEntries(ctx context.Context, h *MCPHandler, userID string, id
 		Date            string          `json:"date"`
 		Entries         []mcpDTAddInput `json:"entries"`
 		AllowDuplicates bool            `json:"allow_duplicates"`
+		UserRequested   bool            `json:"user_requested"`
+		Confirmed       bool            `json:"confirmed"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return toolError(id, mcpDTArgsError(err))
+	}
+	// Day Track is only written when the user asked for it, never automatically.
+	if !a.UserRequested {
+		return toolError(id, "Nothing was added. Day Track is only written when the user asks for it. Ask the user if they want this logged, and call again with user_requested: true only if they say yes")
 	}
 	if len(a.Entries) == 0 {
 		return toolError(id, "entries is empty. Pass one item per task")
@@ -355,6 +388,10 @@ func mcpAddDaytrackEntries(ctx context.Context, h *MCPHandler, userID string, id
 	}
 	if len(problems) > 0 {
 		return toolError(id, "Nothing was saved. "+strings.Join(problems, ". "))
+	}
+	// Second check: the user confirms the exact list before anything is written.
+	if !a.Confirmed {
+		return toolOK(id, mcpDTPreview(date, resolved))
 	}
 
 	logged := map[string]string{}
