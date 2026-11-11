@@ -20,7 +20,7 @@ var editYoutrackTicketToolSchema = map[string]interface{}{
 			},
 			"summary": map[string]string{
 				"type":        "string",
-				"description": "New title. Omit to leave unchanged.",
+				"description": "New title, without priority or subsystem. Omit to leave unchanged. Velocity keeps the title as '<Priority> <Subsystem>: <Title>' and updates that prefix when priority or subsystem changes.",
 			},
 			"description": map[string]string{
 				"type":        "string",
@@ -72,17 +72,38 @@ func mcpEditYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, id
 	// Only set top-level fields if the caller actually provided them;
 	// omitempty on the struct handles zero values but we guard here too.
 	req := youtrack.UpdateIssueRequest{}
-	if a.Summary != "" {
-		req.Summary = a.Summary
+	var current *youtrack.Issue
+	if a.Summary != "" || a.Priority != "" || a.Subsystem != "" || a.Description != "" {
+		var err error
+		current, err = ytClient.GetIssue(ctx, a.IssueID)
+		if err != nil {
+			return toolError(id, "failed to read "+a.IssueID+" before editing: "+err.Error())
+		}
+	}
+	// Keep the title as "<Priority> <Subsystem>: <Title>" whenever the title,
+	// priority or subsystem changes. Unchanged parts come from the ticket.
+	if a.Summary != "" || a.Priority != "" || a.Subsystem != "" {
+		priority := a.Priority
+		if priority == "" {
+			priority = youtrack.GetCustomFieldValue(*current, "Priority")
+		}
+		oldSubsystem := youtrack.GetCustomFieldValue(*current, "Subsystem")
+		subsystem := a.Subsystem
+		if subsystem == "" {
+			subsystem = oldSubsystem
+		}
+		base := a.Summary
+		if base == "" {
+			base = current.Summary
+		}
+		if title := buildTicketTitle(priority, subsystem, base, oldSubsystem); title != current.Summary {
+			req.Summary = title
+		}
 	}
 	if a.Description != "" {
 		req.Description = a.Description
 		// The "Created by Velocity" footer is permanent: an agent rewriting the
 		// description can't drop or reword it.
-		current, err := ytClient.GetIssue(ctx, a.IssueID)
-		if err != nil {
-			return toolError(id, "failed to read "+a.IssueID+" before editing: "+err.Error())
-		}
 		if youtrack.HasVelocityFooter(current.Description) {
 			req.Description = youtrack.WithVelocityFooter(a.Description)
 		}

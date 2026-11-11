@@ -18,7 +18,7 @@ var createYoutrackTicketToolSchema = map[string]interface{}{
 		"properties": map[string]interface{}{
 			"summary": map[string]string{
 				"type":        "string",
-				"description": "Ticket title. Format: '<Subsystem>: <Action Verb> <What>'. Max 80 chars.",
+				"description": "Ticket title: '<Action Verb> <What>'. Max 80 chars. Velocity adds the priority and subsystem in front automatically, giving '<Priority> <Subsystem>: <Title>' (e.g. 'A3 FE MC: Fix login button'), so don't add them yourself.",
 			},
 			"description": map[string]string{
 				"type":        "string",
@@ -67,7 +67,8 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 		return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 	}
 
-	req := youtrack.CreateIssueRequest{Summary: a.Summary, Description: youtrack.WithVelocityFooter(a.Description)}
+	summary := buildTicketTitle(a.Priority, a.Subsystem, a.Summary)
+	req := youtrack.CreateIssueRequest{Summary: summary, Description: youtrack.WithVelocityFooter(a.Description)}
 	var fields []youtrack.CustomField
 
 	// Always default state to "To Do"
