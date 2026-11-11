@@ -6,6 +6,9 @@
 - tickets created or edited from connected tools now start with their priority and subsystem, like "A3 FE MC: Fix login button"
 
 
+### Bug Fixes
+- connected tools no longer add work to your Day Track on their own, they only add entries when you ask and then confirm the list
+
 ## 2026-11-05
 
 ### Features
