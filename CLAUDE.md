@@ -25,6 +25,21 @@ Velocity is a React + Go project management tool. Frontend (:5173) calls the Go 
 - **QA like a user** ([`uat-testing.md`](docs/features/uat-testing.md), read before any Playwright pass). Look at screenshots, check overlap with floating UI (PM Assistant bubble) and that dropdowns stay on screen, walk the real entry point from the left nav, check content is right (names, not raw IDs). Add new lessons to that file.
 - **Session log:** append what was worked on to [`docs/session-log.md`](docs/session-log.md).
 
+## Logging rules ([full detail](docs/features/logging.md))
+
+- **Every change ships its logs, like it ships a changelog line.** A new feature, enhancement, endpoint, MCP tool, job or outside integration is not done until it logs what it does. Check the pretty output in a test before calling it done.
+- **Already automatic, don't duplicate:** every request (route, status, time, user, request ID), every MCP tool call, every outside HTTP call, failed and slow DB queries, panics. Keep it that way: register routes on the main router, tools through `callTool`, and leave `Transport` nil on new `http.Client`s.
+- **What you add:** new loops and goroutines go through `logging.Job` / `logging.Tick` / `logging.Go`, or start with `defer logging.Recover(ctx, "name")`. The feature's key steps and outcomes use `slog.InfoContext` / `WarnContext` / `ErrorContext` with the request's `ctx`, so the request ID and user follow. Never add `log.Printf` or `fmt.Printf`.
+- **A good log line reads like a sentence to someone who is not a developer:**
+  - One line is one event: "Day Track sent to #standup for Simran", not "dt send ok uid=08938fa6".
+  - The message is a short fixed phrase; details go in fields (`ticket`, `channel`, `count`, `duration_ms`), never glued into the message.
+  - Names over IDs: the person's name, the channel name, the ticket ID like `A3-123`. Never a raw UUID on its own.
+  - Errors say what failed and what it means for the user, and include the error itself.
+  - Right level: `ERROR` broke and someone must act, `WARN` went wrong but was handled (or was the user's mistake), `INFO` worth knowing, `DEBUG` noisy detail.
+  - Never secrets, tokens, request bodies, message text or argument values; log argument names only.
+  - No em dashes, no hand-formatted times (the formatter prints 12 hour times).
+- **Looks matter.** Output is the `pretty` format: time, coloured level, emoji, plain sentence, detail on an indented line. A message logged often (a new job, a new kind of event) gets its own layout and emoji in `describe()` in `internal/logging/pretty_lines.go`, with a test.
+
 ## PM data rules ([full detail](docs/features/pm-data-rules.md))
 
 - **RULE #1, active PM source controls everything.** `pmDataService.ts` routes every call through `getActiveSource()`. Never hardcode states, priorities, assignees or sprint names. YouTrack priority is the raw field value (don't pass it through `mapYTPriorityFromConfig`). Sprint board issues come via YQL `GetIssuesByStateForSprint()`, not the agile endpoint.
@@ -55,6 +70,7 @@ Use the code-review-graph tools before Grep/Glob/Read: `semantic_search_nodes` o
 | [`frontend-rules.md`](docs/features/frontend-rules.md) | Full frontend rules, patterns, CSS file map |
 | [`pm-data-rules.md`](docs/features/pm-data-rules.md) | PM source and parked tickets |
 | [`setup.md`](docs/features/setup.md) | Env vars, database |
+| [`logging.md`](docs/features/logging.md) | Backend logging, levels, settings, `/api/admin/logs`, coverage |
 | [`shared-components.md`](docs/features/shared-components.md) | Shared component props, global CSS |
 | [`uat-testing.md`](docs/features/uat-testing.md) | UAT lessons and checklist |
 | [`mcp-server.md`](docs/features/mcp-server.md) | `/api/mcp`, adding a tool, every tool's notes |
