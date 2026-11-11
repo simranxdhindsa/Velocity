@@ -40,7 +40,8 @@ As a last line of defence, every message and string field passes through `loggin
 | Var | Default | Meaning |
 |---|---|---|
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
-| `LOG_FORMAT` | `text` in development, `json` otherwise | output format on stdout |
+| `LOG_FORMAT` | `pretty` | `pretty` (easy to read: emojis, plain sentences, detail on indented lines), `json` (one object per line, for log tools) or `text` |
+| `LOG_COLOR` | colours only on a terminal | `on` or `off` to force; `NO_COLOR` is respected |
 | `LOG_SLOW_REQUEST_MS` | `3000` | requests slower than this are `WARN` |
 | `LOG_SLOW_QUERY_MS` | `500` | DB queries slower than this are `WARN` |
 | `LOG_STORE` | `on` | save `WARN` and `ERROR` lines to the `app_logs` table |
