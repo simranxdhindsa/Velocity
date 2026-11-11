@@ -49,6 +49,11 @@ On the Knowledge Base page, header chips like "1 ready" and "1 admin-only" come 
 
 **Do:** Give status counters a layout that cannot change height with their content (own row, fixed min-widths for badges like "Indexing"/"Ready"), and during UAT interact with the page *while* background state changes (polling, indexing), not only after it settles. Also check the last row's actions against the floating PM Assistant bubble at max scroll on mobile; pages need bottom padding to scroll clear of it.
 
+### 10. Starting the real backend for a test can message real people
+`main.go` starts its schedulers with no off switch, including the pending Slack messages job, so running the full server against the dev database just to test something can send real messages. The Day Track tools were tested without it: a throwaway harness served `/api/mcp` and the Day Track routes on :8080 with no schedulers, the real Vite page on :5173, and throwaway users.
+
+**Do:** For agent-run tests, never start `air`, `npm run dev`, `npm run be` or the binary. Use a harness with only the routes you need, throwaway users, #velocity-app for Slack, and a fake server for anything that writes to YouTrack (a user's own `youtrack_integrations` row is the first place the client looks). `TestMCPDayTrackE2E` is the pattern to copy.
+
 ## Process checklist
 
 Before calling a UI task done:
@@ -59,3 +64,4 @@ Before calling a UI task done:
 - [ ] For any manual user action, check whether a background job could silently overwrite the same field
 - [ ] Query real data before assuming a rendering bug's scope
 - [ ] If a fix touches a shared component, grep for all its consumers
+- [ ] Test without the schedulers, on throwaway users, with nothing reaching a real person or a real ticket

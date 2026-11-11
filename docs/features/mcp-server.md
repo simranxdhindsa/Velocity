@@ -33,7 +33,7 @@ Per-user integration board, then the org-wide `youtrack_board_id` setting, then 
 
 ## Current tools (as of this writing)
 
-`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments, images and the status history: every column move from → to, who moved it, when, hours in the previous column, from Velocity's `issue_state_log`, which starts July 2025), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `search_knowledge_base` (read-only: the admin-managed team knowledge base), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered), `generate_deployment_report` (read-only deployment report for chosen columns, with exclusions).
+`get_developer_configs`, `get_sprints`, `get_developer_load`, `get_youtrack_ticket` (exact ID only; includes comments, attachments, images and the status history: every column move from → to, who moved it, when, hours in the previous column, from Velocity's `issue_state_log`, which starts July 2025), `search_youtrack_tickets` (YQL-based free text + assignee/sprint/state/priority/type/subsystem/reporter/date filters, raw `yql`, sorting), `create_youtrack_ticket`, `delete_youtrack_ticket`, `edit_youtrack_ticket`, `create_attachment_upload_url`, `upload_youtrack_attachment`, `link_youtrack_tickets`, `add_youtrack_comment`, `edit_youtrack_comment`, `delete_youtrack_comment`, `create_sprint`, `bulk_update_tickets` (move many tickets' state and/or sprint, dry-run preview by default), `queue_slack_message`, `send_slack_message_now`, `delete_slack_message`, `edit_slack_message`, `get_slack_reply_config`, `update_slack_reply_config`, `get_daytrack` (read-only DayTrack entries + totals, admin can read others), `add_daytrack_entries`, `update_daytrack_entry`, `delete_daytrack_entry`, `send_daytrack`, `add_daytrack_category`, `whoami` (who the caller is: Velocity, YouTrack, Slack identity, PM source, board, current sprint, timezone), `search_knowledge_base` (read-only: the admin-managed team knowledge base), `read_slack_messages` (read-only: channel/DM history or a permalink's thread), `get_slack_mentions` (read-only: who @mentioned you and what you haven't answered), `generate_deployment_report` (read-only deployment report for chosen columns, with exclusions).
 
 ### ChatGPT screenshot and file uploads
 
@@ -202,6 +202,38 @@ Read-only view of a user's DayTrack log. Files: `mcp_tool_get_daytrack.go` (sche
 - Totals count top-level entries only. Subtasks are nested under their parent and not added again, same as the DayTrack page export. Duration is `duration_mins`, or end minus start when only times were saved (`duration_from_times: true`). Entries with neither count as 0.
 - Times are normalised to 12-hour (`9:03 AM`), including legacy `HH:MM` values. Emoji comes from `categoryEmoji` (built-in map, then the user's custom category icon, then `▪️`).
 - `ticket_ids` combines `youtrack_issue_id`, `external_ref` (`yt-tested-ARD-1-prod`, `yt-create-ARD-1`) and any `ABC-123` IDs in the name or notes.
+- Every entry has an `id` for the write tools. A single-date read also returns `planned` (Planned & Carry Over, with ids) and `posted_to_slack`.
+
+### Day Track write tools notes
+
+`add_daytrack_entries`, `update_daytrack_entry`, `delete_daytrack_entry`, `send_daytrack`, `add_daytrack_category`. They only ever touch the caller's own log (every query is scoped by the token's user, there is no `user` param). Files: one `mcp_tool_*` each, pure rules in `mcp_daytrack_rules.go` (lines, clock times, category), shared helpers in `mcp_daytrack_write.go`, lookups and list moves in `database/daytrack_repo_moves.go`.
+
+**One line per task.** Line breaks, bullets, numbered lists and semicolons split into separate entries (`mcpDayTrackTaskLines`). Names and notes over 160 characters are refused, never cut off (manual entries: median 21, 95th percentile 122). Em dashes and spaced double dashes become commas. Every task is checked before anything is written, so a bad line saves nothing. If the database fails partway, the call is an error naming what saved, and a retry skips those.
+
+**Category** (`mcpDetectDayTrackCategory`), used when none is given: a custom category named in the text, sign in/off and break shorthand, the first word (the verb), then the page's keyword table on whole words, then the page's default, the first category. `category_source` says which. This is stricter than the page's `detectCategory`, which uses substring matching, so "added back button" isn't a break and "fixed login bug" is Development (the page still says Testing). "aws" means a break only when nothing but a length follows it. The Slack keyword rules are not reused: they fuzzy match, and "back" or "available" would misfile real work. An unknown category is an error, and only `add_daytrack_category` creates one, when the user explicitly asks.
+
+**Time** (`mcpResolveDayTrackTimes`), `time_source` in the result:
+
+| Given | Today | Past date |
+|---|---|---|
+| Nothing, one task | last entry's end + 1 minute until now (`chained`), warns past 4 hours; stamped now if nothing is logged yet | blank |
+| Nothing, several tasks | all stamped now, no duration (`logged_at`) | blank |
+| Duration only | ends now | duration kept, times blank |
+| Start only | ends now | no end |
+
+A bare "10" is refused, since guessing AM or PM logs the wrong half of the day. An end before its start is refused unless it reads as a late night (12 hours or less). Stored as `3:04 PM`.
+
+**Lists.** `done` goes to Today's Log, `in_progress` and `planned` to Planned & Carry Over, never both. Moving between them is one transaction (`CompletePlanned`, `CarryEntry`) and gives the item a new id. Carrying an entry takes its subtasks along as separate items marked `[subtask of X]`, like the page. A repeat name is skipped (`skipped`), and a per-user lock makes concurrent retries safe. `allow_duplicates` only applies within Today's Log.
+
+**Finishing a YouTrack item** (`entry_source` youtrack, category Development) also moves the ticket to the workflow's `dev_done` column, like the page. Without this the next sync would put it straight back. If YouTrack refuses, the work stays done and the result warns.
+
+**`send_daytrack`** posts only to the channel in the user's Day Track settings, through `postDayTrackUpdate`: first send posts, later sends edit in place. `preview: true` returns the exact text without posting. Today's date syncs from YouTrack first, like the auto-send, because nobody may have opened the page. That needs `MCPHandler.UseDayTrack` (wired in `main.go`). The sync drops in-progress ticket items that are no longer open. Other write tools warn when that day's report is already in Slack, because they don't edit it.
+
+**Regression:** `VELOCITY_E2E_DAYTRACK=1 go test -race ./internal/handlers -run TestMCPDayTrackE2E -v -count=1` runs real JSON-RPC with Bearer tokens on the dev database as throwaway users, with a fake YouTrack server so no ticket moves. Add `VELOCITY_E2E_SLACK_SEND=1` for the real send (#velocity-app only, deleted afterwards). It refuses any database but `dev_velocity`.
+
+### Server instructions (`mcp_instructions.go`)
+
+The `initialize` response carries `instructions`, so every connected agent gets the work log rule: report finished work as `• <Project>: <what changed>` bullets, then add them to Day Track with one `add_daytrack_entries` call, one entry per bullet. Only research, development, testing and custom category work count, not answers or lookups. Clients may ignore this field, so `add_daytrack_entries` repeats the rule in its description. It reaches everyone connected to Velocity, each into their own Day Track.
 
 ### `search_knowledge_base` notes
 
