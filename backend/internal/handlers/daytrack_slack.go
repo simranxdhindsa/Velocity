@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 )
 
@@ -315,15 +316,15 @@ func RunDayTrackSlackScanner(daytrackRepo *database.DayTrackRepository) {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		// Run once immediately on startup, then on every tick.
-		runScan(daytrackRepo)
+		logging.Job("daytrack_slack_scan", func(ctx context.Context) { runScan(ctx, daytrackRepo) })
 		for range ticker.C {
-			runScan(daytrackRepo)
+			logging.Job("daytrack_slack_scan", func(ctx context.Context) { runScan(ctx, daytrackRepo) })
 		}
 	}()
 }
 
-func runScan(repo *database.DayTrackRepository) {
-	listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second)
+func runScan(parent context.Context, repo *database.DayTrackRepository) {
+	listCtx, listCancel := context.WithTimeout(parent, 30*time.Second)
 	configs, err := repo.GetAllEnabledSlackConfigs(listCtx)
 	listCancel()
 	if err != nil {
@@ -333,7 +334,7 @@ func runScan(repo *database.DayTrackRepository) {
 
 	// Each user gets its own context so one slow call can't cancel others.
 	for _, cfg := range configs {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 90*time.Second)
 		scanUserChannel(ctx, repo, cfg)
 		cancel()
 	}

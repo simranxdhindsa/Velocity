@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/dhindsa/project-management/internal/auth"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/models"
 )
 
@@ -67,6 +68,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
+		logging.SetUser(r.Context(), user.ID)
+		logging.AddField(r.Context(), "user_name", user.Name)
 		ctx := context.WithValue(r.Context(), UserContextKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

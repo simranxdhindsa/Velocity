@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/services/ai"
 )
 
@@ -87,14 +88,21 @@ func kickContext() {
 
 func contextLoop() {
 	for {
-		drainContext()
-		if contextIdleHook != nil {
-			contextIdleHook()
-		}
+		drainContextOnce()
 		select {
 		case <-contextKick:
 		case <-time.After(contextIdleRecheck):
 		}
+	}
+}
+
+// drainContextOnce runs one drain pass. A panic is logged and the worker
+// loop carries on to the next wake-up.
+func drainContextOnce() {
+	defer logging.Recover(context.Background(), "kb_context_worker")
+	drainContext()
+	if contextIdleHook != nil {
+		contextIdleHook()
 	}
 }
 

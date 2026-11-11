@@ -3,6 +3,7 @@ package update_reminder
 import (
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -71,7 +72,7 @@ func (s *Service) openDMRelay(ctx context.Context, userID, channelID, slackUserI
 		return
 	}
 	if err := s.dmLog.BeginRelay(ctx, channelID, slackUserID, userID, time.Now().Add(dmRelayPending)); err != nil {
-		fmt.Printf("[update_reminder] warning: failed to open DM relay: %v\n", err)
+		log.Printf("[update_reminder] warning: failed to open DM relay: %v", err)
 	}
 }
 
@@ -88,11 +89,11 @@ func (s *Service) logDM(ctx context.Context, userID, channelID, slackUserID, ts,
 	if _, err := s.dmLog.RecordMessage(ctx, database.SlackDMMessage{
 		ChannelID: channelID, SlackTS: ts, Direction: database.DMDirOut, Kind: kind, SentByUserID: userID, Text: text,
 	}); err != nil {
-		fmt.Printf("[update_reminder] warning: failed to log DM chat message: %v\n", err)
+		log.Printf("[update_reminder] warning: failed to log DM chat message: %v", err)
 	}
 	if first { // confirm the full window; the ack was already reset when the relay opened
 		if err := s.dmLog.ExtendRelay(ctx, channelID, userID, time.Now().Add(database.DMRelayWindow)); err != nil {
-			fmt.Printf("[update_reminder] warning: failed to confirm DM relay: %v\n", err)
+			log.Printf("[update_reminder] warning: failed to confirm DM relay: %v", err)
 		}
 	}
 }
@@ -104,7 +105,7 @@ func (s *Service) abortDMRelay(ctx context.Context, userID, channelID string) {
 		return
 	}
 	if err := s.dmLog.AbortRelay(ctx, channelID, userID); err != nil {
-		fmt.Printf("[update_reminder] warning: failed to abort DM relay: %v\n", err)
+		log.Printf("[update_reminder] warning: failed to abort DM relay: %v", err)
 	}
 }
 
@@ -115,7 +116,7 @@ func (s *Service) logSent(ctx context.Context, userID, source, channelID, messag
 		return
 	}
 	if _, err := s.sentRepo.Log(ctx, userID, source, channelID, "", message, slackTs); err != nil {
-		fmt.Printf("[update_reminder] warning: failed to log sent message (source=%s): %v\n", source, err)
+		log.Printf("[update_reminder] warning: failed to log sent message (source=%s): %v", source, err)
 	}
 }
 
@@ -558,7 +559,7 @@ func (s *Service) DeleteSlackMessage(ctx context.Context, userID, channelID, ts 
 		return err
 	}
 	if err := s.sentRepo.DeleteByTs(ctx, userID, channelID, ts); err != nil {
-		fmt.Printf("[update_reminder] warning: failed to drop sent log row: %v\n", err)
+		log.Printf("[update_reminder] warning: failed to drop sent log row: %v", err)
 	}
 	return nil
 }
@@ -573,11 +574,11 @@ func (s *Service) UpdateSlackMessage(ctx context.Context, userID, channelID, ts,
 	}
 	// Keep both logs in step with Slack, so Claude Queue and the bot's memory show the edit
 	if err := s.sentRepo.UpdateTextByTs(ctx, userID, channelID, ts, text); err != nil {
-		fmt.Printf("[update_reminder] warning: failed to update sent log text: %v\n", err)
+		log.Printf("[update_reminder] warning: failed to update sent log text: %v", err)
 	}
 	if s.queueRepo != nil {
 		if err := s.queueRepo.UpdateSentText(ctx, userID, ts, text); err != nil {
-			fmt.Printf("[update_reminder] warning: failed to update queue text: %v\n", err)
+			log.Printf("[update_reminder] warning: failed to update queue text: %v", err)
 		}
 	}
 	return nil

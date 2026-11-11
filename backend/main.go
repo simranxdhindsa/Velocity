@@ -12,6 +12,7 @@ import (
 
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/handlers"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
 	"github.com/dhindsa/project-management/internal/services/kb"
@@ -36,6 +37,9 @@ type Response struct {
 }
 
 func main() {
+	logging.Init()
+	logging.InstallHTTPTransport()
+
 	// Connect to database
 	log.Println("📦 Connecting to database...")
 	if err := database.Connect(); err != nil {
@@ -50,10 +54,13 @@ func main() {
 			log.Printf("⚠️  Migration warning: %v", err)
 		}
 		handlers.SeedChatRephraseBots(context.Background())
+		logging.EnableStore(database.NewAppLogRepository())
+		logging.StartStorePruner()
 	}
 
 	// Initialize router
 	r := mux.NewRouter()
+	r.Use(logging.RouteTagger)
 
 	// API routes
 	api := r.PathPrefix("/api").Subrouter()
@@ -469,6 +476,10 @@ func main() {
 	reportRoutes.HandleFunc("/pm-report/{date}/saved", reportHandler.GetSavedReport).Methods("GET")
 	reportRoutes.HandleFunc("/pm-report/{date}", reportHandler.GeneratePMReport).Methods("GET")
 	reportRoutes.HandleFunc("/pm-reports", reportHandler.ListReports).Methods("GET")
+	adminLogRoutes := api.PathPrefix("/admin/logs").Subrouter()
+	adminLogRoutes.Use(middleware.AuthMiddleware)
+	adminLogRoutes.Use(middleware.AdminOnly)
+	adminLogRoutes.HandleFunc("", handlers.NewAppLogsHandler().List).Methods("GET")
 	adminReportRoutes := api.PathPrefix("/reports").Subrouter()
 	adminReportRoutes.Use(middleware.AuthMiddleware)
 	adminReportRoutes.Use(middleware.AdminOnly)
@@ -601,7 +612,7 @@ func main() {
 	kbRoutes.HandleFunc("/notes/{id}", kbHandler.UpdateNote).Methods("PUT")
 	kbRoutes.HandleFunc("/search", kbHandler.Search).Methods("GET")
 	// Finish indexing anything a restart interrupted
-	go kb.ResumePending()
+	go logging.Job("kb_resume_pending", func(ctx context.Context) { kb.ResumePending() })
 
 	// Start pending-messages scheduler (fires due Slack messages every 60s)
 	handlers.RunPendingMessagesScheduler(notifHandler)
@@ -715,7 +726,8 @@ func main() {
 	c := cors.New(cors.Options{
 		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Request-ID"},
+		ExposedHeaders:   []string{"X-Request-ID"},
 		AllowCredentials: true,
 		AllowOriginFunc: func(origin string) bool {
 			if origin == "" {
@@ -738,7 +750,7 @@ func main() {
 		},
 	})
 
-	handler := c.Handler(r)
+	handler := logging.Middleware(c.Handler(r))
 
 	// Get port from environment or default to 8080
 	port := os.Getenv("PORT")
@@ -754,22 +766,23 @@ func main() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			ctx := context.Background()
-			if n, err := notifRepo.DeleteOld(ctx, 30); err != nil {
-				log.Printf("⚠️  Notification cleanup error: %v", err)
-			} else if n > 0 {
-				log.Printf("🗑️  Cleaned up %d notifications older than 30 days", n)
-			}
-			if n, err := activityRepo.DeleteOld(ctx, 30); err != nil {
-				log.Printf("⚠️  Activity log cleanup error: %v", err)
-			} else if n > 0 {
-				log.Printf("🗑️  Cleaned up %d activity entries older than 30 days", n)
-			}
-			if n, err := sentSlackRepo.DeleteOld(ctx, 60); err != nil {
-				log.Printf("⚠️  Slack hub message log cleanup error: %v", err)
-			} else if n > 0 {
-				log.Printf("🗑️  Cleaned up %d Slack hub log entries older than 60 days", n)
-			}
+			logging.Job("daily_cleanup", func(ctx context.Context) {
+				if n, err := notifRepo.DeleteOld(ctx, 30); err != nil {
+					log.Printf("⚠️  Notification cleanup error: %v", err)
+				} else if n > 0 {
+					log.Printf("🗑️  Cleaned up %d notifications older than 30 days", n)
+				}
+				if n, err := activityRepo.DeleteOld(ctx, 30); err != nil {
+					log.Printf("⚠️  Activity log cleanup error: %v", err)
+				} else if n > 0 {
+					log.Printf("🗑️  Cleaned up %d activity entries older than 30 days", n)
+				}
+				if n, err := sentSlackRepo.DeleteOld(ctx, 60); err != nil {
+					log.Printf("⚠️  Slack hub message log cleanup error: %v", err)
+				} else if n > 0 {
+					log.Printf("🗑️  Cleaned up %d Slack hub log entries older than 60 days", n)
+				}
+			})
 		}
 	}()
 

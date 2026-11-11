@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 )
 
 // Indexing pipeline: extract text, split into chunks, embed, store.
@@ -37,11 +38,13 @@ func IndexAsync(docID string) {
 	indexWG.Add(1)
 	go func() {
 		defer indexWG.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		if err := Index(ctx, docID); err != nil {
-			log.Printf("[kb] indexing %s failed: %v", docID, err)
-		}
+		logging.Job("kb_index", func(jobCtx context.Context) {
+			ctx, cancel := context.WithTimeout(jobCtx, 10*time.Minute)
+			defer cancel()
+			if err := Index(ctx, docID); err != nil {
+				log.Printf("[kb] indexing %s failed: %v", docID, err)
+			}
+		})
 	}()
 }
 
@@ -223,6 +226,7 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer logging.Recover(ctx, "kb_search_keyword")
 		kwHits, kwErr = repo.KeywordSearch(ctx, terms, candidatePool)
 	}()
 	// Meaning channels, each fused with the plain keyword hits below:
@@ -235,6 +239,7 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer logging.Recover(ctx, "kb_search_vector")
 			vec, err := EmbedQuery(ctx, query)
 			if err != nil {
 				vecErr = err
@@ -247,6 +252,7 @@ func Search(ctx context.Context, query string, limit int) ([]Hit, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer logging.Recover(ctx, "kb_search_expand")
 			if extra := expandQuery(ctx, query, terms); len(extra) > 0 {
 				expHits, expErr = repo.KeywordSearch(ctx, extra, candidatePool)
 				rankByCoverage(expHits, extra)

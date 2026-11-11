@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
 	"github.com/dhindsa/project-management/internal/services/youtrack"
@@ -1969,6 +1970,7 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 			wg.Add(1)
 			go func(issueID string) {
 				defer wg.Done()
+				defer logging.Recover(r.Context(), "state_log_fetch")
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				acts, err := ytClient.GetIssueActivities(r.Context(), issueID)
@@ -1980,7 +1982,7 @@ func (h *ReportHandler) GetSprintBoardStatus(w http.ResponseWriter, r *http.Requ
 			}(id)
 		}
 		// Close result channel once all goroutines finish
-		go func() { wg.Wait(); close(resultCh) }()
+		go func() { defer logging.Recover(r.Context(), "state_log_close"); wg.Wait(); close(resultCh) }()
 		for res := range resultCh {
 			if len(res.logs) > 0 {
 				stateLogMap[res.issueID] = res.logs
@@ -2489,6 +2491,7 @@ func (h *ReportHandler) GetSprintQASummary(w http.ResponseWriter, r *http.Reques
 			qaWg.Add(1)
 			go func(issueID string) {
 				defer qaWg.Done()
+				defer logging.Recover(r.Context(), "qa_state_log_fetch")
 				qaSem <- struct{}{}
 				defer func() { <-qaSem }()
 				acts, actErr := ytClient.GetIssueActivities(r.Context(), issueID)
@@ -2499,7 +2502,7 @@ func (h *ReportHandler) GetSprintQASummary(w http.ResponseWriter, r *http.Reques
 				qaCh <- qaFetchResult{issueID: issueID, logs: activitiesToStateLogs(issueID, acts)}
 			}(id)
 		}
-		go func() { qaWg.Wait(); close(qaCh) }()
+		go func() { defer logging.Recover(r.Context(), "qa_state_log_close"); qaWg.Wait(); close(qaCh) }()
 		for res := range qaCh {
 			if len(res.logs) > 0 {
 				stateLogMap[res.issueID] = res.logs

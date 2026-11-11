@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 )
@@ -149,6 +150,7 @@ func (h *SlackChatsHandler) profiles(r *http.Request, ids []string) map[string]s
 		sem <- struct{}{}
 		go func(id string) {
 			defer wg.Done()
+			defer logging.Recover(ctx, "slack_profile_fetch")
 			defer func() { <-sem }()
 			if p, ok := h.profile(ctx, user.ID, id); ok {
 				mu.Lock()

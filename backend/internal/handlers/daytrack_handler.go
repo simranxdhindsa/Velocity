@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 	"github.com/gorilla/mux"
@@ -165,7 +166,8 @@ func (h *DayTrackHandler) TriggerSlackScan(w http.ResponseWriter, r *http.Reques
 	}
 	// Use a detached context — r.Context() is cancelled as soon as the HTTP response is sent.
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer logging.Recover(logging.Detach(r.Context()), "daytrack_manual_scan")
+		ctx, cancel := context.WithTimeout(logging.Detach(r.Context()), 90*time.Second)
 		defer cancel()
 		scanUserChannel(ctx, h.repo, scanCfg)
 	}()
@@ -1122,26 +1124,28 @@ func RunDayTrackAutoSendScheduler(h *DayTrackHandler) {
 		defer ticker.Stop()
 		lastSentDate := ""
 		for range ticker.C {
-			loc, err := time.LoadLocation("Asia/Kolkata")
-			if err != nil {
-				loc = time.UTC
-			}
-			now := time.Now().In(loc)
-			if now.Hour() != autoSendHour || now.Minute() != autoSendMinute {
-				continue
-			}
-			today := now.Format("2006-01-02")
-			if today == lastSentDate {
-				continue // already ran for this date this minute-window
-			}
-			lastSentDate = today
-			runDayTrackAutoSend(h, today)
+			logging.Tick("daytrack_auto_send_check", func(ctx context.Context) {
+				loc, err := time.LoadLocation("Asia/Kolkata")
+				if err != nil {
+					loc = time.UTC
+				}
+				now := time.Now().In(loc)
+				if now.Hour() != autoSendHour || now.Minute() != autoSendMinute {
+					return
+				}
+				today := now.Format("2006-01-02")
+				if today == lastSentDate {
+					return // already ran for this date this minute-window
+				}
+				lastSentDate = today
+				logging.Job("daytrack_auto_send", func(ctx context.Context) { runDayTrackAutoSend(ctx, h, today) })
+			})
 		}
 	}()
 }
 
-func runDayTrackAutoSend(h *DayTrackHandler, date string) {
-	listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second)
+func runDayTrackAutoSend(parent context.Context, h *DayTrackHandler, date string) {
+	listCtx, listCancel := context.WithTimeout(parent, 30*time.Second)
 	configs, err := h.repo.GetAllAutoSendConfigs(listCtx)
 	listCancel()
 	if err != nil {
@@ -1150,7 +1154,7 @@ func runDayTrackAutoSend(h *DayTrackHandler, date string) {
 	}
 
 	for _, cfg := range configs {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 90*time.Second)
 		displayName := ""
 		if dbUser, err := h.userRepo.GetByID(ctx, cfg.UserID); err == nil {
 			displayName = dbUser.Name

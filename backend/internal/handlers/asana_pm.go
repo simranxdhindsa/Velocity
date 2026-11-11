@@ -46,6 +46,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
 	"github.com/dhindsa/project-management/internal/services/ai"
@@ -2914,6 +2915,7 @@ func (h *AsanaPMHandler) GenerateDeploymentReport(w http.ResponseWriter, r *http
 		wg.Add(1)
 		go func(idx int, t deploymentTicketInput) {
 			defer wg.Done()
+			defer logging.Recover(r.Context(), "deployment_fix_statement")
 			sem <- struct{}{}
 			defer func() { <-sem }()
 

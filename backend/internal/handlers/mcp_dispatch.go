@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 )
 
 // mcpToolFunc handles one MCP tools/call invocation. Each MCP tool lives in
@@ -104,9 +106,11 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		return rpcErr(id, -32602, "invalid params")
 	}
 
+	logging.AddField(r.Context(), "mcp_tool", p.Name)
+
 	handler, ok := mcpToolHandlers[p.Name]
 	if !ok {
-		log.Printf("[MCP] ✗ unknown tool %q requested by user=%s", p.Name, userID)
+		slog.WarnContext(r.Context(), "mcp unknown tool requested", "tool", p.Name)
 		return rpcErr(id, -32601, "unknown tool: "+p.Name)
 	}
 
@@ -124,11 +128,7 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		summary = label
 	}
 
-	if success {
-		log.Printf("[MCP] ✓ %s (user=%s, %s): %s", label, userID, elapsed, summary)
-	} else {
-		log.Printf("[MCP] ✗ %s failed (user=%s, %s): %s", label, userID, elapsed, summary)
-	}
+	logMCPToolCall(r.Context(), p.Name, label, success, elapsed, summary, p.Arguments)
 
 	logCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -141,10 +141,32 @@ func (h *MCPHandler) callTool(r *http.Request, id interface{}, raw json.RawMessa
 		Success:     success,
 		DurationMs:  int(elapsed.Milliseconds()),
 	}); err != nil {
-		log.Printf("[MCP Activity] ⚠ failed to record log entry: %v", err)
+		slog.WarnContext(r.Context(), "mcp activity record failed", "tool", p.Name, "error", err.Error())
 	}
 
 	return resp
+}
+
+// logMCPToolCall writes the one structured line per tool call. Only the top-level
+// argument key names are logged, never the values.
+func logMCPToolCall(ctx context.Context, tool, label string, success bool, elapsed time.Duration, summary string, args json.RawMessage) {
+	if r := []rune(summary); len(r) > 300 {
+		summary = string(r[:300]) + "…"
+	}
+	keys := []string{}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(args, &m) == nil {
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+	}
+	level := slog.LevelInfo
+	if !success {
+		level = slog.LevelWarn
+	}
+	slog.Log(ctx, level, "mcp tool call", "tool", tool, "label", label, "ok", success,
+		"duration_ms", elapsed.Milliseconds(), "summary", summary, "arg_keys", keys)
 }
 
 // mcpActivityDetail is the message a Slack send/queue/edit call carried, kept with its

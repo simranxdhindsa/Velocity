@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
 	"github.com/dhindsa/project-management/internal/services/asana"
@@ -419,7 +420,8 @@ func (h *AsanaHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// Process events asynchronously
 	go func() {
-		ctx := context.Background()
+		ctx := logging.Detach(r.Context())
+		defer logging.Recover(ctx, "asana_webhook")
 		if err := h.webhookService.HandleWebhook(ctx, payload.Events); err != nil {
 			log.Printf("Webhook processing error: %v", err)
 		}

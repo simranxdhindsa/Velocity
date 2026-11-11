@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -44,6 +45,8 @@ func NewClient(ctx context.Context, region, accessKeyID, secretAccessKey, bucket
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")),
+		// A plain client uses http.DefaultTransport, which logging wraps, so S3 calls are logged too.
+		config.WithHTTPClient(&http.Client{}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)

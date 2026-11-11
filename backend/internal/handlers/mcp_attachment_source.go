@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -67,7 +68,7 @@ func (l *mcpLoadedAttachment) cleanup(ctx context.Context) {
 	}
 	if err := l.s3Client.DeleteObject(ctx, l.s3Key); err != nil {
 		// The YouTrack push already succeeded; the 3-day lifecycle rule catches it.
-		fmt.Printf("[mcp] warning: failed to delete S3 object %s after successful upload: %v\n", l.s3Key, err)
+		log.Printf("[mcp] warning: failed to delete S3 object %s after successful upload: %v", l.s3Key, err)
 	}
 }
 
