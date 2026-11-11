@@ -72,3 +72,7 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - Velocity: MCP server instructions tell connected agents to report finished work as `• Velocity: ...` bullets and log each one to Day Track
 - Velocity: opt-in end-to-end test for the Day Track tools (`TestMCPDayTrackE2E`), real Slack in #velocity-app, fake YouTrack
 - Velocity: `CLAUDE.md` shortened, full rules moved to `docs/features/frontend-rules.md`, `pm-data-rules.md`, `setup.md` and `docs/session-log.md`
+
+### 2026-11-11
+- Velocity: backend logging for every API request, MCP tool call, background job, outbound API call and database error (`internal/logging`), with request IDs, panic recovery and secret scrubbing; plan and coverage list in `docs/features/logging.md`
+- Velocity: warnings and errors saved to `app_logs` (14 day retention) and readable by admins at `GET /api/admin/logs`; frontend page still to do
