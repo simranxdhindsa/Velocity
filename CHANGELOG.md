@@ -3,11 +3,15 @@
 ## 2026-11-11
 
 ### Enhancements
+- server logs are now easy to read, with colors, emojis, plain-language lines and your name on each request, and storage uploads are logged too
 - tickets created or edited from connected tools now start with their priority and subsystem, like "A3 FE MC: Fix login button"
 
 
 ### Bug Fixes
 - connected tools no longer add work to your Day Track on their own, they only add entries when you ask and then confirm the list
+
+### Features
+- every server request, connected tool call, background job and outside service call is now logged with a request ID, crashes no longer take the server down, and admins can read saved warnings and errors
 
 ## 2026-11-05
 
