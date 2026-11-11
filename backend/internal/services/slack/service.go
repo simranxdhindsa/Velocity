@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -36,7 +37,7 @@ func (s *Service) logSent(ctx context.Context, userID, source, channelID, channe
 		return
 	}
 	if _, err := s.sentRepo.Log(ctx, userID, source, channelID, channelLabel, message, slackTs); err != nil {
-		fmt.Printf("[slack] warning: failed to log sent message (source=%s): %v\n", source, err)
+		log.Printf("[slack] warning: failed to log sent message (source=%s): %v", source, err)
 	}
 }
 

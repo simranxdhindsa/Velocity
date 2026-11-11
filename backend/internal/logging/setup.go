@@ -27,6 +27,8 @@ func init() {
 type options struct {
 	level  slog.Level
 	json   bool
+	pretty bool // easy-to-read lines with emojis (the default)
+	color  bool // ANSI colours in pretty mode
 	slowRq int64
 	slowQ  int64
 }
@@ -51,17 +53,31 @@ func parseLevel(s string) slog.Level {
 }
 
 func optionsFromEnv() options {
+	// LOG_FORMAT: pretty (default, easy to read), json (for log tools) or text.
 	format := strings.ToLower(strings.TrimSpace(os.Getenv("LOG_FORMAT")))
-	useJSON := format == "json"
-	if format == "" {
-		useJSON = !strings.EqualFold(os.Getenv("ENVIRONMENT"), "development")
-	}
 	return options{
 		level:  parseLevel(os.Getenv("LOG_LEVEL")),
-		json:   useJSON,
+		json:   format == "json",
+		pretty: format == "" || format == "pretty",
+		color:  colorEnabled(),
 		slowRq: envInt("LOG_SLOW_REQUEST_MS", 3000),
 		slowQ:  envInt("LOG_SLOW_QUERY_MS", 500),
 	}
+}
+
+// colorEnabled: LOG_COLOR=on/off wins, then NO_COLOR, then colours only when
+// stdout is a terminal, so log viewers never see raw colour codes.
+func colorEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_COLOR"))) {
+	case "on", "true", "1", "always":
+		return true
+	case "off", "false", "0", "never":
+		return false
+	}
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	return isTerminal(os.Stdout)
 }
 
 // Init configures logging from the environment and installs it as the slog
@@ -73,9 +89,12 @@ func initWith(w io.Writer, o options) {
 	slowQueryMS.Store(o.slowQ)
 	hopts := &slog.HandlerOptions{Level: o.level}
 	var base slog.Handler
-	if o.json {
+	switch {
+	case o.json:
 		base = slog.NewJSONHandler(w, hopts)
-	} else {
+	case o.pretty:
+		base = newPrettyHandler(w, o.level, o.color)
+	default:
 		base = slog.NewTextHandler(w, hopts)
 	}
 	logger := slog.New(&rootHandler{base: base})
@@ -95,13 +114,37 @@ func (l legacyWriter) Write(p []byte) (int, error) {
 }
 
 var (
+	legacyErrorIcons = []string{"❌", "🔥", "💥"}
+	legacyWarnIcons  = []string{"⚠", "✗"}
+	legacyInfoIcons  = []string{"✅", "✓", "🚀", "📍", "📦", "📡", "🗑"}
 	legacyErrorWords = []string{"error", "failed", "fail:", "panic", "fatal", "❌"}
 	legacyWarnWords  = []string{"⚠", "warn", "✗", "could not", "couldn't", "unable", "skipp", "denied", "invalid", "timeout", "retry"}
 )
 
 // legacyLevel guesses a level for an old log.Printf line from its text.
 func legacyLevel(msg string) slog.Level {
+	// A leading icon is the author's own choice of severity, so it wins.
+	lead := strings.TrimLeft(msg, " [")
+	for _, w := range legacyErrorIcons {
+		if strings.HasPrefix(lead, w) {
+			return slog.LevelError
+		}
+	}
+	for _, w := range legacyWarnIcons {
+		if strings.HasPrefix(lead, w) {
+			return slog.LevelWarn
+		}
+	}
+	for _, w := range legacyInfoIcons {
+		if strings.HasPrefix(lead, w) {
+			return slog.LevelInfo
+		}
+	}
 	m := strings.ToLower(msg)
+	// "warning: failed to ..." is the author calling it a warning.
+	if strings.Contains(m, "warning") {
+		return slog.LevelWarn
+	}
 	for _, w := range legacyErrorWords {
 		if strings.Contains(m, w) {
 			return slog.LevelError

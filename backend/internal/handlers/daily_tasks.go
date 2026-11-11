@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -67,7 +68,7 @@ func (h *DailyTaskHandler) SaveAnalysis(w http.ResponseWriter, r *http.Request) 
 	if len(tasks) > 0 {
 		if err := h.dailyRepo.SaveDailyTasks(r.Context(), analysis.ID, req.Date, tasks); err != nil {
 			// Log error but don't fail the request
-			fmt.Printf("Warning: Failed to save daily tasks: %v\n", err)
+			log.Printf("Warning: Failed to save daily tasks: %v", err)
 		}
 	}
 

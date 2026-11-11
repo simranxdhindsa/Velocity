@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -1877,7 +1878,7 @@ func (c *Client) UploadAttachment(ctx context.Context, issueID, filename, mimeTy
 
 	attachedName := parseUploadedAttachmentName(respBody, filename)
 	if err := c.embedAttachmentInDescription(ctx, issueID, attachedName, mimeType); err != nil {
-		fmt.Printf("[youtrack] warning: failed to embed attachment reference in description for %s: %v\n", issueID, err)
+		log.Printf("[youtrack] warning: failed to embed attachment reference in description for %s: %v", issueID, err)
 	}
 	return nil
 }
