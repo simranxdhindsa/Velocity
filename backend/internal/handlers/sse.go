@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/dhindsa/project-management/internal/logging"
 	"log"
 	"net/http"
 	"sync"
@@ -80,6 +81,7 @@ func (h *SSEHub) HandleEvents(w http.ResponseWriter, r *http.Request) {
 	// Remove client on disconnect
 	ctx := r.Context()
 	go func() {
+		defer logging.Recover(ctx, "sse_remove_client")
 		<-ctx.Done()
 		h.RemoveClient(ch)
 	}()

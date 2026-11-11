@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
 	"github.com/dhindsa/project-management/internal/services/youtrack"
@@ -85,6 +86,7 @@ func (h *ReportHandler) GetSprintVelocity(w http.ResponseWriter, r *http.Request
 		wg.Add(1)
 		go func(idx int, s youtrack.Sprint) {
 			defer wg.Done()
+			defer logging.Recover(r.Context(), "velocity_sprint_fetch")
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
@@ -399,6 +401,7 @@ func (h *ReportHandler) GetReleases(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(idx int, ver string) {
 			defer wg.Done()
+			defer logging.Recover(r.Context(), "release_issues_fetch")
 			sem <- struct{}{}
 			defer func() { <-sem }()
 

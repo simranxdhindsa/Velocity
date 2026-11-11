@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
@@ -109,36 +110,37 @@ func RunPendingMessagesScheduler(notifHandler *NotificationHandler) {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			ctx := context.Background()
-			msgs, err := repo.GetDueMessages(ctx)
-			if err != nil {
-				log.Printf("⚠️  pending-messages scheduler: query error: %v", err)
-				continue
-			}
-			for _, msg := range msgs {
-				_, _, sendErr := sendQueuedMessage(ctx, svc, repo, msg)
-				if sendErr != nil {
-					log.Printf("⚠️  pending-messages scheduler: send failed for %s: %v", msg.ID, sendErr)
-					if notifHandler != nil {
-						_ = notifHandler.CreateAndBroadcast(ctx, &models.Notification{
-							UserID:  msg.UserID,
-							Type:    "update_reminder_failed",
-							Title:   "Claude Queue message failed",
-							Message: truncateStr(msg.Message, 120) + ": " + sendErr.Error(),
-						})
-					}
-				} else {
-					log.Printf("✅ pending-messages scheduler: sent %s to %s", msg.ID, msg.ChannelLabel)
-					if notifHandler != nil {
-						_ = notifHandler.CreateAndBroadcast(ctx, &models.Notification{
-							UserID:  msg.UserID,
-							Type:    "update_reminder_sent",
-							Title:   "Claude Queue message sent",
-							Message: truncateStr(msg.Message, 120) + " → " + msg.ChannelLabel,
-						})
+			logging.Tick("pending_messages", func(ctx context.Context) {
+				msgs, err := repo.GetDueMessages(ctx)
+				if err != nil {
+					log.Printf("⚠️  pending-messages scheduler: query error: %v", err)
+					return
+				}
+				for _, msg := range msgs {
+					_, _, sendErr := sendQueuedMessage(ctx, svc, repo, msg)
+					if sendErr != nil {
+						log.Printf("⚠️  pending-messages scheduler: send failed for %s: %v", msg.ID, sendErr)
+						if notifHandler != nil {
+							_ = notifHandler.CreateAndBroadcast(ctx, &models.Notification{
+								UserID:  msg.UserID,
+								Type:    "update_reminder_failed",
+								Title:   "Claude Queue message failed",
+								Message: truncateStr(msg.Message, 120) + ": " + sendErr.Error(),
+							})
+						}
+					} else {
+						log.Printf("✅ pending-messages scheduler: sent %s to %s", msg.ID, msg.ChannelLabel)
+						if notifHandler != nil {
+							_ = notifHandler.CreateAndBroadcast(ctx, &models.Notification{
+								UserID:  msg.UserID,
+								Type:    "update_reminder_sent",
+								Title:   "Claude Queue message sent",
+								Message: truncateStr(msg.Message, 120) + " → " + msg.ChannelLabel,
+							})
+						}
 					}
 				}
-			}
+			})
 		}
 	}()
 }

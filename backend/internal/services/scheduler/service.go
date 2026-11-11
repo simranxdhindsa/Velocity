@@ -10,6 +10,7 @@ import (
 
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/handlers"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/models"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 	updatesvc "github.com/dhindsa/project-management/internal/services/update_reminder"
@@ -77,12 +78,12 @@ func (s *Service) run() {
 	defer ticker.Stop()
 
 	// Run once immediately
-	s.tick()
+	logging.Tick("pm_scheduler", s.tick)
 
 	for {
 		select {
 		case <-ticker.C:
-			s.tick()
+			logging.Tick("pm_scheduler", s.tick)
 		case <-s.stop:
 			log.Println("[Scheduler] Stopped")
 			return
@@ -90,12 +91,10 @@ func (s *Service) run() {
 	}
 }
 
-func (s *Service) tick() {
+func (s *Service) tick(ctx context.Context) {
 	if database.GetPool() == nil {
 		return
 	}
-
-	ctx := context.Background()
 
 	// Check if scheduler is enabled
 	enabled := s.getSetting("scheduler_enabled", "true")
@@ -194,6 +193,7 @@ func (s *Service) fireUpdateReminders(ctx context.Context, now time.Time) {
 		if localTime == rule.ScheduleTime && !s.firedToday[key] {
 			s.firedToday[key] = true
 			go func(r *models.UpdateReminderRule) {
+				defer logging.Recover(ctx, "update_reminder_fire")
 				result, err := s.updateReminderSvc.ExecuteScheduled(ctx, r)
 				if err != nil {
 					log.Printf("[Scheduler] update reminder %s (%s) error: %v", r.ID, r.Name, err)

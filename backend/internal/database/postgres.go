@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -42,6 +43,9 @@ func Connect() error {
 	// Increase timeout for Supabase connections
 	config.ConnConfig.ConnectTimeout = 30 * time.Second
 
+	// Log failed and slow queries (SQL text only, never arguments)
+	config.ConnConfig.Tracer = logging.DBTracer{}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -59,7 +63,7 @@ func Connect() error {
 			return nil
 		}
 		if i < maxRetries-1 {
-			fmt.Printf("Database ping attempt %d failed, retrying in 2 seconds...\n", i+1)
+			log.Printf("Database ping attempt %d failed, retrying in 2 seconds...", i+1)
 			time.Sleep(2 * time.Second)
 		} else {
 			return fmt.Errorf("failed to ping database after %d attempts: %w", maxRetries, pingErr)

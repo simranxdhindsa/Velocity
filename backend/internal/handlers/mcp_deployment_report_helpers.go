@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/services/youtrack"
 )
 
@@ -215,44 +216,18 @@ func deployGenerateFixes(ctx context.Context, prompt string, tickets []deployRep
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer logging.Recover(ctx, "mcp_deployment_fix_worker")
 			for i := range jobs {
-				t := &tickets[i]
-				var lastErr error
-				// Rate-limit waits don't use up an attempt; only the time budget caps them.
-				for attempt := 0; attempt < deployAIAttempts && time.Now().Before(deadline) && ctx.Err() == nil; {
-					fix, limited, retryAfter, err := generateDeploymentFixStatement(ctx, prompt, t.item)
-					if err == nil && fix != "" {
-						t.FixStatement, t.FixSource, lastErr = fix, "ai", nil
-						break
-					}
-					lastErr = err
-					if lastErr == nil {
-						lastErr = fmt.Errorf("empty AI response")
-					}
-					if !limited {
-						attempt++
-					} else {
-						wait := time.Duration(retryAfter) * time.Second
-						if wait > deployAIMaxRateWait {
-							wait = deployAIMaxRateWait
-						}
-						if time.Now().Add(wait).After(deadline) {
-							break
-						}
-						select {
-						case <-ctx.Done():
-							attempt = deployAIAttempts
-						case <-time.After(wait):
-						}
-					}
-				}
-				if t.FixSource != "ai" {
-					if lastErr == nil {
-						lastErr = fmt.Errorf("time budget exceeded")
-					}
+				// Recovery is per job so a panic never stops this worker from
+				// draining the channel (the producer would block forever).
+				func() {
+					defer logging.Recover(ctx, "mcp_deployment_fix_job")
+					deployFixOne(ctx, prompt, &tickets[i], deadline, &mu, &failed)
+				}()
+				if t := &tickets[i]; t.FixSource == "" {
 					t.FixStatement, t.FixSource = deploySummaryLine(t.item.Summary, t.Subsystem), "summary_fallback"
 					mu.Lock()
-					failed = append(failed, map[string]string{"id_readable": t.IDReadable, "error": lastErr.Error()})
+					failed = append(failed, map[string]string{"id_readable": t.IDReadable, "error": "internal error"})
 					mu.Unlock()
 				}
 			}
@@ -264,4 +239,46 @@ func deployGenerateFixes(ctx context.Context, prompt string, tickets []deployRep
 	close(jobs)
 	wg.Wait()
 	return failed
+}
+
+// deployFixOne generates the fix statement for one ticket.
+func deployFixOne(ctx context.Context, prompt string, t *deployReportTicket, deadline time.Time, mu *sync.Mutex, failed *[]map[string]string) {
+	var lastErr error
+	// Rate-limit waits don't use up an attempt; only the time budget caps them.
+	for attempt := 0; attempt < deployAIAttempts && time.Now().Before(deadline) && ctx.Err() == nil; {
+		fix, limited, retryAfter, err := generateDeploymentFixStatement(ctx, prompt, t.item)
+		if err == nil && fix != "" {
+			t.FixStatement, t.FixSource, lastErr = fix, "ai", nil
+			break
+		}
+		lastErr = err
+		if lastErr == nil {
+			lastErr = fmt.Errorf("empty AI response")
+		}
+		if !limited {
+			attempt++
+		} else {
+			wait := time.Duration(retryAfter) * time.Second
+			if wait > deployAIMaxRateWait {
+				wait = deployAIMaxRateWait
+			}
+			if time.Now().Add(wait).After(deadline) {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				attempt = deployAIAttempts
+			case <-time.After(wait):
+			}
+		}
+	}
+	if t.FixSource != "ai" {
+		if lastErr == nil {
+			lastErr = fmt.Errorf("time budget exceeded")
+		}
+		t.FixStatement, t.FixSource = deploySummaryLine(t.item.Summary, t.Subsystem), "summary_fallback"
+		mu.Lock()
+		*failed = append(*failed, map[string]string{"id_readable": t.IDReadable, "error": lastErr.Error()})
+		mu.Unlock()
+	}
 }

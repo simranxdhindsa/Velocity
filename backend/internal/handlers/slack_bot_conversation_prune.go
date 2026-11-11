@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 )
 
 // RunSlackBotConversationPruner deletes Slack bot conversation rows older
@@ -15,15 +16,15 @@ func RunSlackBotConversationPruner(repo *database.SlackBotConversationRepository
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
-		pruneSlackBotConversations(repo) // once on startup
+		logging.Job("slack_bot_conversation_prune", func(ctx context.Context) { pruneSlackBotConversations(ctx, repo) }) // once on startup
 		for range ticker.C {
-			pruneSlackBotConversations(repo)
+			logging.Job("slack_bot_conversation_prune", func(ctx context.Context) { pruneSlackBotConversations(ctx, repo) })
 		}
 	}()
 }
 
-func pruneSlackBotConversations(repo *database.SlackBotConversationRepository) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func pruneSlackBotConversations(parent context.Context, repo *database.SlackBotConversationRepository) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	if n, err := repo.PruneOlderThan30Days(ctx); err != nil {
 		log.Printf("[Slack Bot Chat] ⚠ prune failed: %v", err)

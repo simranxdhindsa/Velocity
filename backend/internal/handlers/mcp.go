@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/services/s3storage"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 	updatesvc "github.com/dhindsa/project-management/internal/services/update_reminder"
@@ -169,6 +170,7 @@ func (h *MCPHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	logging.SetUser(r.Context(), userID)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -222,12 +224,15 @@ func (h *MCPHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logging.SetUser(r.Context(), userID)
+
 	var req rpcRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rpcErr(nil, -32700, "parse error"))
 		return
 	}
+	logging.AddField(r.Context(), "mcp_method", req.Method)
 
 	w.Header().Set("Content-Type", "application/json")
 

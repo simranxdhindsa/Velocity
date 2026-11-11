@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	"github.com/dhindsa/project-management/internal/models"
 	"github.com/dhindsa/project-management/internal/services/ai"
@@ -1164,7 +1165,8 @@ func (h *YouTrackHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	// Assign to sprint if requested (best-effort — don't fail the whole create)
 	if req.SprintID != "" && issue != nil && issue.ID != "" {
 		go func() {
-			ctx2 := context.Background()
+			ctx2 := logging.Detach(r.Context())
+			defer logging.Recover(ctx2, "youtrack_create_add_to_sprint")
 			if addErr := client.AddIssueToSprint(ctx2, req.SprintID, issue.ID); addErr != nil {
 				log.Printf("failed to add issue %s to sprint %s: %v", issue.ID, req.SprintID, addErr)
 			}
@@ -1280,7 +1282,8 @@ func (h *YouTrackHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	// Update sprint if provided (best-effort — non-fatal if it fails)
 	if req.SprintID != "" {
 		go func() {
-			ctx2 := context.Background()
+			ctx2 := logging.Detach(r.Context())
+			defer logging.Recover(ctx2, "youtrack_edit_add_to_sprint")
 			if addErr := client.AddIssueToSprint(ctx2, req.SprintID, issueID); addErr != nil {
 				log.Printf("failed to add issue %s to sprint %s: %v", issueID, req.SprintID, addErr)
 			}
@@ -1384,6 +1387,7 @@ func (h *YouTrackHandler) GetIssueFormMeta(w http.ResponseWriter, r *http.Reques
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer logging.Recover(r.Context(), "youtrack_metadata_fetch")
 			if e := fn(); e != nil {
 				mu.Lock()
 				errs = append(errs, e.Error())
@@ -3227,12 +3231,29 @@ func (h *YouTrackHandler) PMAssistantQuery(w http.ResponseWriter, r *http.Reques
 
 	var metaWg sync.WaitGroup
 	metaWg.Add(5)
-	go func() { defer metaWg.Done(); ytStates, _ = ytClient.GetStates(r.Context()) }()
-	go func() { defer metaWg.Done(); ytPriorities, _ = ytClient.GetPriorities(r.Context()) }()
-	go func() { defer metaWg.Done(); availableSprints, _ = ytClient.GetSprints(r.Context()) }()
-	go func() { defer metaWg.Done(); ytUsers, _ = ytClient.GetUsers(r.Context()) }()
 	go func() {
 		defer metaWg.Done()
+		defer logging.Recover(r.Context(), "youtrack_meta_states")
+		ytStates, _ = ytClient.GetStates(r.Context())
+	}()
+	go func() {
+		defer metaWg.Done()
+		defer logging.Recover(r.Context(), "youtrack_meta_priorities")
+		ytPriorities, _ = ytClient.GetPriorities(r.Context())
+	}()
+	go func() {
+		defer metaWg.Done()
+		defer logging.Recover(r.Context(), "youtrack_meta_sprints")
+		availableSprints, _ = ytClient.GetSprints(r.Context())
+	}()
+	go func() {
+		defer metaWg.Done()
+		defer logging.Recover(r.Context(), "youtrack_meta_users")
+		ytUsers, _ = ytClient.GetUsers(r.Context())
+	}()
+	go func() {
+		defer metaWg.Done()
+		defer logging.Recover(r.Context(), "youtrack_meta_subsystems")
 		ytSubsystems, _ = ytClient.GetCustomFieldValues(r.Context(), "Subsystem")
 	}()
 	metaWg.Wait()
@@ -3639,7 +3660,7 @@ func (h *YouTrackHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 	defer r.Body.Close()
 
 	// Log full raw payload so we can diagnose the exact structure YouTrack sends
-	log.Printf("[YouTrack Webhook] Received payload (%d bytes): %s", len(body), string(body))
+	log.Printf("[YouTrack Webhook] Received payload (%d bytes)", len(body))
 
 	// YouTrack sends an array of events or a single event object
 	// Try to parse as a single event first, then as an array
@@ -3659,7 +3680,7 @@ func (h *YouTrackHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Process events asynchronously so we respond quickly
-	go h.processWebhookEvents(events)
+	logging.Go(logging.Detach(r.Context()), "youtrack_webhook_events", func() { h.processWebhookEvents(events) })
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -5571,6 +5592,7 @@ func (h *YouTrackHandler) GetFeatureGroups(w http.ResponseWriter, r *http.Reques
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
+			defer logging.Recover(ctx, "youtrack_issue_links")
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			links, lerr := ytClient.GetIssueLinks(ctx, id)

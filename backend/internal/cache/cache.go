@@ -1,9 +1,12 @@
 package cache
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dhindsa/project-management/internal/logging"
 )
 
 type entry struct {
@@ -60,13 +63,20 @@ func (c *TTLCache) runCleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		now := time.Now()
-		c.mu.Lock()
-		for k, e := range c.entries {
-			if now.After(e.expiresAt) {
-				delete(c.entries, k)
-			}
+		c.sweep()
+	}
+}
+
+// sweep removes expired entries. A panic is logged and the lock released, so the
+// cleanup loop keeps running.
+func (c *TTLCache) sweep() {
+	defer logging.Recover(context.Background(), "cache_cleanup")
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, e := range c.entries {
+		if now.After(e.expiresAt) {
+			delete(c.entries, k)
 		}
-		c.mu.Unlock()
 	}
 }

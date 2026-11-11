@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/middleware"
 	updatesvc "github.com/dhindsa/project-management/internal/services/update_reminder"
 	"github.com/gorilla/mux"
@@ -402,7 +403,8 @@ func (h *SlackChatsHandler) answerIfWaiting(r *http.Request, conv *database.Slac
 		Text: waiting.Text, TS: waiting.SlackTS, ThreadTS: waiting.ThreadTS}
 	go func() {
 		defer h.answering.Delete(conv.ChannelID)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer logging.Recover(logging.Detach(r.Context()), "slack_chat_answer")
+		ctx, cancel := context.WithTimeout(logging.Detach(r.Context()), 2*time.Minute)
 		defer cancel()
 		h.answer(ctx, token, ev)
 	}()

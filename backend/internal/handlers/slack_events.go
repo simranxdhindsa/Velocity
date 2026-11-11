@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dhindsa/project-management/internal/database"
+	"github.com/dhindsa/project-management/internal/logging"
 	"github.com/dhindsa/project-management/internal/models"
 	slacksvc "github.com/dhindsa/project-management/internal/services/slack"
 )
@@ -171,7 +172,11 @@ func (h *SlackEventsHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go h.replyFunny(context.Background(), env.TeamID, ev)
+	dctx := logging.Detach(r.Context())
+	go func() {
+		defer logging.Recover(dctx, "slack_bot_reply")
+		h.replyFunny(dctx, env.TeamID, ev)
+	}()
 }
 
 func (h *SlackEventsHandler) replyFunny(ctx context.Context, teamID string, ev slackInnerEvent) {
