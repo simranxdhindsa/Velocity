@@ -8,6 +8,7 @@
 
 
 ### Bug Fixes
+- fixed a database setup step that failed with an error on every server start
 - connected tools no longer add work to your Day Track on their own, they only add entries when you ask and then confirm the list
 
 ### Features
