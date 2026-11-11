@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-11
+
+### Enhancements
+- tickets created or edited from connected tools now start with their priority and subsystem, like "A3 FE MC: Fix login button"
+
+
 ## 2026-11-05
 
 ### Features
