@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-18
+
+### Enhancements
+- `create_youtrack_ticket`: developers must add testing scenarios and QA must add acceptance criteria, and QA is asked in a ticket comment when theirs is missing
+
+
 ## 2026-11-11
 
 ### Enhancements
