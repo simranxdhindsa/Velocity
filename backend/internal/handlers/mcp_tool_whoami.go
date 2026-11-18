@@ -8,7 +8,6 @@ import (
 
 	"github.com/dhindsa/project-management/internal/database"
 	"github.com/dhindsa/project-management/internal/models"
-	youtrack "github.com/dhindsa/project-management/internal/services/youtrack"
 )
 
 var whoamiToolSchema = map[string]interface{}{
@@ -17,6 +16,7 @@ var whoamiToolSchema = map[string]interface{}{
 		"their Slack user ID; the active PM data source; the YouTrack project and board; the current sprint; and their timezone. " +
 		"Call this FIRST whenever the user says 'me', 'my', 'mine' or 'I' (e.g. 'my tickets', 'what's waiting on me', 'assign it to me', 'DM me'), " +
 		"then pass the returned youtrack.login as assignee_login to search_youtrack_tickets, slack.user_id as a DM target, or current_sprint as sprint_name. " +
+		"youtrack.ticket_role is 'developer' or 'qa': before creating a ticket, a developer must give testing scenarios and QA must give acceptance criteria. " +
 		"The result is stable within a conversation, so call it once and reuse it.",
 	"inputSchema": map[string]interface{}{
 		"type":       "object",
@@ -67,26 +67,9 @@ func mcpWhoami(ctx context.Context, h *MCPHandler, userID string, id interface{}
 		}
 		ytInfo["credentials"] = credSource
 
-		// Identity. With a personal token, /api/users/me IS the user (the same way
-		// DayTrack's YouTrack scan identifies them). With shared credentials, /users/me
-		// would be the token owner, so match the Velocity email against YouTrack users.
-		var me *youtrack.User
-		method := ""
-		if personal != nil {
-			if u, uErr := ytClient.GetCurrentUser(ctx); uErr == nil && u != nil {
-				me, method = u, "personal token (/api/users/me)"
-			}
-		}
-		if me == nil {
-			if users, uErr := ytClient.GetUsers(ctx); uErr == nil {
-				for i := range users {
-					if users[i].Email != "" && strings.EqualFold(users[i].Email, user.Email) {
-						me, method = &users[i], "email match against YouTrack users"
-						break
-					}
-				}
-			}
-		}
+		// Identity: same lookup create_youtrack_ticket uses for the caller's ticket role.
+		me, method := mcpCallerYouTrackUser(ctx, ytClient, personal != nil, user.Email)
+		ytInfo["ticket_role"] = ticketRoleQA
 		if me != nil {
 			ytInfo["login"] = me.Login
 			ytInfo["full_name"] = me.FullName
@@ -95,18 +78,15 @@ func mcpWhoami(ctx context.Context, h *MCPHandler, userID string, id interface{}
 			if me.Email != "" && !strings.EqualFold(me.Email, user.Email) {
 				notes = append(notes, "YouTrack account email ("+me.Email+") differs from the Velocity email; the personal YouTrack token belongs to that account.")
 			}
-			if cfgs, cErr := devConfigRepo.GetAll(ctx); cErr == nil {
-				for _, c := range cfgs {
-					if strings.EqualFold(c.DeveloperLogin, me.Login) {
-						ytInfo["developer_config"] = map[string]interface{}{
-							"developer_name": c.DeveloperName,
-							"subsystems":     c.Subsystems,
-							"is_qa":          c.IsQA,
-						}
-						break
-					}
+			c := mcpDevConfigFor(ctx, me.Login)
+			if c != nil {
+				ytInfo["developer_config"] = map[string]interface{}{
+					"developer_name": c.DeveloperName,
+					"subsystems":     c.Subsystems,
+					"is_qa":          c.IsQA,
 				}
 			}
+			ytInfo["ticket_role"] = ticketCreatorRole(c)
 		} else {
 			notes = append(notes, "Could not determine the YouTrack login: no personal YouTrack integration and no YouTrack user with the Velocity email.")
 		}

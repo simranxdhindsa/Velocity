@@ -76,3 +76,8 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 ### 2026-11-11
 - Velocity: backend logging for every API request, MCP tool call, background job, outbound API call and database error (`internal/logging`), with request IDs, panic recovery and secret scrubbing; plan and coverage list in `docs/features/logging.md`
 - Velocity: warnings and errors saved to `app_logs` (14 day retention) and readable by admins at `GET /api/admin/logs`; frontend page still to do
+
+### 2026-11-18
+- Velocity: `create_youtrack_ticket` requires testing scenarios from developers and acceptance criteria from QA (role from Integrations > Developers, no subsystem counts as QA); both become ticket sections, and QA is @mentioned in a ticket comment when acceptance criteria are missing
+- Velocity: `whoami` returns `ticket_role`; ticket creator skill asks for the missing part before the preview and can fill pending sections later
+- Velocity: opt-in end-to-end test `TestMCPTicketTestingE2E` (fake YouTrack, throwaway users), run on a throwaway local Postgres

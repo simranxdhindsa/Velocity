@@ -54,6 +54,11 @@ On the Knowledge Base page, header chips like "1 ready" and "1 admin-only" come 
 
 **Do:** For agent-run tests, never start `air`, `npm run dev`, `npm run be` or the binary. Use a harness with only the routes you need, throwaway users, #velocity-app for Slack, and a fake server for anything that writes to YouTrack (a user's own `youtrack_integrations` row is the first place the client looks). `TestMCPDayTrackE2E` is the pattern to copy.
 
+### 11. The dev database is not always reachable from the agent sandbox
+The dev database sits on a private network address, and the sandbox (or a disconnected VPN) can block it, so a DB-backed test fails with a ping timeout. Testing the ticket rules worked against a throwaway local Postgres instead: `initdb` in the scratchpad, `pg_ctl ... -o "-p 55432 -c unix_socket_directories='' -c listen_addresses=localhost"` (the scratchpad path is too long for a Unix socket), `createdb dev_velocity_e2e`, and the test runs `database.RunMigrations()` itself.
+
+**Do:** If the dev DB doesn't answer, use a throwaway local database named `dev_velocity_*` rather than asking for a sandbox bypass, and stop and delete it afterwards.
+
 ## Process checklist
 
 Before calling a UI task done:
