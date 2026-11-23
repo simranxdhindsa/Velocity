@@ -20,7 +20,7 @@ var searchYoutrackTicketsToolSchema = map[string]interface{}{
 		"To scope to a sprint, pass sprint_name exactly as returned by get_sprints, or the literal string 'current' for the active sprint. " +
 		"Also filters by priority, type, subsystem, reporter, created/updated date (e.g. updated_since '7d' or '2026-10-01'), and unresolved_only. " +
 		"For anything the filters don't cover, pass a raw YouTrack query fragment in 'yql' (e.g. 'has: comments', 'tag: Hotfix', 'commented: {Last week}'); it is combined with the other filters. " +
-		"Returns matching tickets (id_readable, summary, status, priority, type, subsystem, assignee, reporter, created, updated, url), sorted by sort_by (default: most recently updated first), up to `limit` results.",
+		"Returns matching tickets (id_readable, summary, status, priority, type, subsystem, epic, assignee, reporter, created, updated, url). To list the tickets of one epic, pass yql 'subtask of: ARD-123', sorted by sort_by (default: most recently updated first), up to `limit` results.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -231,8 +231,13 @@ func mcpSearchYoutrackTickets(ctx context.Context, h *MCPHandler, userID string,
 		if issue.Reporter != nil {
 			reporter = map[string]string{"login": issue.Reporter.Login, "full_name": issue.Reporter.FullName}
 		}
+		var epic map[string]string
+		if pid, psum := youtrack.GetParent(issue); pid != "" {
+			epic = map[string]string{"id_readable": pid, "summary": psum}
+		}
 		results = append(results, map[string]interface{}{
 			"id_readable": displayID,
+			"epic":        epic,
 			"summary":     issue.Summary,
 			"status":      youtrack.GetStatus(issue),
 			"priority":    youtrack.GetPriority(issue),
