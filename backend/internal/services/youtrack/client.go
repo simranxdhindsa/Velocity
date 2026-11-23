@@ -326,7 +326,7 @@ func (c *Client) SearchIssues(ctx context.Context, yqlQuery string, limit int) (
 	if limit <= 0 {
 		limit = 100
 	}
-	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),project(shortName),parent(issues(idReadable,summary))"
+	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),project(shortName),parent(issues(idReadable,summary,customFields(name,value(name))))"
 	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=%d", fields, url.QueryEscape(yqlQuery), limit)
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -357,23 +357,31 @@ type Issue struct {
 	CustomFields []CustomField `json:"customFields"`       // State, Subsystem, Priority, etc.
 	Attachments  []Attachment  `json:"attachments,omitempty"`
 	Project      *Project      `json:"project,omitempty"`
-	Parent       *IssueParent  `json:"parent,omitempty"` // the "subtask of" parent, usually an epic; only filled by GetIssue and SearchIssues
+	Parent       *IssueParent  `json:"parent,omitempty"` // the "subtask of" parent; filled by GetIssue, SearchIssues, GetAllSprintIssues and GetIssuesByState
 }
 
 // IssueParent is YouTrack's read-only Issue.parent link.
 type IssueParent struct {
 	Issues []struct {
-		IDReadable string `json:"idReadable"`
-		Summary    string `json:"summary"`
+		IDReadable   string        `json:"idReadable"`
+		Summary      string        `json:"summary"`
+		CustomFields []CustomField `json:"customFields"`
 	} `json:"issues"`
 }
 
-// GetParent returns the ticket's parent (its epic), or empty strings when it has none.
+// GetParent returns the ticket's feature epic (a parent with Type Epic), or
+// empty strings when it has none. Other parents (e.g. a Task with subtasks)
+// are not epics and are ignored.
 func GetParent(issue Issue) (id, summary string) {
-	if issue.Parent == nil || len(issue.Parent.Issues) == 0 {
+	if issue.Parent == nil {
 		return "", ""
 	}
-	return issue.Parent.Issues[0].IDReadable, issue.Parent.Issues[0].Summary
+	for _, p := range issue.Parent.Issues {
+		if strings.EqualFold(GetCustomFieldValue(Issue{CustomFields: p.CustomFields}, "Type"), "Epic") {
+			return p.IDReadable, p.Summary
+		}
+	}
+	return "", ""
 }
 
 // CustomField represents a YouTrack custom field
@@ -943,7 +951,7 @@ func (c *Client) GetAllSprintIssues(ctx context.Context, sprintID string) ([]Iss
 	if err != nil {
 		return nil, err
 	}
-	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),attachments(id,name,size,mimeType,url,extension),project(shortName)"
+	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),attachments(id,name,size,mimeType,url,extension),project(shortName),parent(issues(idReadable,summary,customFields(name,value(name))))"
 	var all []Issue
 	skip := 0
 	pageSize := 500
@@ -969,7 +977,7 @@ func (c *Client) GetAllSprintIssues(ctx context.Context, sprintID string) ([]Iss
 
 // GetIssue returns a single issue by ID
 func (c *Client) GetIssue(ctx context.Context, issueID string) (*Issue, error) {
-	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),updater(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),attachments(id,name,size,mimeType,url,extension),project(shortName),parent(issues(idReadable,summary))"
+	fields := "id,idReadable,summary,description,created,updated,reporter(id,fullName,login,avatarUrl),updater(id,fullName,login,avatarUrl),customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),attachments(id,name,size,mimeType,url,extension),project(shortName),parent(issues(idReadable,summary,customFields(name,value(name))))"
 	path := fmt.Sprintf("/api/issues/%s?fields=%s", url.PathEscape(issueID), fields)
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
@@ -1461,7 +1469,7 @@ func (c *Client) GetIssuesByState(ctx context.Context, states []string) ([]Issue
 		stateFilters[i] = "{" + s + "}"
 	}
 	query := fmt.Sprintf("project: %s State: %s", c.projectID, strings.Join(stateFilters, ", "))
-	fields := "id,idReadable,summary,created,updated,customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),project(shortName)"
+	fields := "id,idReadable,summary,created,updated,customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),project(shortName),parent(issues(idReadable,summary,customFields(name,value(name))))"
 	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=200", fields, url.QueryEscape(query))
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)

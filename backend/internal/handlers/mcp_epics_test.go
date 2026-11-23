@@ -47,7 +47,7 @@ func TestFindEpicAndChoices(t *testing.T) {
 
 func TestGetParentFromYouTrackJSON(t *testing.T) {
 	var withParent, without youtrack.Issue
-	if err := json.Unmarshal([]byte(`{"idReadable":"ARD-3212","parent":{"issues":[{"idReadable":"ARD-3233","summary":"Composer"}]}}`), &withParent); err != nil {
+	if err := json.Unmarshal([]byte(`{"idReadable":"ARD-3212","parent":{"issues":[{"idReadable":"ARD-3233","summary":"Composer","customFields":[{"name":"Type","value":{"name":"Epic"}}]}]}}`), &withParent); err != nil {
 		t.Fatal(err)
 	}
 	if id, sum := youtrack.GetParent(withParent); id != "ARD-3233" || sum != "Composer" {
@@ -56,5 +56,10 @@ func TestGetParentFromYouTrackJSON(t *testing.T) {
 	_ = json.Unmarshal([]byte(`{"idReadable":"ARD-3222","parent":{"issues":[]}}`), &without)
 	if id, _ := youtrack.GetParent(without); id != "" {
 		t.Fatalf("GetParent on a ticket with no parent = %q", id)
+	}
+	var taskParent youtrack.Issue
+	_ = json.Unmarshal([]byte(`{"idReadable":"ARD-11","parent":{"issues":[{"idReadable":"ARD-10","summary":"Setup","customFields":[{"name":"Type","value":{"name":"Task"}}]}]}}`), &taskParent)
+	if id, _ := youtrack.GetParent(taskParent); id != "" {
+		t.Fatalf("a Task parent was treated as an epic: %q", id)
 	}
 }

@@ -37,6 +37,8 @@ type ytDeployTicketItem struct {
 	IssueType   string `json:"issue_type"`
 	Subsystem   string `json:"subsystem"`
 	UpdatedAt   int64  `json:"updated_at"`
+	EpicID      string `json:"epic_id,omitempty"`   // the feature epic this ticket is a subtask of
+	EpicName    string `json:"epic_name,omitempty"` // that epic's title, e.g. "Composer"
 }
 
 // deploymentColumnNames returns the columns the deployment report can be
@@ -55,10 +57,12 @@ func deploymentColumnNames(ctx context.Context, client *youtrack.Client) ([]stri
 
 // fetchDeploymentIssues returns the issues in the given columns. With a
 // sprintID it reads the sprint via the agile endpoint and filters by state;
-// without one it queries the whole project by state.
+// without one it queries the whole project by state. Epic tickets are left
+// out: an epic is a heading for its tickets, never a line in the report.
 func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns []string, sprintID string) ([]youtrack.Issue, error) {
 	if sprintID == "" {
-		return client.GetIssuesByState(ctx, columns)
+		issues, err := client.GetIssuesByState(ctx, columns)
+		return withoutEpics(issues), err
 	}
 	colSet := make(map[string]bool, len(columns))
 	for _, c := range columns {
@@ -74,7 +78,17 @@ func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns
 			issues = append(issues, iss)
 		}
 	}
-	return issues, nil
+	return withoutEpics(issues), nil
+}
+
+func withoutEpics(issues []youtrack.Issue) []youtrack.Issue {
+	out := issues[:0:0]
+	for _, iss := range issues {
+		if !strings.EqualFold(youtrack.GetCustomFieldValue(iss, "Type"), "Epic") {
+			out = append(out, iss)
+		}
+	}
+	return out
 }
 
 // deployTicketItemFromIssue converts an issue into the ticket shape the
@@ -84,6 +98,7 @@ func deployTicketItemFromIssue(issue youtrack.Issue) ytDeployTicketItem {
 	if issueType == "" {
 		issueType = "Other"
 	}
+	epicID, epicName := youtrack.GetParent(issue)
 	return ytDeployTicketItem{
 		ID:          issue.ID,
 		IDReadable:  issue.IDReadable,
@@ -92,6 +107,8 @@ func deployTicketItemFromIssue(issue youtrack.Issue) ytDeployTicketItem {
 		IssueType:   issueType,
 		Subsystem:   youtrack.GetSubsystem(issue),
 		UpdatedAt:   issue.Updated,
+		EpicID:      epicID,
+		EpicName:    epicName,
 	}
 }
 
@@ -176,7 +193,6 @@ var deployTypeCategories = map[string]string{
 	"bug":         "Bug Fixes",
 	"regression":  "Bug Fixes",
 	"feature":     "Features",
-	"epic":        "Features",
 	"enhancement": "Enhancements",
 	"hotfix":      "Hotfixes",
 }
@@ -213,21 +229,76 @@ type deployReportLine struct {
 	IssueType    string
 	Subsystem    string
 	FixStatement string
+	EpicID       string
+	EpicName     string
+}
+
+// deployEpicTitle is the heading for one epic's block.
+const deployEpicTitle = "Features in this release"
+
+// deployCategoryRank orders tickets inside an epic block by type section.
+func deployCategoryRank(issueType string) int {
+	cat := deployCategory(issueType)
+	for i, c := range deployTypeCategoryOrder {
+		if c == cat {
+			return i
+		}
+	}
+	return len(deployTypeCategoryOrder)
 }
 
 // buildDeploymentReportText renders the Slack-ready report exactly like the
-// Deployment Report tab's "Copy" text: type sections in fixed order, tickets
-// sorted by subsystem order within each, "ID Subsystem: fix" per line.
+// Deployment Report tab's "Copy" text: first one block per feature epic under
+// "Features in this release" (biggest first, tickets by type then subsystem),
+// then the remaining tickets in type sections in fixed order, sorted by
+// subsystem within each, "ID Subsystem: fix" per line.
 func buildDeploymentReportText(lines []deployReportLine) string {
+	format := func(t deployReportLine) string {
+		return fmt.Sprintf("%s %s: %s", t.IDReadable, deploySubsystemLabel(t.Subsystem), t.FixStatement)
+	}
 	bySection := map[string][]deployReportLine{}
+	byEpic := map[string][]deployReportLine{}
+	var epicOrder []string
 	for _, l := range lines {
 		if strings.TrimSpace(l.FixStatement) == "" {
+			continue
+		}
+		if l.EpicID != "" {
+			if _, seen := byEpic[l.EpicID]; !seen {
+				epicOrder = append(epicOrder, l.EpicID)
+			}
+			byEpic[l.EpicID] = append(byEpic[l.EpicID], l)
 			continue
 		}
 		cat := deployCategory(l.IssueType)
 		bySection[cat] = append(bySection[cat], l)
 	}
 	parts := []string{"Hey team 👋 here is the list of changes in this deployment:"}
+	if len(epicOrder) > 0 {
+		sort.SliceStable(epicOrder, func(i, j int) bool {
+			if a, b := len(byEpic[epicOrder[i]]), len(byEpic[epicOrder[j]]); a != b {
+				return a > b
+			}
+			return epicOrder[i] < epicOrder[j] // same size: by epic ID, same as the tab
+		})
+		blocks := []string{deployEpicTitle}
+		for _, id := range epicOrder {
+			items := byEpic[id]
+			sort.SliceStable(items, func(i, j int) bool {
+				ri, rj := deployCategoryRank(items[i].IssueType), deployCategoryRank(items[j].IssueType)
+				if ri != rj {
+					return ri < rj
+				}
+				return deploySubsystemRank(items[i].Subsystem) < deploySubsystemRank(items[j].Subsystem)
+			})
+			rows := []string{fmt.Sprintf("%s (%s)", items[0].EpicName, id)}
+			for _, t := range items {
+				rows = append(rows, format(t))
+			}
+			blocks = append(blocks, strings.Join(rows, "\n"))
+		}
+		parts = append(parts, strings.Join(blocks, "\n\n"))
+	}
 	for _, label := range deployTypeCategoryOrder {
 		items := bySection[label]
 		if len(items) == 0 {
@@ -238,7 +309,7 @@ func buildDeploymentReportText(lines []deployReportLine) string {
 		})
 		rows := make([]string, len(items))
 		for i, t := range items {
-			rows[i] = fmt.Sprintf("%s %s: %s", t.IDReadable, deploySubsystemLabel(t.Subsystem), t.FixStatement)
+			rows[i] = format(t)
 		}
 		parts = append(parts, label+"\n"+strings.Join(rows, "\n"))
 	}

@@ -13,8 +13,8 @@ import (
 var generateDeploymentReportToolSchema = map[string]interface{}{
 	"name": "generate_deployment_report",
 	"description": "Prepares the Velocity deployment report (the PM Reports > Deployment Report tab): takes every ticket in the chosen board column(s), " +
-		"rewrites each into a one-line user-facing fix statement with AI, and returns Slack-ready text grouped into Features / Enhancements / Bug Fixes / Hotfixes / Other, " +
-		"one line per ticket as \"ID Subsystem: fix\". Also returns the structured ticket list and everything that was excluded and why. " +
+		"rewrites each into a one-line user-facing fix statement with AI, and returns Slack-ready text: first a \"Features in this release\" block per feature epic, " +
+		"then the remaining tickets grouped into Features / Enhancements / Bug Fixes / Hotfixes / Other, one line per ticket as \"ID Subsystem: fix\". Epic tickets themselves are never listed. Also returns the structured ticket list and everything that was excluded and why. " +
 		"READ-ONLY: it never posts to Slack or changes tickets. To post the result, show it to the user first and then use queue_slack_message or send_slack_message_now if they ask. " +
 		"COLUMNS ARE REQUIRED: if the user did not say which column(s) to prepare the report for (e.g. \"Stage\", \"Ready for Stage\"), do NOT guess. " +
 		"Call this tool with list_columns=true, show the user the real column list, and ask which ones to include. " +
@@ -103,6 +103,7 @@ type deployReportTicket struct {
 	Type         string `json:"type"`
 	Section      string `json:"section"`
 	Subsystem    string `json:"subsystem"`
+	Epic         string `json:"epic,omitempty"` // "ARD-3233 Composer" when the ticket belongs to a feature epic
 	URL          string `json:"url,omitempty"`
 	Updated      string `json:"updated,omitempty"`
 	FixStatement string `json:"fix_statement"`
@@ -208,6 +209,7 @@ func mcpGenerateDeploymentReport(ctx context.Context, h *MCPHandler, userID stri
 	}
 
 	lines := make([]deployReportLine, 0, len(kept))
+	var noEpic []string
 	for i := range kept {
 		t := &kept[i]
 		if !generate {
@@ -216,7 +218,15 @@ func mcpGenerateDeploymentReport(ctx context.Context, h *MCPHandler, userID stri
 		if baseURL != "" {
 			t.URL = baseURL + "/issue/" + t.IDReadable
 		}
-		lines = append(lines, deployReportLine{IDReadable: t.IDReadable, IssueType: t.Type, Subsystem: t.Subsystem, FixStatement: t.FixStatement})
+		lines = append(lines, deployReportLine{IDReadable: t.IDReadable, IssueType: t.Type, Subsystem: t.Subsystem, FixStatement: t.FixStatement, EpicID: t.item.EpicID, EpicName: t.item.EpicName})
+		if t.item.EpicID != "" {
+			t.Epic = t.item.EpicID + " " + t.item.EpicName
+		} else if c := deployCategory(t.Type); c == "Features" || c == "Enhancements" {
+			noEpic = append(noEpic, t.IDReadable)
+		}
+	}
+	if len(noEpic) > 0 {
+		warnings = append(warnings, fmt.Sprintf("features and enhancements with no epic, listed on their own (link any that are part of a feature): %s", strings.Join(noEpic, ", ")))
 	}
 
 	report := ""
