@@ -38,4 +38,5 @@ var mcpTools = []map[string]interface{}{
 	readSlackMessagesToolSchema,
 	getSlackMentionsToolSchema,
 	generateDeploymentReportToolSchema,
+	listYoutrackEpicsToolSchema,
 }

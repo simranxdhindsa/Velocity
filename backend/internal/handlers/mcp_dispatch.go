@@ -56,6 +56,7 @@ var mcpToolHandlers = map[string]mcpToolFunc{
 	"read_slack_messages":          mcpReadSlackMessages,
 	"get_slack_mentions":           mcpGetSlackMentions,
 	"generate_deployment_report":   mcpGenerateDeploymentReport,
+	"list_youtrack_epics":          mcpListYoutrackEpics,
 }
 
 // mcpToolActionLabels gives each tool a plain-language action name for the
@@ -65,6 +66,7 @@ var mcpToolActionLabels = map[string]string{
 	"get_sprints":                  "Fetched sprints",
 	"get_developer_load":           "Fetched developer load",
 	"get_youtrack_ticket":          "Fetched ticket",
+	"list_youtrack_epics":          "Listed epics",
 	"search_youtrack_tickets":      "Searched tickets",
 	"create_youtrack_ticket":       "Created ticket",
 	"delete_youtrack_ticket":       "Deleted ticket",
