@@ -41,6 +41,8 @@ import { IssueDetailSkeleton } from '../components/IssueDetailSkeleton'
 import DevTimeView from '../components/DevTimeView'
 import type { DevTimeVariant } from '../components/DevTimeView'
 import FeatureGroupsView from '../components/FeatureGroupsView'
+import { DR_EPIC_TITLE, buildDeployReport, buildDeployReportHtml, buildReportSections, drTypeClass, isEpicType, subsystemLabel } from '../components/deployment/youtrackDeployReport'
+import type { DRTicket, DRTicketStatus } from '../components/deployment/youtrackDeployReport'
 import { useWorkflowConfig } from '../hooks/useWorkflowConfig'
 import { CountUp } from '../components/CountUp'
 import { KpiRowSkeleton } from '../components/KpiRowSkeleton'
@@ -3848,117 +3850,6 @@ function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: s
 
 // ─── YouTrack Deployment Report ──────────────────────────────────────────────
 
-type DRTicketStatus = 'pending' | 'generating' | 'done' | 'failed'
-
-interface DRTicket {
-  id: string
-  idReadable: string
-  summary: string
-  description: string
-  issueType: string
-  subsystem: string
-  ytUrl: string
-  updatedAt: number
-  fixStatement: string | null
-  status: DRTicketStatus
-  error?: string
-}
-
-// Type → display category label, in render order
-const TYPE_CATEGORY_ORDER = ['Features', 'Enhancements', 'Bug Fixes', 'Hotfixes', 'Other']
-
-const DR_TYPE_CATEGORIES: Record<string, string> = {
-  bug:         'Bug Fixes',
-  regression:  'Bug Fixes',
-  feature:     'Features',
-  epic:        'Features',
-  enhancement: 'Enhancements',
-  hotfix:      'Hotfixes',
-}
-
-function drCategory(issueType: string): string {
-  return DR_TYPE_CATEGORIES[issueType.toLowerCase()] ?? 'Other'
-}
-
-const DR_TYPE_COLORS: Record<string, string> = {
-  Bug:         'drt-type--bug',
-  Regression:  'drt-type--bug',
-  Feature:     'drt-type--feature',
-  Epic:        'drt-type--feature',
-  Enhancement: 'drt-type--enhancement',
-  Hotfix:      'drt-type--hotfix',
-}
-
-function drTypeClass(issueType: string): string {
-  return DR_TYPE_COLORS[issueType] ?? 'drt-type--other'
-}
-
-// Subsystem sort order used within each type section
-const SUBSYSTEM_ORDER = ['FE UI', 'BE UI', 'FE Studio', 'BE Studio', 'FE MC', 'BE MC', 'BE RAG']
-
-function subsystemRank(subsystem: string): number {
-  const idx = SUBSYSTEM_ORDER.indexOf((subsystem ?? '').trim())
-  return idx === -1 ? SUBSYSTEM_ORDER.length : idx
-}
-
-// Returns subsystem label to display (pass-through known ones, "Others" for unknown)
-function subsystemLabel(subsystem: string): string {
-  const norm = (subsystem ?? '').trim()
-  return norm || 'Others'
-}
-
-// Sections are TYPE-based (Features / Enhancements / Bug Fixes / Hotfixes / Other).
-// Within each section tickets are sorted by subsystem order.
-function buildTypeSections(tickets: DRTicket[]): Array<{ label: string; items: DRTicket[] }> {
-  const map = new Map<string, DRTicket[]>()
-  for (const t of tickets) {
-    if (t.status !== 'done' || !t.fixStatement) continue
-    const cat = drCategory(t.issueType)
-    if (!map.has(cat)) map.set(cat, [])
-    map.get(cat)!.push(t)
-  }
-  const sections: Array<{ label: string; items: DRTicket[] }> = []
-  for (const label of TYPE_CATEGORY_ORDER) {
-    const items = map.get(label)
-    if (!items?.length) continue
-    items.sort((a, b) => subsystemRank(a.subsystem) - subsystemRank(b.subsystem))
-    sections.push({ label, items })
-  }
-  return sections
-}
-
-// Line format: "ARD-123 FE UI: fix statement"
-function formatLine(t: DRTicket): string {
-  const sub = subsystemLabel(t.subsystem)
-  return `${t.idReadable} ${sub}: ${t.fixStatement}`
-}
-
-function buildDeployReport(tickets: DRTicket[]): string {
-  const sections = buildTypeSections(tickets)
-  const parts: string[] = ['Hey team 👋 here is the list of changes in this deployment:']
-  for (const { label, items } of sections) {
-    parts.push(`${label}\n${items.map(t => formatLine(t)).join('\n')}`)
-  }
-  return parts.join('\n\n')
-}
-
-function buildDeployReportHtml(tickets: DRTicket[]): string {
-  const sections = buildTypeSections(tickets)
-  const parts: string[] = ['<p>Hey team 👋 here is the list of changes in this deployment:</p>']
-  for (const { label, items } of sections) {
-    parts.push(`<p>${label}</p><ul>`)
-    for (const t of items) {
-      const sub = subsystemLabel(t.subsystem)
-      const idPart = t.ytUrl
-        ? `<a href="${t.ytUrl}">${t.idReadable}</a>`
-        : t.idReadable
-      parts.push(`<li>${idPart} ${sub}: ${t.fixStatement}</li>`)
-    }
-    parts.push('</ul><p>&nbsp;</p>')
-  }
-  return parts.join('')
-}
-
 function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; sprintName?: string }) {
   const [columns, setColumns] = useState<string[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -3972,7 +3863,9 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday'>('all')
+  const [baseUrl, setBaseUrl] = useState('')
   const abortRef = useRef(false)
+  const epicUrl = useCallback((id: string) => (baseUrl ? `${baseUrl}/issue/${id}` : ''), [baseUrl])
 
   const fetchColumns = useCallback(async () => {
     setLoadingCols(true)
@@ -4012,9 +3905,10 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
     setProgress(0)
     try {
       const res = await api.getDeploymentTickets([...selected], sprintId)
-      const payload = (res as any).data as { tickets: Array<{ id: string; id_readable: string; summary: string; description: string; issue_type: string; subsystem: string; updated_at?: number }>; base_url: string } | undefined
-      const data = payload?.tickets
+      const payload = (res as any).data as { tickets: Array<{ id: string; id_readable: string; summary: string; description: string; issue_type: string; subsystem: string; updated_at?: number; epic_id?: string; epic_name?: string }>; base_url: string } | undefined
+      const data = payload?.tickets?.filter(t => !isEpicType(t.issue_type ?? ''))
       const baseUrl = (payload?.base_url ?? '').replace(/\/$/, '')
+      setBaseUrl(baseUrl)
       if (!data?.length) {
         setError(`No tickets found${sprintName ? ` in ${sprintName}` : ''} for the selected columns.`)
         return
@@ -4028,6 +3922,8 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
         subsystem: t.subsystem ?? '',
         ytUrl: baseUrl ? `${baseUrl}/issue/${t.id_readable}` : '',
         updatedAt: t.updated_at ?? 0,
+        epicId: t.epic_id ?? '',
+        epicName: t.epic_name ?? '',
         fixStatement: null,
         status: 'pending',
       })))
@@ -4139,7 +4035,7 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
   const handleCopy = async () => {
     if (!report) return
     try {
-      const htmlContent = buildDeployReportHtml(tickets)
+      const htmlContent = buildDeployReportHtml(tickets, epicUrl)
       await navigator.clipboard.write([
         new ClipboardItem({
           'text/html':  new Blob([htmlContent], { type: 'text/html' }),
@@ -4235,7 +4131,10 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
                   : <span className="drt-ticket-id">{t.idReadable}</span>
                 }
                 <span className={`drt-type-badge ${drTypeClass(t.issueType)}`}>{t.subsystem || t.issueType}</span>
-                <span className="drt-ticket-summary">{t.summary}</span>
+                <span className="drt-ticket-summary">
+                  {t.epicName && <span className="drt-epic-chip" title={`Part of epic ${t.epicId}`}>{t.epicName}</span>}
+                  {t.summary}
+                </span>
                 <span className="drt-ticket-status">
                   {t.status === 'pending'    && <span className="drt-status-dot drt-status-dot--pending" />}
                   {t.status === 'generating' && <RefreshCw size={12} className="sr-spin drt-status-spin" />}
@@ -4290,23 +4189,47 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
             </button>
           </div>
           <div className="drt-report-preview">
-            {buildTypeSections(tickets).map(({ label, items }) => (
-              <div key={label} className="drt-report-section">
-                <div className="drt-report-section-title">{label} <span className="drt-report-section-count">{items.length}</span></div>
-                <ul className="drt-report-list">
-                  {items.map(t => (
-                    <li key={t.id} className="drt-report-item">
-                      {t.ytUrl
-                        ? <a href={t.ytUrl} target="_blank" rel="noreferrer" className="drt-report-id">{t.idReadable}</a>
-                        : <span className="drt-report-id">{t.idReadable}</span>
-                      }
-                      <span className="drt-report-subsystem">{subsystemLabel(t.subsystem)}:</span>
-                      <span>{t.fixStatement}</span>
-                    </li>
+            {(() => {
+              const { epics, sections } = buildReportSections(tickets, epicUrl)
+              const renderItem = (t: DRTicket) => (
+                <li key={t.id} className="drt-report-item">
+                  {t.ytUrl
+                    ? <a href={t.ytUrl} target="_blank" rel="noreferrer" className="drt-report-id">{t.idReadable}</a>
+                    : <span className="drt-report-id">{t.idReadable}</span>
+                  }
+                  <span className="drt-report-subsystem">{subsystemLabel(t.subsystem)}:</span>
+                  <span>{t.fixStatement}</span>
+                </li>
+              )
+              return (
+                <>
+                  {epics.length > 0 && (
+                    <div className="drt-report-section drt-report-section--epics">
+                      <div className="drt-report-section-title">{DR_EPIC_TITLE} <span className="drt-report-section-count">{epics.length}</span></div>
+                      {epics.map(e => (
+                        <div key={e.epicId} className="drt-report-epic">
+                          <div className="drt-report-epic-title">
+                            <span className="drt-report-epic-name">{e.epicName}</span>
+                            {e.epicUrl
+                              ? <a href={e.epicUrl} target="_blank" rel="noreferrer" className="drt-report-id">{e.epicId}</a>
+                              : <span className="drt-report-id">{e.epicId}</span>
+                            }
+                            <span className="drt-report-section-count">{e.items.length}</span>
+                          </div>
+                          <ul className="drt-report-list">{e.items.map(renderItem)}</ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {sections.map(({ label, items }) => (
+                    <div key={label} className="drt-report-section">
+                      <div className="drt-report-section-title">{label} <span className="drt-report-section-count">{items.length}</span></div>
+                      <ul className="drt-report-list">{items.map(renderItem)}</ul>
+                    </div>
                   ))}
-                </ul>
-              </div>
-            ))}
+                </>
+              )
+            })()}
             {tickets.filter(t => t.status === 'failed').length > 0 && (
               <div className="drt-report-section drt-report-section--failed">
                 <div className="drt-report-section-title"><AlertTriangle size={13} /> Failed ({tickets.filter(t => t.status === 'failed').length})</div>

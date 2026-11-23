@@ -922,3 +922,44 @@ a.drt-report-id:hover { color: color-mix(in srgb, var(--color-primary) 55%, #fff
   /* Sprint badge: tighter */
   .drt-sprint-badge { font-size: 11px; padding: 4px 8px; }
 }
+
+/* ── Feature epics (Deployment Report) ─────────────────────────────────── */
+/* Epic chip before a ticket's summary in the ticket list */
+.drt-epic-chip {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+  color: var(--color-primary-light);
+  background: rgba(var(--color-primary-rgb), 0.12);
+  border: 1px solid rgba(var(--color-primary-rgb), 0.22);
+}
+
+/* One block per epic under "Features in this release" */
+.drt-report-epic { margin: 4px 0 12px; }
+.drt-report-epic:last-child { margin-bottom: 0; }
+
+.drt-report-epic-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.drt-report-epic-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+
+.drt-report-section--epics {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+[data-theme="light"] .drt-epic-chip { color: var(--color-primary-hover); }
