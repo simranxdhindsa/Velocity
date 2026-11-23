@@ -111,7 +111,7 @@ export function bubbleCaption(m: SlackChatMessage): string {
     case 'claude': return `${m.author_label} via Claude`
     case 'dashboard': return `${m.author_label} from the dashboard`
     case 'auto_reply': return 'Velocity (automatic reply)'
-    case 'ack': return 'Velocity (passed this on)'
+    case 'ack': return 'Velocity (holding reply)'
     case 'notice': return 'Velocity (alert to you)'
     default: return m.author_label
   }
