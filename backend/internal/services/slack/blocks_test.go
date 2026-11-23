@@ -164,6 +164,81 @@ func TestBuildSendParts_LargeTableSplitsAtSpacerBoundary(t *testing.T) {
 	}
 }
 
+// The stage deployment report puts links and `P1` codes inside table cells. A
+// "|" inside <url|text> used to split the cell, giving rows one cell too many,
+// and Slack rejected the whole message with invalid_blocks.
+func TestSplitTableRow_SlackLinkPipeStaysInCell(t *testing.T) {
+	cells := splitTableRow("| `A2` | <https://yt.example/issue/ARD-1|ARD-1> | Bug | Fix it |")
+	if len(cells) != 4 || cells[1] != "<https://yt.example/issue/ARD-1|ARD-1>" {
+		t.Fatalf("got %d cells %q, want 4 with the link intact", len(cells), cells)
+	}
+}
+
+func TestSplitTableRow_PlainAngleBracketAndCodePipe(t *testing.T) {
+	if cells := splitTableRow("| Bug | latency < 5s | ok |"); len(cells) != 3 {
+		t.Fatalf("a plain < merged cells: %q", cells)
+	}
+	if cells := splitTableRow("| `a|b` | ok |"); len(cells) != 2 || cells[0] != "`a|b`" {
+		t.Fatalf("a | inside code split the cell: %q", cells)
+	}
+}
+
+func TestParseInline_UnderscoreBeforeLinkKeepsLink(t *testing.T) {
+	els := parseInline("fix snake_case in <https://yt.example/issue/ARD_1|ARD-1>", nil)
+	var link map[string]interface{}
+	for _, el := range els {
+		if el["type"] == "link" {
+			link = el
+		}
+	}
+	if link == nil || link["url"] != "https://yt.example/issue/ARD_1" {
+		t.Fatalf("link broken by an earlier underscore: %v", els)
+	}
+	if els := parseInline("<https://yt.example/q?a=1&amp;b=2|List>", nil); els[0]["url"] != "https://yt.example/q?a=1&b=2" {
+		t.Fatalf("&amp; not decoded in Slack link: %v", els)
+	}
+}
+
+func TestParseInline_LinksAndCode(t *testing.T) {
+	for _, in := range []string{"[ARD-1](https://yt.example/issue/ARD-1)", "<https://yt.example/issue/ARD-1|ARD-1>"} {
+		els := parseInline("see "+in+" now", nil)
+		var link map[string]interface{}
+		for _, el := range els {
+			if el["type"] == "link" {
+				link = el
+			}
+		}
+		if link == nil || link["url"] != "https://yt.example/issue/ARD-1" || link["text"] != "ARD-1" {
+			t.Fatalf("%s: want a link element with url and text, got %v", in, els)
+		}
+	}
+	els := parseInline("`Normal`", nil)
+	if len(els) != 1 || els[0]["text"] != "Normal" {
+		t.Fatalf("want one code text run, got %v", els)
+	}
+	if st, _ := els[0]["style"].(map[string]interface{}); st["code"] != true {
+		t.Fatalf("want code style, got %v", els[0])
+	}
+}
+
+func TestBuildSendParts_ReportTableRowsMatchHeader(t *testing.T) {
+	msg := "| Priority | Ticket | Type | Title |\n|:---|:---|:---|:---|\n| `A2` | <https://yt.example/issue/ARD-1|ARD-1> | Bug | Fix it |\n| `Normal` | [ARD-2](https://yt.example/issue/ARD-2) | Feature | Add it |"
+	for _, p := range BuildSendParts(msg) {
+		for _, b := range p.Blocks {
+			if b["type"] != "table" {
+				continue
+			}
+			for i, r := range b["rows"].([]interface{}) {
+				if n := len(r.([]interface{})); n != 4 {
+					t.Fatalf("row %d has %d cells, want 4", i, n)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("no table block built")
+}
+
 func TestParseInline_BoldItalicMentionPlain(t *testing.T) {
 	els := parseInline("plain **bold** _italic_ <@U999> end", nil)
 	var texts []string

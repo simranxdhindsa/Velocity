@@ -1,6 +1,7 @@
 package slack
 
 import (
+	"html"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -34,8 +35,10 @@ type SendPart struct {
 }
 
 var (
-	tableSepRe = regexp.MustCompile(`^\s*\|[\s:|-]+\|\s*$`)
-	mentionRe  = regexp.MustCompile(`^<@([A-Z0-9]+)>`)
+	tableSepRe  = regexp.MustCompile(`^\s*\|[\s:|-]+\|\s*$`)
+	mentionRe   = regexp.MustCompile(`^<@([A-Z0-9]+)>`)
+	mdLinkRe    = regexp.MustCompile(`^\[([^\]]+)\]\((https?://[^)\s]+)\)`)  // [text](url)
+	slackLinkRe = regexp.MustCompile(`^<(https?://[^|>\s]+)(?:\|([^>]+))?>`) // <url|text> or <url>
 )
 
 func isTableRow(line string) bool {
@@ -43,16 +46,32 @@ func isTableRow(line string) bool {
 	return len(t) > 1 && strings.HasPrefix(t, "|") && strings.HasSuffix(t, "|")
 }
 
+// splitTableRow splits a pipe-table row into cells. A "|" inside a Slack link
+// or mention token (<url|text>, <@U1>) or a `code` span is not a column break.
 func splitTableRow(line string) []string {
 	t := strings.TrimSpace(line)
 	t = strings.TrimPrefix(t, "|")
 	t = strings.TrimSuffix(t, "|")
-	raw := strings.Split(t, "|")
-	cells := make([]string, len(raw))
-	for i, c := range raw {
-		cells[i] = strings.TrimSpace(c)
+	var cells []string
+	start := 0
+	for i := 0; i < len(t); i++ {
+		switch t[i] {
+		case '<':
+			if m := slackLinkRe.FindString(t[i:]); m != "" {
+				i += len(m) - 1
+			} else if m := mentionRe.FindString(t[i:]); m != "" {
+				i += len(m) - 1
+			}
+		case '`':
+			if end := strings.IndexByte(t[i+1:], '`'); end >= 0 {
+				i += end + 1
+			}
+		case '|':
+			cells = append(cells, strings.TrimSpace(t[start:i]))
+			start = i + 1
+		}
 	}
-	return cells
+	return append(cells, strings.TrimSpace(t[start:]))
 }
 
 // hasMarkdownTable reports whether text contains a GFM pipe-table: a header
@@ -217,21 +236,21 @@ func parseInline(s string, style map[string]interface{}) []map[string]interface{
 		rest := s[i:]
 
 		if strings.HasPrefix(rest, "**") {
-			if end := strings.Index(rest[2:], "**"); end >= 0 {
+			if end := strings.Index(rest[2:tokenStop(rest, 2)], "**"); end >= 0 {
 				out = append(out, parseInline(rest[2:2+end], withStyle(style, "bold"))...)
 				i += 2 + end + 2
 				continue
 			}
 		}
 		if strings.HasPrefix(rest, "*") && !strings.HasPrefix(rest, "**") {
-			if end := strings.IndexByte(rest[1:], '*'); end > 0 {
+			if end := strings.IndexByte(rest[1:tokenStop(rest, 1)], '*'); end > 0 {
 				out = append(out, parseInline(rest[1:1+end], withStyle(style, "italic"))...)
 				i += 1 + end + 1
 				continue
 			}
 		}
 		if strings.HasPrefix(rest, "_") {
-			if end := strings.IndexByte(rest[1:], '_'); end > 0 {
+			if end := strings.IndexByte(rest[1:tokenStop(rest, 1)], '_'); end > 0 {
 				out = append(out, parseInline(rest[1:1+end], withStyle(style, "italic"))...)
 				i += 1 + end + 1
 				continue
@@ -242,14 +261,34 @@ func parseInline(s string, style map[string]interface{}) []map[string]interface{
 			i += len(m[0])
 			continue
 		}
+		if m := mdLinkRe.FindStringSubmatch(rest); m != nil {
+			out = append(out, linkElement(m[2], m[1], style))
+			i += len(m[0])
+			continue
+		}
+		if m := slackLinkRe.FindStringSubmatch(rest); m != nil {
+			out = append(out, linkElement(html.UnescapeString(m[1]), html.UnescapeString(m[2]), style))
+			i += len(m[0])
+			continue
+		}
+		if strings.HasPrefix(rest, "`") {
+			if end := strings.IndexByte(rest[1:], '`'); end > 0 {
+				out = append(out, map[string]interface{}{"type": "text", "text": rest[1 : 1+end], "style": withStyle(style, "code")})
+				i += 1 + end + 1
+				continue
+			}
+		}
 
 		j := i + 1
 		for j < len(s) {
 			c := s[j]
-			if c == '*' || c == '_' {
+			if c == '*' || c == '_' || c == '`' {
 				break
 			}
-			if c == '<' && mentionRe.MatchString(s[j:]) {
+			if c == '<' && (mentionRe.MatchString(s[j:]) || slackLinkRe.MatchString(s[j:])) {
+				break
+			}
+			if c == '[' && mdLinkRe.MatchString(s[j:]) {
 				break
 			}
 			j++
@@ -263,6 +302,33 @@ func parseInline(s string, style map[string]interface{}) []map[string]interface{
 		i = j
 	}
 	return out
+}
+
+// tokenStop returns where a bold/italic span starting at s must end at the
+// latest: the first link or code token after from, so an "_" or "*" inside a
+// URL can't close a span opened in the text before it.
+func tokenStop(s string, from int) int {
+	for i := from; i < len(s); i++ {
+		switch {
+		case s[i] == '`',
+			s[i] == '<' && slackLinkRe.MatchString(s[i:]),
+			s[i] == '[' && mdLinkRe.MatchString(s[i:]):
+			return i
+		}
+	}
+	return len(s)
+}
+
+// linkElement is a rich_text link; text falls back to the URL when empty.
+func linkElement(url, text string, style map[string]interface{}) map[string]interface{} {
+	el := map[string]interface{}{"type": "link", "url": url}
+	if strings.TrimSpace(text) != "" {
+		el["text"] = text
+	}
+	if len(style) > 0 {
+		el["style"] = style
+	}
+	return el
 }
 
 func withStyle(base map[string]interface{}, key string) map[string]interface{} {
