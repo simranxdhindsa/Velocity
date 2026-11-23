@@ -14,6 +14,9 @@
 ### Features
 - `list_youtrack_epics`: see every open feature epic, how many there are, and the tickets in each
 
+### Bug Fixes
+- Slack messages with tables now send when cells hold ticket links, and links and priority codes in tables show properly
+
 ## 2026-11-18
 
 ### Enhancements
