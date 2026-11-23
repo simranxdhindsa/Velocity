@@ -3,6 +3,8 @@
 ## 2026-11-23
 
 ### Enhancements
+- Chats now label the bot's short holding reply as "holding reply"
+- when someone replies to a Slack DM sent for you, the bot now just says "Let me check." instead of saying it passed their message on to you
 - `edit_youtrack_ticket`: changing a ticket to Epic also marks it so it shows up in the epic list
 - `create_youtrack_ticket`: features and enhancements are added to an epic or marked standalone, and new epics can be created
 - `get_youtrack_ticket`: shows the epic a ticket belongs to
