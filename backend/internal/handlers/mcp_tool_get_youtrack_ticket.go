@@ -19,7 +19,7 @@ const (
 var getYoutrackTicketToolSchema = map[string]interface{}{
 	"name": "get_youtrack_ticket",
 	"description": "Fetches a YouTrack ticket by readable ID (e.g. ARD-123). " +
-		"Returns summary, description, status, subsystem, priority, type, assignee, reporter, " +
+		"Returns summary, description, status, subsystem, priority, type, epic (its parent epic, if any), assignee, reporter, " +
 		"created/updated timestamps, URL, the full comment thread (oldest first, each with author, " +
 		"created/updated time, text and its own attachments), and every attachment with whether it belongs " +
 		"to the description or to a specific comment, and the ticket's status history: every column move " +
@@ -129,6 +129,9 @@ func mcpGetYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, id 
 		"updated":     issue.Updated,
 		"updated_at":  msToISO(issue.Updated),
 		"url":         fmt.Sprintf("%s/issue/%s", ytBaseURL, displayID),
+	}
+	if pid, psum := youtrack.GetParent(*issue); pid != "" {
+		payload["epic"] = map[string]string{"id_readable": pid, "summary": psum}
 	}
 
 	if a.IncludeHistory == nil || *a.IncludeHistory {
