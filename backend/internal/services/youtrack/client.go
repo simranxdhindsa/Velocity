@@ -944,9 +944,30 @@ func (c *Client) GetSprintIssuesByStatePaginated(ctx context.Context, sprintID, 
 	return filtered[skip:end], hasMore, nil
 }
 
-// GetAllSprintIssues returns all issues in a sprint (all states) without pagination.
+// GetAllSprintIssues returns all work tickets in a sprint (all states) without
+// pagination. Feature epics are left out: they sit in the sprint only so the
+// board can draw a swimlane per epic, and must not count as tickets.
 // Used for assignee stats, daily brief, time tracking and report filtering.
 func (c *Client) GetAllSprintIssues(ctx context.Context, sprintID string) ([]Issue, error) {
+	all, err := c.GetAllSprintIssuesWithEpics(ctx, sprintID)
+	return WithoutEpics(all), err
+}
+
+// WithoutEpics drops issues whose Type is Epic.
+func WithoutEpics(issues []Issue) []Issue {
+	out := issues[:0:0]
+	for _, iss := range issues {
+		if !strings.EqualFold(GetCustomFieldValue(iss, "Type"), "Epic") {
+			out = append(out, iss)
+		}
+	}
+	return out
+}
+
+// GetAllSprintIssuesWithEpics returns every issue in a sprint, epics included.
+// Use it only where the epics themselves matter, such as moving a sprint's
+// unresolved issues to the next sprint.
+func (c *Client) GetAllSprintIssuesWithEpics(ctx context.Context, sprintID string) ([]Issue, error) {
 	boardID, err := c.resolveBoard(ctx)
 	if err != nil {
 		return nil, err
@@ -1543,7 +1564,7 @@ func (c *Client) GetIssuesByStateForSprint(ctx context.Context, sprintName strin
 	if err := json.Unmarshal(body, &issues); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal sprint issues: %w", err)
 	}
-	return issues, nil
+	return WithoutEpics(issues), nil
 }
 
 // GetCurrentUser returns the YouTrack user associated with the client's token.

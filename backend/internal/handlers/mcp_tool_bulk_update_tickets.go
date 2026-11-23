@@ -167,7 +167,7 @@ func mcpBulkUpdateTickets(ctx context.Context, h *MCPHandler, userID string, id 
 
 	// Board-scoped sprint membership via the agile endpoint (the YQL
 	// "sprint:" attribute doesn't reliably match board sprints).
-	issues, err := yt.GetAllSprintIssues(ctx, source.ID)
+	issues, err := yt.GetAllSprintIssuesWithEpics(ctx, source.ID) // epics move with their sprint
 	if err != nil {
 		return toolError(id, fmt.Sprintf("failed to fetch issues of sprint %q: %s", source.Name, err))
 	}

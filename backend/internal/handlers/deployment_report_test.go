@@ -37,7 +37,7 @@ func TestWithoutEpicsDropsEpicTickets(t *testing.T) {
 	typed := func(id, typ string) youtrack.Issue {
 		return youtrack.Issue{IDReadable: id, CustomFields: []youtrack.CustomField{{Name: "Type", Value: map[string]interface{}{"name": typ}}}}
 	}
-	got := withoutEpics([]youtrack.Issue{typed("ARD-1", "Epic"), typed("ARD-2", "Bug"), typed("ARD-3", "epic")})
+	got := youtrack.WithoutEpics([]youtrack.Issue{typed("ARD-1", "Epic"), typed("ARD-2", "Bug"), typed("ARD-3", "epic")})
 	if len(got) != 1 || got[0].IDReadable != "ARD-2" {
 		t.Fatalf("withoutEpics kept %v", got)
 	}

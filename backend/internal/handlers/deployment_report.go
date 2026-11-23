@@ -64,7 +64,7 @@ func deploymentColumnNames(ctx context.Context, client *youtrack.Client) ([]stri
 func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns []string, sprintID string) (issues []youtrack.Issue, truncated bool, err error) {
 	if sprintID == "" {
 		issues, err := client.GetIssuesByState(ctx, columns)
-		return withoutEpics(issues), len(issues) >= youtrack.IssuesByStateLimit, err
+		return youtrack.WithoutEpics(issues), len(issues) >= youtrack.IssuesByStateLimit, err
 	}
 	colSet := make(map[string]bool, len(columns))
 	for _, c := range columns {
@@ -79,17 +79,7 @@ func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns
 			issues = append(issues, iss)
 		}
 	}
-	return withoutEpics(issues), false, nil
-}
-
-func withoutEpics(issues []youtrack.Issue) []youtrack.Issue {
-	out := issues[:0:0]
-	for _, iss := range issues {
-		if !strings.EqualFold(youtrack.GetCustomFieldValue(iss, "Type"), "Epic") {
-			out = append(out, iss)
-		}
-	}
-	return out
+	return issues, false, nil
 }
 
 // deployTicketItemFromIssue converts an issue into the ticket shape the
