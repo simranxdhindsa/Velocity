@@ -3,6 +3,7 @@
 ## 2026-11-23
 
 ### Enhancements
+- Connected AI assistants now leave feature epics out when counting a sprint's tickets and suggest the right epic before creating a feature
 - `create_sprint`: adds every open feature epic to the new sprint so the board keeps one row per epic
 - Sprint numbers no longer count feature epics as tickets, and moving a sprint's tickets to the next sprint takes its epics along
 - Deployment Report now groups each feature's tickets under its epic and shows the epic next to each ticket
