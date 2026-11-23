@@ -967,8 +967,9 @@ func (r *ReportRepository) GetIssueTimelines(ctx context.Context, pinnedIDs []st
 		}
 
 		// Build stints by pairing entry rows (to_state='in progress') with
-		// subsequent exit rows (from_state='in progress').
-		var stints []IssueStint
+		// subsequent exit rows (from_state='in progress'). Empty, not nil: a
+		// ticket that never entered In Progress must send [] (null crashed Dev Time).
+		stints := []IssueStint{}
 		stintNum := 0
 
 		// We iterate in chronological order and track open stints.

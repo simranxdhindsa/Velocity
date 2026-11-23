@@ -79,7 +79,7 @@ function clipToSprintWindow(timelines: IssueTimeline[], startMs: number, endMs: 
   for (const t of timelines) {
     const clipped: IssueStint[] = []
 
-    for (const s of t.stints) {
+    for (const s of t.stints ?? []) {
       const sStart = new Date(s.entered_at).getTime()
       const sEnd   = s.exited_at ? new Date(s.exited_at).getTime() : nowMs
       if (sStart >= endMs || sEnd <= startMs) continue
@@ -119,7 +119,7 @@ function reconcileWithBoard(timelines: IssueTimeline[], boardIssues: SprintBoard
   }
 
   const closeStint = (t: IssueTimeline, resolvedState: string): IssueTimeline => {
-    const closedStints = t.stints.map(s => {
+    const closedStints = (t.stints ?? []).map(s => {
       if (!s.exited_at) {
         const exitMs  = new Date(t.last_activity_at).getTime()
         const enterMs = new Date(s.entered_at).getTime()
