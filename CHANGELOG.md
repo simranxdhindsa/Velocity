@@ -20,6 +20,7 @@
 - `list_youtrack_epics`: see every open feature epic, how many there are, and the tickets in each
 
 ### Bug Fixes
+- Feature epics no longer show up as work anywhere in Velocity, new epics appear on the board straight away, and moving tickets between sprints never touches epics
 - Deployment Report copy and preview show only the tickets from the latest run, Cancel and failed tickets no longer freeze the run, and a warning shows when the list was cut off at 200
 - Deployment report warns when a ticket list stops at 200 tickets, reads ticket descriptions again and waits the right time when the AI asks for an hour
 - PM Reports no longer goes blank when a ticket has never been In Progress
