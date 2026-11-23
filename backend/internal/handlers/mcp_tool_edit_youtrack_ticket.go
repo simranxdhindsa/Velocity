@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	youtrack "github.com/dhindsa/project-management/internal/services/youtrack"
 )
@@ -28,7 +29,7 @@ var editYoutrackTicketToolSchema = map[string]interface{}{
 			},
 			"type_name": map[string]string{
 				"type":        "string",
-				"description": "New type: Bug, Feature, Enhancement, Hotfix, or Regression. Omit to leave unchanged.",
+				"description": "New type: Bug, Feature, Enhancement, Hotfix, Regression, Task, or Epic. Omit to leave unchanged.",
 			},
 			"priority": map[string]string{
 				"type":        "string",
@@ -107,6 +108,9 @@ func mcpEditYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, id
 		if youtrack.HasVelocityFooter(current.Description) {
 			req.Description = youtrack.WithVelocityFooter(a.Description)
 		}
+	}
+	if strings.EqualFold(strings.TrimSpace(a.TypeName), "Epic") && a.Subsystem == "" {
+		a.Subsystem = "Epic" // epics are found by Subsystem Epic (see openEpics)
 	}
 	if a.TypeName != "" {
 		req.CustomFields = append(req.CustomFields, youtrack.CustomField{
