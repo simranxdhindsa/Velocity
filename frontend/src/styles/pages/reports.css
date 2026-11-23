@@ -836,8 +836,9 @@
 
 .drt-report-section-count {
   font-weight: 500;
-  color: rgba(255,255,255,0.3);
+  color: var(--text-muted);
   font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .drt-report-list {

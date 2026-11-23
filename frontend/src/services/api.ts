@@ -1443,7 +1443,7 @@ class ApiService {
   async getDeploymentTickets(columns: string[], sprintId?: string) {
     const q = columns.map(c => encodeURIComponent(c)).join(',')
     const sp = sprintId ? `&sprint_id=${encodeURIComponent(sprintId)}` : ''
-    return this.request<{ tickets: YTDeployTicket[]; base_url: string }>(`/bots/deployment/tickets?columns=${q}${sp}`)
+    return this.request<{ tickets: YTDeployTicket[]; base_url: string; truncated?: boolean }>(`/bots/deployment/tickets?columns=${q}${sp}`)
   }
 
   async generateDeploymentTicket(ticket: YTDeployTicket): Promise<DeploymentTicketGenResult> {

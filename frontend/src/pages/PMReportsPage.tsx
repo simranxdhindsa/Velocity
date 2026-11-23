@@ -3850,6 +3850,8 @@ function TrackingTab({ sprintId, sprintStartMs, sprintFinishMs }: { sprintId?: s
 
 // ─── YouTrack Deployment Report ──────────────────────────────────────────────
 
+const MAX_RATE_LIMIT_RETRIES = 5
+
 function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; sprintName?: string }) {
   const [columns, setColumns] = useState<string[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -3860,11 +3862,13 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
   const [progress, setProgress] = useState(0)
   const [countdown, setCountdown] = useState(0)
   const [report, setReport] = useState<string | null>(null)
+  const [reportTickets, setReportTickets] = useState<DRTicket[]>([]) // the tickets the report was built from
+  const [truncated, setTruncated] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday'>('all')
   const [baseUrl, setBaseUrl] = useState('')
-  const abortRef = useRef(false)
+  const runRef = useRef(0)
   const epicUrl = useCallback((id: string) => (baseUrl ? `${baseUrl}/issue/${id}` : ''), [baseUrl])
 
   const fetchColumns = useCallback(async () => {
@@ -3882,6 +3886,7 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
   useEffect(() => { fetchColumns() }, [fetchColumns])
 
   const toggleColumn = (col: string) => {
+    runRef.current++ // a running generation belongs to the old selection
     setSelected(prev => {
       const next = new Set(prev)
       if (next.has(col)) next.delete(col)
@@ -3903,9 +3908,11 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
     setReport(null)
     setGenStatus('idle')
     setProgress(0)
+    setTruncated(false)
     try {
       const res = await api.getDeploymentTickets([...selected], sprintId)
-      const payload = (res as any).data as { tickets: Array<{ id: string; id_readable: string; summary: string; description: string; issue_type: string; subsystem: string; updated_at?: number; epic_id?: string; epic_name?: string }>; base_url: string } | undefined
+      const payload = (res as any).data as { tickets: Array<{ id: string; id_readable: string; summary: string; description: string; issue_type: string; subsystem: string; updated_at?: number; epic_id?: string; epic_name?: string }>; base_url: string; truncated?: boolean } | undefined
+      setTruncated(!!payload?.truncated)
       const data = payload?.tickets?.filter(t => !isEpicType(t.issue_type ?? ''))
       const baseUrl = (payload?.base_url ?? '').replace(/\/$/, '')
       setBaseUrl(baseUrl)
@@ -3956,40 +3963,52 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
     return acc
   }, {})
 
+  // Every run gets an id; Cancel or a column change bumps it so an older run
+  // stops at its next await instead of writing over the newer state.
   const handleGenerate = useCallback(async () => {
     if (!filteredTickets.length) return
-    abortRef.current = false
+    const run = ++runRef.current
+    const live = () => runRef.current === run
     setGenStatus('generating')
     setReport(null)
     setError(null)
     setProgress(0)
 
     const queue: DRTicket[] = filteredTickets.map(t => ({ ...t, status: 'pending' as DRTicketStatus, fixStatement: null, error: undefined }))
-    setTickets([...queue])
+    // Merge into the full list so tickets hidden by the date filter are kept.
+    const sync = () => {
+      if (!live()) return
+      const byId = new Map(queue.map(q => [q.id, q]))
+      setTickets(prev => prev.map(p => byId.get(p.id) ?? p))
+    }
+    sync()
 
     const processTicket = async (idx: number): Promise<void> => {
-      if (abortRef.current) return
       const t = queue[idx]
-
-      // Mark as generating
       queue[idx] = { ...t, status: 'generating' }
-      setTickets([...queue])
+      sync()
 
-      while (true) {
-        const res = await api.generateDeploymentTicket({
-          id: t.id,
-          id_readable: t.idReadable,
-          summary: t.summary,
-          description: t.description,
-          issue_type: t.issueType,
-        })
+      for (let attempt = 0; live(); attempt++) {
+        let res: Awaited<ReturnType<typeof api.generateDeploymentTicket>>
+        try {
+          res = await api.generateDeploymentTicket({
+            id: t.id,
+            id_readable: t.idReadable,
+            summary: t.summary,
+            description: t.description,
+            issue_type: t.issueType,
+            subsystem: t.subsystem,
+          })
+        } catch (e) {
+          res = { error: e instanceof Error ? e.message : 'Request failed' } as typeof res
+        }
+        if (!live()) return
 
-        if (res.rateLimited) {
+        if (res.rateLimited && attempt < MAX_RATE_LIMIT_RETRIES) {
           const secs = res.retryAfter ?? 30
           setGenStatus('waiting')
-          setCountdown(secs)
           for (let s = secs; s > 0; s--) {
-            if (abortRef.current) return
+            if (!live()) return
             setCountdown(s)
             await new Promise(r => setTimeout(r, 1000))
           }
@@ -3998,44 +4017,47 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
           continue // retry same ticket
         }
 
-        if (res.fixStatement) {
-          queue[idx] = { ...t, status: 'done', fixStatement: res.fixStatement }
-        } else {
-          queue[idx] = { ...t, status: 'failed', error: res.error ?? 'Failed' }
-        }
-        setTickets([...queue])
+        queue[idx] = res.fixStatement
+          ? { ...t, status: 'done', fixStatement: res.fixStatement }
+          : { ...t, status: 'failed', error: res.rateLimited ? 'Still rate limited, try again later' : (res.error ?? 'Failed') }
+        sync()
         setProgress(queue.filter(x => x.status === 'done' || x.status === 'failed').length)
-        break
+        return
       }
     }
 
-    // Process all tickets sequentially
-    for (let i = 0; i < queue.length; i++) {
-      if (abortRef.current) break
-      await processTicket(i)
-    }
-
-    if (abortRef.current) return
+    for (let i = 0; i < queue.length && live(); i++) await processTicket(i)
+    if (!live()) return
 
     // Retry failed tickets once
-    const failedIdxs = queue.map((t, i) => i).filter(i => queue[i].status === 'failed')
+    const failedIdxs = queue.map((_, i) => i).filter(i => queue[i].status === 'failed')
     if (failedIdxs.length > 0) {
       setGenStatus('retrying')
       for (const idx of failedIdxs) {
-        if (abortRef.current) break
+        if (!live()) return
         await processTicket(idx)
       }
     }
+    if (!live()) return
 
     setGenStatus('done')
+    setReportTickets(queue)
     setReport(buildDeployReport(queue))
     setProgress(queue.filter(x => x.status === 'done').length)
   }, [filteredTickets])
 
+  // Stops the current run and puts any ticket it was working on back to pending.
+  const cancelGenerate = () => {
+    runRef.current++
+    setGenStatus('idle')
+    setCountdown(0)
+    setTickets(prev => prev.map(t => (t.status === 'generating' ? { ...t, status: 'pending' } : t)))
+  }
+
   const handleCopy = async () => {
     if (!report) return
     try {
-      const htmlContent = buildDeployReportHtml(tickets, epicUrl)
+      const htmlContent = buildDeployReportHtml(reportTickets, epicUrl)
       await navigator.clipboard.write([
         new ClipboardItem({
           'text/html':  new Blob([htmlContent], { type: 'text/html' }),
@@ -4044,7 +4066,12 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
       ])
     } catch {
       // Fallback: plain text only (unsupported browser / denied permission)
-      navigator.clipboard.writeText(report)
+      try {
+        await navigator.clipboard.writeText(report)
+      } catch {
+        setError('Could not copy to the clipboard. Select the report text and copy it by hand.')
+        return
+      }
     }
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -4057,7 +4084,7 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
           <h3 className="pm-section-title"><Rocket size={18} /> Deployment Report</h3>
           {sprintName && <span className="drt-sprint-badge">{sprintName}</span>}
         </div>
-        <p className="sr-subtitle">Select columns{sprintName ? ` from ${sprintName}` : ''}, load tickets, then generate AI fix statements categorised by type.</p>
+        <p className="sr-subtitle">Select columns{sprintName ? ` from ${sprintName}` : ''}, load tickets, then generate AI fix statements grouped by feature epic and type.</p>
       </div>
 
       {/* Column selector */}
@@ -4079,7 +4106,7 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
         ) : (
           <div className="sr-columns">
             {columns.map(col => (
-              <button key={col} className={`sr-column-pill${selected.has(col) ? ' selected' : ''}`} onClick={() => toggleColumn(col)}>
+              <button key={col} className={`sr-column-pill${selected.has(col) ? ' selected' : ''}`} onClick={() => toggleColumn(col)} disabled={isGenerating || loadingTickets}>
                 {selected.has(col) && <Check size={12} />}{col}
               </button>
             ))}
@@ -4097,6 +4124,7 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
       </div>
 
       {error && <div className="sr-error">{error}</div>}
+      {truncated && <div className="sr-error">Only the first 200 tickets were loaded, so some may be missing. Pick a sprint to narrow it.</div>}
 
       {/* Ticket list + type summary */}
       {tickets.length > 0 && (
@@ -4152,7 +4180,7 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
                 <Rocket size={14} /> Generate Report ({filteredTickets.length} tickets)
               </button>
             ) : (
-              <button className="btn btn-secondary" onClick={() => { abortRef.current = true; setGenStatus('idle') }}>
+              <button className="btn btn-secondary" onClick={cancelGenerate}>
                 <X size={14} /> Cancel
               </button>
             )}
@@ -4182,7 +4210,7 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
       {report !== null && (
         <div className="sr-result">
           <div className="sr-result-header">
-            <span className="sr-result-meta">{tickets.filter(t => t.status === 'done').length} fix statements generated</span>
+            <span className="sr-result-meta">{reportTickets.filter(t => t.status === 'done').length} fix statements generated</span>
             <button className="sr-copy-btn" onClick={handleCopy}>
               {copied ? <Check size={14} /> : <Copy size={14} />}
               {copied ? 'Copied!' : 'Copy'}
@@ -4190,7 +4218,7 @@ function YouTrackStageReport({ sprintId, sprintName }: { sprintId?: string; spri
           </div>
           <div className="drt-report-preview">
             {(() => {
-              const { epics, sections } = buildReportSections(tickets, epicUrl)
+              const { epics, sections } = buildReportSections(reportTickets, epicUrl)
               const renderItem = (t: DRTicket) => (
                 <li key={t.id} className="drt-report-item">
                   {t.ytUrl
