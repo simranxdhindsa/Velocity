@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-23
+
+### Enhancements
+- `edit_youtrack_ticket`: changing a ticket to Epic also marks it so it shows up in the epic list
+- `create_youtrack_ticket`: features and enhancements are added to an epic or marked standalone, and new epics can be created
+- `get_youtrack_ticket`: shows the epic a ticket belongs to
+- `search_youtrack_tickets`: shows which epic each ticket belongs to
+
+
+### Features
+- `list_youtrack_epics`: see every open feature epic, how many there are, and the tickets in each
+
 ## 2026-11-18
 
 ### Enhancements
