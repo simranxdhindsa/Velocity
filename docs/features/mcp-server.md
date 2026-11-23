@@ -75,6 +75,7 @@ Files: `mcp_tool_read_slack_messages.go`, `mcp_tool_get_slack_mentions.go`, shar
 - `start_date` / `finish_date` (YYYY-MM-DD) are required; the description tells Claude to ask the user for the period and never invent one. Stored as 00:00 UTC on the first day to 23:59:59.999 UTC on the last, matching existing sprints. `finish_date` before `start_date` is rejected.
 - `name` defaults to the next number after the highest numbered sprint, keeping its prefix ("Sprint 13" gives "Sprint 14", `nextNumberedSprintName`). If no sprint name ends in a number, the tool errors and asks Claude to get a name. Duplicate names (case-insensitive) are rejected. Optional `goal`.
 - No `make_current`: Velocity derives the current sprint from dates (`LatestSprint`), so a sprint becomes current once its start date arrives.
+- Every open feature epic is added to the new sprint and listed in `epics_added`, so the board keeps its epic rows (see Epics notes).
 
 ### Epics notes
 
@@ -82,6 +83,8 @@ Files: `mcp_tool_read_slack_messages.go`, `mcp_tool_get_slack_mentions.go`, shar
 - `create_youtrack_ticket`: Feature and Enhancement need `epic` (an open epic's ID) or `standalone: true`. Bugs, regressions and hotfixes may pass `epic`; without one the result lists open epics. Type Epic gets Subsystem Epic, no sprint, no title prefix and no testing or acceptance requirement. The link is made right after create, because YouTrack can't set a parent on create; a failed link leads the result with a warning instead of an error, so the agent doesn't create a duplicate.
 - `search_youtrack_tickets` and `get_youtrack_ticket` return each ticket's `epic` (its parent). List one epic's tickets with yql `subtask of: ARD-123`.
 - `edit_youtrack_ticket` with type Epic also sets Subsystem Epic.
+- Board swimlanes are identified by issues of Type Epic (board-wide setting). YouTrack only draws an epic's row when the epic itself is in the sprint shown, so open epics are added to every sprint: `create_sprint` adds them (`addOpenEpicsToSprint`), and `bulk_update_tickets` moves them along with the sprint (`GetAllSprintIssuesWithEpics`). A failed epic add never fails the sprint; it comes back as `epic_warning`.
+- Epics in a sprint are not work: `GetAllSprintIssues` and `GetIssuesByStateForSprint` drop them (`youtrack.WithoutEpics`), so sprint counts, Developer Load and reports skip them. Only the bulk move reads them. The MCP server instructions tell agents the same for `search_youtrack_tickets` results.
 
 ### `generate_deployment_report` notes
 

@@ -22,4 +22,8 @@ Day Track entries are added only in two steps:
 
 Never set confirmed: true in the same turn as the preview, and never set either flag unless the user actually said it. Use one entry per bullet, leaving out the bullet character. Leave out category and times unless the user stated them, Velocity fills them in.
 
-Never create a Day Track category unless the user explicitly asks for one.`
+Never create a Day Track category unless the user explicitly asks for one.
+
+YouTrack feature epics.
+
+A ticket with Type Epic is a feature heading, not work. Its tickets link to it as "subtask of". Open epics are added to every sprint only so the board shows one row per epic. When you count, list or report a sprint's tickets, leave out Type Epic tickets, and never move an epic out of a sprint or close it as cleanup. Before creating a Feature or Enhancement, call list_youtrack_epics and suggest the matching epic.`
