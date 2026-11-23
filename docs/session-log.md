@@ -81,3 +81,7 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - Velocity: `create_youtrack_ticket` requires testing scenarios from developers and acceptance criteria from QA (role from Integrations > Developers, no subsystem counts as QA); both become ticket sections, and QA is @mentioned in a ticket comment when acceptance criteria are missing
 - Velocity: `whoami` returns `ticket_role`; ticket creator skill asks for the missing part before the preview and can fill pending sections later
 - Velocity: opt-in end-to-end test `TestMCPTicketTestingE2E` (fake YouTrack, throwaway users), run on a throwaway local Postgres
+
+### 2026-11-23
+- Velocity: feature epics in YouTrack (Type Epic, Subsystem Epic, tickets linked as "subtask of"); 5 epics created for Composer, Universal Search, Content Visibility and Locks, AI Response Token Limits and Realtime Voice
+- Velocity: new `list_youtrack_epics` tool; `create_youtrack_ticket` needs an epic or `standalone: true` for features and enhancements and can create epics; search and ticket details show each ticket's epic; `edit_youtrack_ticket` to Epic also sets Subsystem Epic

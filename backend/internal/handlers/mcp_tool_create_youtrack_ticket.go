@@ -16,6 +16,9 @@ var createYoutrackTicketToolSchema = map[string]interface{}{
 		"Who must fill what depends on the caller's ticket role (whoami youtrack.ticket_role): a developer (owns a subsystem) must pass testing_scenarios, " +
 		"QA (or anyone with no subsystem) must pass acceptance_criteria. Ask the user for the missing one before calling; the tool refuses without it. " +
 		"When a developer files a ticket without acceptance criteria, Velocity comments on it asking the QA team to add them. " +
+		"EPICS: a Feature or Enhancement must be linked to an open epic (pass epic) or confirmed as standalone (standalone: true); call list_youtrack_epics first and suggest the matching epic. " +
+		"Bugs, regressions and hotfixes may pass epic when they were found while testing that feature. " +
+		"To create an epic itself, use type_name Epic with just a plain feature name as summary (e.g. 'Composer'); it gets Subsystem Epic, no sprint, and needs no testing scenarios or acceptance criteria. " +
 		"Returns the created ticket ID (e.g. ARD-123) and its URL.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
@@ -38,7 +41,15 @@ var createYoutrackTicketToolSchema = map[string]interface{}{
 			},
 			"type_name": map[string]string{
 				"type":        "string",
-				"description": "Issue type: Bug, Feature, Enhancement, Hotfix, or Regression.",
+				"description": "Issue type: Bug, Feature, Enhancement, Hotfix, Regression, Task, or Epic.",
+			},
+			"epic": map[string]string{
+				"type":        "string",
+				"description": "Readable ID of the open epic this ticket belongs to, e.g. ARD-3233 (from list_youtrack_epics). The ticket is linked to it as a subtask.",
+			},
+			"standalone": map[string]string{
+				"type":        "boolean",
+				"description": "true when the user confirmed a Feature or Enhancement is a small change that belongs to no epic.",
 			},
 			"priority": map[string]string{
 				"type":        "string",
@@ -72,6 +83,8 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 		SprintID      string `json:"sprint_id"`
 		Testing       string `json:"testing_scenarios"`
 		Acceptance    string `json:"acceptance_criteria"`
+		Epic          string `json:"epic"`
+		Standalone    bool   `json:"standalone"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil || a.Summary == "" {
 		return rpcErr(id, -32602, "invalid arguments: summary is required")
@@ -81,17 +94,45 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 		return toolError(id, "YouTrack not configured — add your YouTrack integration in Velocity → Integrations")
 	}
 
+	isEpic := strings.EqualFold(strings.TrimSpace(a.TypeName), "Epic")
+	a.Epic = strings.TrimSpace(a.Epic)
 	a.Testing, a.Acceptance = strings.TrimSpace(a.Testing), strings.TrimSpace(a.Acceptance)
-	role := mcpCallerTicketRole(ctx, ytClient, userID)
-	if role == ticketRoleDeveloper && a.Testing == "" {
-		return toolError(id, "Testing scenarios are required when a developer creates a ticket. Ask the user how to test this change and what else it could affect, then call again with testing_scenarios.")
+	if isEpic {
+		a.Subsystem = "Epic" // YouTrack requires a Subsystem; this value marks feature epics
+		a.Epic = ""          // an epic is never a subtask of another epic
+	} else {
+		role := mcpCallerTicketRole(ctx, ytClient, userID)
+		if role == ticketRoleDeveloper && a.Testing == "" {
+			return toolError(id, "Testing scenarios are required when a developer creates a ticket. Ask the user how to test this change and what else it could affect, then call again with testing_scenarios.")
+		}
+		if role == ticketRoleQA && a.Acceptance == "" {
+			return toolError(id, "Acceptance criteria are required when QA creates a ticket. Ask the user what must be true for this ticket to count as done, then call again with acceptance_criteria.")
+		}
 	}
-	if role == ticketRoleQA && a.Acceptance == "" {
-		return toolError(id, "Acceptance criteria are required when QA creates a ticket. Ask the user what must be true for this ticket to count as done, then call again with acceptance_criteria.")
+
+	var epics []youtrack.Issue // open epics, loaded only when needed
+	if !isEpic {
+		reason := epicRequirement(a.TypeName, a.Epic, a.Standalone)
+		if reason != "" || a.Epic != "" {
+			var err error
+			if epics, err = openEpics(ctx, ytClient); err != nil {
+				return toolError(id, "could not load open epics: "+err.Error())
+			}
+		}
+		if reason != "" {
+			return toolError(id, reason+" Open epics: "+epicChoices(epics)+".")
+		}
+		if a.Epic != "" && findEpic(epics, a.Epic) == nil {
+			return toolError(id, fmt.Sprintf("%s is not an open epic. Open epics: %s.", a.Epic, epicChoices(epics)))
+		}
 	}
 
 	summary := buildTicketTitle(a.Priority, a.Subsystem, a.Summary)
 	desc := withTestingSections(a.Description, a.Testing, a.Acceptance)
+	if isEpic {
+		summary = strings.TrimSpace(a.Summary) // epics are named after the feature, no prefix
+		desc = a.Description
+	}
 	req := youtrack.CreateIssueRequest{Summary: summary, Description: youtrack.WithVelocityFooter(desc)}
 	var fields []youtrack.CustomField
 
@@ -136,9 +177,10 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 		return toolError(id, "Failed to create ticket: "+err.Error())
 	}
 
-	// Assign to sprint — use provided sprint_id or auto-pick the latest active sprint
+	// Assign to sprint — use provided sprint_id or auto-pick the latest active sprint.
+	// Epics span sprints, so they are never auto-added to one.
 	sprintID := a.SprintID
-	if sprintID == "" {
+	if sprintID == "" && !isEpic {
 		if sprints, sErr := ytClient.GetSprints(ctx); sErr == nil {
 			for i := len(sprints) - 1; i >= 0; i-- {
 				if !sprints[i].IsCompleted {
@@ -159,10 +201,33 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 	ytBaseURL := strings.TrimRight(ytClient.GetBaseURL(), "/")
 	ticketURL := fmt.Sprintf("%s/issue/%s", ytBaseURL, displayID)
 	result := fmt.Sprintf("Created %s — %s\n%s", displayID, issue.Summary, ticketURL)
-	if a.Acceptance == "" {
+	if epic := findEpic(epics, a.Epic); epic != nil {
+		if note, ok := linkToEpic(ctx, ytClient, displayID, epic); ok {
+			result += "\n" + note
+		} else {
+			result = note + "\n" + result // lead with the failure so it is not missed
+		}
+	} else if !isEpic && epicRequirement(a.TypeName, "", false) == "" && !a.Standalone {
+		// Bugs and the like may skip the epic; show the open ones in case it was found while testing a feature.
+		if open, err := openEpics(ctx, ytClient); err == nil && len(open) > 0 {
+			result += "\nNot linked to an epic. If this was found while testing one of these features, link it with link_youtrack_tickets (subtask of): " + epicChoices(open)
+		}
+	}
+	if a.Acceptance == "" && !isEpic {
 		result += "\n" + requestAcceptanceCriteria(ctx, ytClient, displayID)
 	}
 	return toolOK(id, result)
+}
+
+// linkToEpic links a new ticket under its epic and says how that went. YouTrack
+// can't set a parent while creating an issue, so this runs right after create.
+func linkToEpic(ctx context.Context, yt *youtrack.Client, ticket string, epic *youtrack.Issue) (string, bool) {
+	if err := yt.LinkIssues(ctx, ticket, "subtask of "+epic.IDReadable); err != nil {
+		slog.ErrorContext(ctx, "Created a ticket but could not link it to its epic, it will be missing from the epic", "ticket", ticket, "epic", epic.IDReadable, "error", err)
+		return fmt.Sprintf("WARNING: %s was created but NOT linked to epic %s (%v). Do not create it again; link it with link_youtrack_tickets (%s subtask of %s).", ticket, epic.IDReadable, err, ticket, epic.IDReadable), false
+	}
+	slog.InfoContext(ctx, "Ticket added to epic", "ticket", ticket, "epic", epic.IDReadable, "epic_name", epic.Summary)
+	return fmt.Sprintf("Added to epic %s %s.", epic.IDReadable, epic.Summary), true
 }
 
 // requestAcceptanceCriteria comments on a developer-filed ticket, @mentioning
