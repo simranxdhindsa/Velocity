@@ -17,6 +17,7 @@
 - `list_youtrack_epics`: see every open feature epic, how many there are, and the tickets in each
 
 ### Bug Fixes
+- PM Reports no longer goes blank when a ticket has never been In Progress
 - Slack messages with tables now send when cells hold ticket links, and links and priority codes in tables show properly
 
 ## 2026-11-18
