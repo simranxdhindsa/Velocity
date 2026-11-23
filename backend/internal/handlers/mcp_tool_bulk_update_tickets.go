@@ -22,6 +22,7 @@ var bulkUpdateTicketsToolSchema = map[string]interface{}{
 		"Narrow with exclude_ids, assignee_login, subsystem. Actions: to_state and/or to_sprint ('next' = the sprint after the current one, or a sprint name). " +
 		"SAFETY: dry_run defaults to true and changes nothing; it returns the exact tickets that would change (id, summary, current state and sprint, target). " +
 		"ALWAYS show that preview to the user and ask them to confirm. Only after the user explicitly confirms, call again with the same arguments plus dry_run=false and ticket_ids set to the previewed IDs, so nothing outside the preview is touched. " +
+		"Feature epics (Type Epic) are never selected or changed; moving tickets into a sprint also adds the open epics there, without removing them from the old sprint. " +
 		"If there is no next sprint, the tool says so: ask the user if they want one created with create_sprint. Max 100 tickets per call. The real run reports success or failure per ticket and keeps going past failures.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
@@ -167,7 +168,14 @@ func mcpBulkUpdateTickets(ctx context.Context, h *MCPHandler, userID string, id 
 
 	// Board-scoped sprint membership via the agile endpoint (the YQL
 	// "sprint:" attribute doesn't reliably match board sprints).
-	issues, err := yt.GetAllSprintIssuesWithEpics(ctx, source.ID) // epics move with their sprint
+	all, err := yt.GetAllSprintIssuesWithEpics(ctx, source.ID)
+	issues := youtrack.WithoutEpics(all) // feature epics are never selected, see addOpenEpicsToSprint
+	epicIDs := map[string]bool{}
+	for _, is := range all {
+		if youtrack.IsFeatureEpic(is) {
+			epicIDs[strings.ToUpper(is.IDReadable)] = true
+		}
+	}
 	if err != nil {
 		return toolError(id, fmt.Sprintf("failed to fetch issues of sprint %q: %s", source.Name, err))
 	}
@@ -212,8 +220,13 @@ func mcpBulkUpdateTickets(ctx context.Context, h *MCPHandler, userID string, id 
 		plans = append(plans, p)
 	}
 	var notInSprint []string
+	var skippedEpics []string
 	for _, tid := range a.TicketIDs {
-		if !found[strings.ToUpper(strings.TrimSpace(tid))] {
+		key := strings.ToUpper(strings.TrimSpace(tid))
+		switch {
+		case epicIDs[key]:
+			skippedEpics = append(skippedEpics, strings.TrimSpace(tid))
+		case !found[key]:
 			notInSprint = append(notInSprint, strings.TrimSpace(tid))
 		}
 	}
@@ -232,6 +245,7 @@ func mcpBulkUpdateTickets(ctx context.Context, h *MCPHandler, userID string, id 
 		"target_sprint": "",
 		"count":         len(plans),
 		"not_in_sprint": notInSprint,
+		"skipped_epics": skippedEpics, // feature epics are never moved or changed
 		"sprint_issues": len(issues),
 	}
 	if target != nil {
@@ -278,6 +292,18 @@ func mcpBulkUpdateTickets(ctx context.Context, h *MCPHandler, userID string, id 
 		rows = append(rows, row)
 	}
 	result["tickets"] = rows
+	if target != nil && len(plans) > 0 {
+		// Epics stay in the source sprint for its board rows; the target just gets them too.
+		if dryRun {
+			result["epics_note"] = fmt.Sprintf("Any open feature epic missing from %s is added to it so its board keeps one row per epic. Epics also stay in %s.", target.Name, source.Name)
+		} else if succeeded > 0 {
+			added, warn := addOpenEpicsToSprint(ctx, yt, target.ID, target.Name)
+			result["epics_added"] = added
+			if warn != "" {
+				result["epic_warning"] = warn
+			}
+		}
+	}
 	if dryRun {
 		if len(plans) == 0 {
 			result["message"] = "No tickets match, nothing would change."

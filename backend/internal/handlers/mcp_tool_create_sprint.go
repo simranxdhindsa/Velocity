@@ -121,20 +121,35 @@ func mcpCreateSprint(ctx context.Context, h *MCPHandler, userID string, id inter
 func addOpenEpicsToSprint(ctx context.Context, yt *youtrack.Client, sprintID, sprintName string) ([]string, string) {
 	epics, err := openEpics(ctx, yt)
 	if err != nil {
-		slog.WarnContext(ctx, "New sprint created but its epic swimlanes could not be added", "sprint", sprintName, "error", err)
+		slog.WarnContext(ctx, "Could not load open epics, the sprint's epic swimlanes are missing", "sprint", sprintName, "error", err)
 		return []string{}, "could not load open epics, so add them to the sprint by hand: " + err.Error()
+	}
+	current, err := yt.GetAllSprintIssuesWithEpics(ctx, sprintID)
+	if err != nil {
+		slog.WarnContext(ctx, "Could not read the sprint, so its epic swimlanes were not checked", "sprint", sprintName, "error", err)
+		return []string{}, "could not read " + sprintName + ", so check that every open epic is in it: " + err.Error()
+	}
+	inSprint := map[string]bool{}
+	for _, iss := range current {
+		inSprint[iss.ID] = true
 	}
 	added := []string{}
 	var failed []string
 	for _, e := range epics {
+		if inSprint[e.ID] {
+			continue
+		}
 		if err := yt.AddIssueToSprint(ctx, sprintID, e.ID); err != nil {
 			failed = append(failed, e.IDReadable)
-			slog.WarnContext(ctx, "Could not add an epic to the new sprint, its swimlane will be missing", "sprint", sprintName, "epic", e.IDReadable, "error", err)
+			slog.WarnContext(ctx, "Could not add an epic to the sprint, its swimlane will be missing", "sprint", sprintName, "epic", e.IDReadable, "error", err)
 			continue
 		}
 		added = append(added, e.IDReadable+" "+e.Summary)
 	}
-	slog.InfoContext(ctx, "Epics added to the new sprint", "sprint", sprintName, "count", len(added))
+	slog.InfoContext(ctx, "Epics added to the sprint", "sprint", sprintName, "count", len(added))
+	if len(epics) >= openEpicsLimit {
+		failed = append(failed, fmt.Sprintf("any open epic past the first %d", openEpicsLimit))
+	}
 	if len(failed) > 0 {
 		return added, "these epics were not added, so add them to the sprint by hand: " + strings.Join(failed, ", ")
 	}

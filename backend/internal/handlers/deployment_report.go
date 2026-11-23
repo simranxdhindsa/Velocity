@@ -59,12 +59,14 @@ func deploymentColumnNames(ctx context.Context, client *youtrack.Client) ([]stri
 // fetchDeploymentIssues returns the issues in the given columns. With a
 // sprintID it reads the sprint via the agile endpoint and filters by state;
 // without one it queries the whole project by state. Epic tickets are left
-// out: an epic is a heading for its tickets, never a line in the report.
+// out: an epic is a heading for its tickets, never a line in the report, and
+// any Type Epic ticket (old deployment checklists too) is left out, matching
+// isEpicType in the Deployment Report tab.
 // truncated is true when the whole-project query hit its result cap.
 func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns []string, sprintID string) (issues []youtrack.Issue, truncated bool, err error) {
 	if sprintID == "" {
-		issues, err := client.GetIssuesByState(ctx, columns)
-		return youtrack.WithoutEpics(issues), len(issues) >= youtrack.IssuesByStateLimit, err
+		all, truncated, err := client.GetIssuesByStateTruncated(ctx, columns)
+		return withoutTypeEpic(all), truncated, err
 	}
 	colSet := make(map[string]bool, len(columns))
 	for _, c := range columns {
@@ -79,7 +81,17 @@ func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns
 			issues = append(issues, iss)
 		}
 	}
-	return issues, false, nil
+	return withoutTypeEpic(issues), false, nil
+}
+
+func withoutTypeEpic(issues []youtrack.Issue) []youtrack.Issue {
+	out := issues[:0:0]
+	for _, iss := range issues {
+		if !strings.EqualFold(youtrack.GetCustomFieldValue(iss, "Type"), "Epic") {
+			out = append(out, iss)
+		}
+	}
+	return out
 }
 
 // deployTicketItemFromIssue converts an issue into the ticket shape the

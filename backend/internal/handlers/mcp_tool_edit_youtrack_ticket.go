@@ -10,8 +10,9 @@ import (
 )
 
 var editYoutrackTicketToolSchema = map[string]interface{}{
-	"name":        "edit_youtrack_ticket",
-	"description": "Updates one or more fields of an existing YouTrack ticket. Only pass the fields you want to change — omitted fields are left untouched.",
+	"name": "edit_youtrack_ticket",
+	"description": "Updates one or more fields of an existing YouTrack ticket. Only pass the fields you want to change — omitted fields are left untouched. " +
+		"Setting type_name Epic also sets Subsystem Epic, which makes it a feature epic that list_youtrack_epics picks up. It gets a board row only once it is in the sprint shown: the next create_sprint adds it, or add it to the current sprint in YouTrack.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{

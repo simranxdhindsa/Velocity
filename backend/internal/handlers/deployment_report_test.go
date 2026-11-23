@@ -34,11 +34,15 @@ func TestBuildDeploymentReportText_NoEpicsKeepsOldLayout(t *testing.T) {
 }
 
 func TestWithoutEpicsDropsEpicTickets(t *testing.T) {
-	typed := func(id, typ string) youtrack.Issue {
-		return youtrack.Issue{IDReadable: id, CustomFields: []youtrack.CustomField{{Name: "Type", Value: map[string]interface{}{"name": typ}}}}
+	typed := func(id, typ, subsystem string) youtrack.Issue {
+		return youtrack.Issue{IDReadable: id, CustomFields: []youtrack.CustomField{
+			{Name: "Type", Value: map[string]interface{}{"name": typ}},
+			{Name: "Subsystem", Value: map[string]interface{}{"name": subsystem}},
+		}}
 	}
-	got := youtrack.WithoutEpics([]youtrack.Issue{typed("ARD-1", "Epic"), typed("ARD-2", "Bug"), typed("ARD-3", "epic")})
-	if len(got) != 1 || got[0].IDReadable != "ARD-2" {
+	// ARD-4 is an old deployment checklist: Type Epic but Subsystem Support, so it is work.
+	got := youtrack.WithoutEpics([]youtrack.Issue{typed("ARD-1", "Epic", "Epic"), typed("ARD-2", "Bug", "FE UI"), typed("ARD-3", "epic", "epic"), typed("ARD-4", "Epic", "Support")})
+	if len(got) != 2 || got[0].IDReadable != "ARD-2" || got[1].IDReadable != "ARD-4" {
 		t.Fatalf("withoutEpics kept %v", got)
 	}
 }
@@ -55,5 +59,13 @@ func TestParseRetryAfterFromGroq_Units(t *testing.T) {
 		if got := parseRetryAfterFromGroq(msg); got != want {
 			t.Errorf("parseRetryAfterFromGroq(%q) = %d, want %d", msg, got, want)
 		}
+	}
+}
+
+func TestDeploymentReportDropsEveryTypeEpic(t *testing.T) {
+	checklist := youtrack.Issue{IDReadable: "ARD-4", CustomFields: []youtrack.CustomField{{Name: "Type", Value: map[string]interface{}{"name": "Epic"}}}}
+	bug := youtrack.Issue{IDReadable: "ARD-2", CustomFields: []youtrack.CustomField{{Name: "Type", Value: map[string]interface{}{"name": "Bug"}}}}
+	if got := withoutTypeEpic([]youtrack.Issue{checklist, bug}); len(got) != 1 || got[0].IDReadable != "ARD-2" {
+		t.Fatalf("withoutTypeEpic kept %v", got)
 	}
 }

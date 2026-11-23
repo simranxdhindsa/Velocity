@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	youtrack "github.com/dhindsa/project-management/internal/services/youtrack"
 )
@@ -18,7 +19,7 @@ var createYoutrackTicketToolSchema = map[string]interface{}{
 		"When a developer files a ticket without acceptance criteria, Velocity comments on it asking the QA team to add them. " +
 		"EPICS: a Feature or Enhancement must be linked to an open epic (pass epic) or confirmed as standalone (standalone: true); call list_youtrack_epics first and suggest the matching epic. " +
 		"Bugs, regressions and hotfixes may pass epic when they were found while testing that feature. " +
-		"To create an epic itself, use type_name Epic with just a plain feature name as summary (e.g. 'Composer'); it gets Subsystem Epic, no sprint, and needs no testing scenarios or acceptance criteria. " +
+		"To create an epic itself, use type_name Epic with just a plain feature name as summary (e.g. 'Composer'); it gets Subsystem Epic, is added to the current sprint and any planned ones (not finished yet) so the board shows its swimlane, and needs no testing scenarios or acceptance criteria. " +
 		"Returns the created ticket ID (e.g. ARD-123) and its URL.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
@@ -177,30 +178,41 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 		return toolError(id, "Failed to create ticket: "+err.Error())
 	}
 
-	// Assign to sprint — use provided sprint_id or auto-pick the latest active sprint.
-	// Epics span sprints, so they are never auto-added to one.
-	sprintID := a.SprintID
-	if sprintID == "" && !isEpic {
-		if sprints, sErr := ytClient.GetSprints(ctx); sErr == nil {
-			for i := len(sprints) - 1; i >= 0; i-- {
-				if !sprints[i].IsCompleted {
-					sprintID = sprints[i].ID
-					break
-				}
-			}
-		}
-	}
-	if sprintID != "" && issue != nil && issue.ID != "" {
-		_ = ytClient.AddIssueToSprint(ctx, sprintID, issue.ID)
-	}
-
 	displayID := issue.IDReadable
 	if displayID == "" {
 		displayID = issue.ID
 	}
+
+	// Assign to sprint — use provided sprint_id or auto-pick the latest active sprint.
+	// An epic goes into the current and planned sprints instead (newTicketSprints): the board draws an epic's
+	// swimlane only when the epic is in the sprint shown.
+	sprintIDs := []string{}
+	if a.SprintID != "" {
+		sprintIDs = append(sprintIDs, a.SprintID)
+	} else if sprints, sErr := ytClient.GetSprints(ctx); sErr == nil {
+		sprintIDs = newTicketSprints(sprints, isEpic, time.Now())
+	}
+	epicSprintNote := ""
+	if issue.ID != "" {
+		failed := 0
+		for _, sid := range sprintIDs {
+			if err := ytClient.AddIssueToSprint(ctx, sid, issue.ID); err != nil {
+				failed++
+				if isEpic {
+					slog.WarnContext(ctx, "Created an epic but could not add it to a sprint, its board row will be missing", "ticket", displayID, "sprint_id", sid, "error", err)
+				}
+			}
+		}
+		if isEpic && (len(sprintIDs) == 0 || failed > 0) {
+			epicSprintNote = "WARNING: the epic could not be added to the current sprint, so its board row may be missing. Add it to the current sprint in YouTrack (Boards field)."
+		}
+	}
 	ytBaseURL := strings.TrimRight(ytClient.GetBaseURL(), "/")
 	ticketURL := fmt.Sprintf("%s/issue/%s", ytBaseURL, displayID)
 	result := fmt.Sprintf("Created %s — %s\n%s", displayID, issue.Summary, ticketURL)
+	if epicSprintNote != "" {
+		result = epicSprintNote + "\n" + result
+	}
 	if epic := findEpic(epics, a.Epic); epic != nil {
 		if note, ok := linkToEpic(ctx, ytClient, displayID, epic); ok {
 			result += "\n" + note
@@ -249,4 +261,35 @@ func requestAcceptanceCriteria(ctx context.Context, yt *youtrack.Client, ticket 
 	}
 	slog.InfoContext(ctx, "Asked QA to add acceptance criteria", "ticket", ticket, "qa", strings.Join(names, ", "))
 	return "Asked QA (" + strings.Join(names, ", ") + ") in a ticket comment to add the acceptance criteria."
+}
+
+// newTicketSprints picks the sprints a new ticket goes into: the latest
+// sprint not marked completed, as before. An epic instead goes into every
+// sprint that is not completed and has not finished yet (the current one and
+// any planned ones), falling back to the latest. Finish dates matter because
+// this board never marks old sprints completed.
+func newTicketSprints(sprints []youtrack.Sprint, isEpic bool, now time.Time) []string {
+	latest := ""
+	for i := len(sprints) - 1; i >= 0; i-- {
+		if !sprints[i].IsCompleted {
+			latest = sprints[i].ID
+			break
+		}
+	}
+	if !isEpic {
+		if latest == "" {
+			return nil
+		}
+		return []string{latest}
+	}
+	var open []string
+	for _, sp := range sprints {
+		if !sp.IsCompleted && (sp.Finish == 0 || sp.Finish >= now.UnixMilli()) {
+			open = append(open, sp.ID)
+		}
+	}
+	if len(open) == 0 && latest != "" {
+		open = []string{latest}
+	}
+	return open
 }

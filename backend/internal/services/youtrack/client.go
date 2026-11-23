@@ -867,7 +867,7 @@ func (c *Client) GetIssues(ctx context.Context) ([]Issue, error) {
 		}
 		skip += pageSize
 	}
-	return all, nil
+	return WithoutEpics(all), nil // feature epics are headings, not work
 }
 
 // GetSprints returns all sprints for the configured agile board.
@@ -909,7 +909,9 @@ func (c *Client) GetIssuesByStatePaginated(ctx context.Context, state string, sk
 	if hasMore {
 		issues = issues[:top]
 	}
-	return issues, hasMore, nil
+	// Filtered after paging so skip/top stay aligned with YouTrack; a page may
+	// come back a little short when it held a feature epic.
+	return WithoutEpics(issues), hasMore, nil
 }
 
 // GetSprintIssuesByStatePaginated returns paginated issues for a sprint column.
@@ -953,11 +955,19 @@ func (c *Client) GetAllSprintIssues(ctx context.Context, sprintID string) ([]Iss
 	return WithoutEpics(all), err
 }
 
-// WithoutEpics drops issues whose Type is Epic.
+// IsFeatureEpic reports whether the issue is a feature epic: Type Epic and
+// Subsystem Epic. Old deployment checklists also use Type Epic but another
+// subsystem, and they are real work.
+func IsFeatureEpic(iss Issue) bool {
+	return strings.EqualFold(GetCustomFieldValue(iss, "Type"), "Epic") &&
+		strings.EqualFold(GetSubsystem(iss), "Epic")
+}
+
+// WithoutEpics drops feature epics (see IsFeatureEpic).
 func WithoutEpics(issues []Issue) []Issue {
 	out := issues[:0:0]
 	for _, iss := range issues {
-		if !strings.EqualFold(GetCustomFieldValue(iss, "Type"), "Epic") {
+		if !IsFeatureEpic(iss) {
 			out = append(out, iss)
 		}
 	}
@@ -1483,10 +1493,18 @@ func (c *Client) AddIssueComment(ctx context.Context, issueID, text string) erro
 // shortcut: one page only, page through $skip if a caller needs every issue.
 const IssuesByStateLimit = 200
 
-// GetIssuesByState returns issues filtered by one or more states (live from YouTrack)
+// GetIssuesByState returns work tickets in one or more states (live from
+// YouTrack), feature epics left out.
 func (c *Client) GetIssuesByState(ctx context.Context, states []string) ([]Issue, error) {
+	issues, _, err := c.GetIssuesByStateTruncated(ctx, states)
+	return issues, err
+}
+
+// GetIssuesByStateTruncated is GetIssuesByState that also reports whether
+// YouTrack hit IssuesByStateLimit, counted before epics are dropped.
+func (c *Client) GetIssuesByStateTruncated(ctx context.Context, states []string) ([]Issue, bool, error) {
 	if len(states) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	// Build query: project: ARD State: {In Progress, Backlog}
@@ -1500,14 +1518,14 @@ func (c *Client) GetIssuesByState(ctx context.Context, states []string) ([]Issue
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var issues []Issue
 	if err := json.Unmarshal(body, &issues); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal issues: %w", err)
+		return nil, false, fmt.Errorf("failed to unmarshal issues: %w", err)
 	}
-	return issues, nil
+	return WithoutEpics(issues), len(issues) >= IssuesByStateLimit, nil
 }
 
 // GetIssuesByAssigneeAndState returns issues currently assigned to a login whose current

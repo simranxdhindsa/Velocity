@@ -26,4 +26,4 @@ Never create a Day Track category unless the user explicitly asks for one.
 
 YouTrack feature epics.
 
-A ticket with Type Epic is a feature heading, not work. Its tickets link to it as "subtask of". Open epics are added to every sprint only so the board shows one row per epic. When you count, list or report a sprint's tickets, leave out Type Epic tickets, and never move an epic out of a sprint or close it as cleanup. Before creating a Feature or Enhancement, call list_youtrack_epics and suggest the matching epic.`
+A feature epic is a ticket with Type Epic and Subsystem Epic. It is a feature heading, not work, and its tickets link to it as "subtask of". Open feature epics sit in the current and upcoming sprints only so the board shows one row per epic. When you count, list or report a sprint's tickets, leave feature epics out, and never move one out of a sprint or close it as cleanup. Older tickets with Type Epic and another subsystem are deployment checklists and count as normal work. Before creating a Feature or Enhancement, call list_youtrack_epics and suggest the matching epic.`

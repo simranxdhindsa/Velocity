@@ -20,7 +20,7 @@ var searchYoutrackTicketsToolSchema = map[string]interface{}{
 		"To scope to a sprint, pass sprint_name exactly as returned by get_sprints, or the literal string 'current' for the active sprint. " +
 		"Also filters by priority, type, subsystem, reporter, created/updated date (e.g. updated_since '7d' or '2026-10-01'), and unresolved_only. " +
 		"For anything the filters don't cover, pass a raw YouTrack query fragment in 'yql' (e.g. 'has: comments', 'tag: Hotfix', 'commented: {Last week}'); it is combined with the other filters. " +
-		"Returns matching tickets (id_readable, summary, status, priority, type, subsystem, epic, assignee, reporter, created, updated, url). To list the tickets of one epic, pass yql 'subtask of: ARD-123', sorted by sort_by (default: most recently updated first), up to `limit` results.",
+		"Returns matching tickets (id_readable, summary, status, priority, type, subsystem, epic, assignee, reporter, created, updated, url). Results are sorted by sort_by (default: most recently updated first), up to `limit` results. To list the tickets of one epic, pass yql 'subtask of: ARD-123'. Tickets with type Epic and subsystem Epic are feature epics: headings that sit in the current and upcoming sprints only for the board's rows, so skip them when counting or listing a sprint's work (don't filter with 'Type: -Epic', that also drops tickets with no type).",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{

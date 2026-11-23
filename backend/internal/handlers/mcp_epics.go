@@ -14,9 +14,11 @@ import (
 
 // openEpics returns the project's unresolved feature epics, oldest first.
 // shortcut: capped at 100 open epics, page through results if a project ever has more.
+const openEpicsLimit = 100
+
 func openEpics(ctx context.Context, yt *youtrack.Client) ([]youtrack.Issue, error) {
 	q := fmt.Sprintf("project: %s Type: {Epic} Subsystem: {Epic} #Unresolved sort by: created asc", yt.GetProjectID())
-	return yt.SearchIssues(ctx, q, 100)
+	return yt.SearchIssues(ctx, q, openEpicsLimit)
 }
 
 // epicRequirement says why a ticket can't be created yet, or "" when it can.
