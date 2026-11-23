@@ -412,7 +412,7 @@ func (h *SlackChatsHandler) answerIfWaiting(r *http.Request, conv *database.Slac
 }
 
 // waitingMessage returns the person's latest message if nothing has answered it yet. The bot's
-// "passed this on" line and the alert to the admin are not answers, so they are skipped.
+// holding line and the alert to the admin are not answers, so they are skipped.
 func waitingMessage(msgs []database.SlackDMMessage) *database.SlackDMMessage {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		switch msgs[i].Kind {

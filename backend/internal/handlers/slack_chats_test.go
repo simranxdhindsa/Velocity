@@ -225,7 +225,7 @@ func TestChatMessagesLabelAuthorsAndOnlyMarkReadWhenAsked(t *testing.T) {
 	store.msgs["D_H"] = []database.SlackDMMessage{
 		{ID: 1, Direction: "out", Kind: "claude", SentByUserID: "user-simran", Text: "status of ARD-3033?"},
 		{ID: 2, Direction: "in", Kind: "human", Text: "blocked on the API"},
-		{ID: 3, Direction: "out", Kind: "ack", Text: "Thanks, I have passed this on to Simran."},
+		{ID: 3, Direction: "out", Kind: "ack", Text: "Let me check."},
 		{ID: 4, Direction: "out", Kind: "auto_reply", Text: "Noted."},
 		{ID: 5, Direction: "out", Kind: "dashboard", SentByUserID: "someone-deleted", Text: "ok"},
 	}

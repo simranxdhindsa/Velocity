@@ -245,7 +245,7 @@ func TestHarpreetReplyIsRelayedNotAnsweredByTheBot(t *testing.T) {
 		t.Fatal("the bot must NOT answer a reply to a relayed message")
 	}
 	toHarpreet := slack.postsTo("D_H")
-	if len(toHarpreet) != 1 || toHarpreet[0].text != "Thanks, I have passed this on to Simran." {
+	if len(toHarpreet) != 1 || toHarpreet[0].text != dmAckText {
 		t.Fatalf("Harpreet should get exactly one short ack, got %+v", toHarpreet)
 	}
 	toSimran := slack.postsTo("D_U_simran")
@@ -455,7 +455,7 @@ func TestFailedAckIsRetriedOnTheNextMessage(t *testing.T) {
 	slack.failChannel = ""
 	second := slackInnerEvent{Type: "message", Channel: "D_H", TS: "1700000200.000001", User: "UHARPREET", Text: "two"}
 	r.handleInbound(ctx, client, second, harpreet)
-	if p := slack.postsTo("D_H"); len(p) != 1 || !strings.Contains(p[0].text, "passed this on") {
+	if p := slack.postsTo("D_H"); len(p) != 1 || p[0].text != dmAckText {
 		t.Errorf("the ack should go out on the retry: %+v", p)
 	}
 }

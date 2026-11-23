@@ -85,3 +85,6 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 ### 2026-11-23
 - Velocity: feature epics in YouTrack (Type Epic, Subsystem Epic, tickets linked as "subtask of"); 5 epics created for Composer, Universal Search, Content Visibility and Locks, AI Response Token Limits and Realtime Voice
 - Velocity: new `list_youtrack_epics` tool; `create_youtrack_ticket` needs an epic or `standalone: true` for features and enhancements and can create epics; search and ticket details show each ticket's epic; `edit_youtrack_ticket` to Epic also sets Subsystem Epic
+
+### 2026-11-23
+- Velocity: when someone answers a DM Velocity sent for you, the bot now only replies "Let me check." instead of saying it passed the message on to you by name; Slack DM relay logs moved to the readable log format

@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -14,7 +14,7 @@ import (
 // Slack DM relay. When Velocity DMs someone for a user (through Claude, the queue or the
 // dashboard) and the person answers, the answer is for that user, not for the bot. Without
 // this the bot jokes back at the person, and the user never sees the answer. So in a relayed
-// conversation the bot stays quiet (apart from one short "passed this on" line), the message
+// conversation the bot stays quiet (apart from one short holding line), the message
 // is stored for the dashboard, and the user who asked gets a Slack DM with what was said.
 
 // dmMaxAlertsPerHour caps how many "someone replied" alerts one conversation can send its
@@ -46,7 +46,7 @@ type dmDecision int
 
 const (
 	dmAnswer dmDecision = iota // the normal bot reply goes ahead
-	dmAck                      // relay: one short "passed this on" line, then quiet
+	dmAck                      // relay: one short holding line, then quiet
 	dmQuiet                    // relay or muted: the bot says nothing
 )
 
@@ -103,14 +103,14 @@ func (d *dmRelay) handleInbound(ctx context.Context, client *slacksvc.Client, ev
 	if err := d.store.EnsureConversation(ctx, database.SlackDMConversation{
 		ChannelID: ev.Channel, SlackUserID: who.SlackID, SlackUserName: who.Name, SlackUserEmail: who.Email,
 	}); err != nil {
-		log.Printf("[slack-dm] ensure conversation %s: %v", ev.Channel, err)
+		slog.WarnContext(ctx, "Could not save a Slack DM conversation, the dashboard may miss it", "person", who.Name, "channel", ev.Channel, "error", err)
 	}
 	isNew, err := d.store.RecordMessage(ctx, database.SlackDMMessage{
 		ChannelID: ev.Channel, SlackTS: ev.TS, ThreadTS: ev.ThreadTS, Direction: database.DMDirIn,
 		Kind: database.DMKindHuman, AuthorSlackID: who.SlackID, Text: ev.Text,
 	})
 	if err != nil {
-		log.Printf("[slack-dm] record inbound %s/%s: %v", ev.Channel, ev.TS, err)
+		slog.WarnContext(ctx, "Could not save an incoming Slack DM, the bot answers as usual", "person", who.Name, "channel", ev.Channel, "error", err)
 		return true
 	}
 	if !isNew {
@@ -118,7 +118,7 @@ func (d *dmRelay) handleInbound(ctx context.Context, client *slacksvc.Client, ev
 	}
 	c, err := d.store.GetConversation(ctx, ev.Channel)
 	if err != nil {
-		log.Printf("[slack-dm] load conversation %s: %v", ev.Channel, err)
+		slog.WarnContext(ctx, "Could not load a Slack DM conversation, the bot answers as usual", "person", who.Name, "channel", ev.Channel, "error", err)
 		return true
 	}
 	now := d.now()
@@ -128,7 +128,7 @@ func (d *dmRelay) handleInbound(ctx context.Context, client *slacksvc.Client, ev
 	}
 
 	if err := d.store.MarkNeedsAttention(ctx, ev.Channel); err != nil {
-		log.Printf("[slack-dm] mark needs attention %s: %v", ev.Channel, err)
+		slog.WarnContext(ctx, "Could not flag a Slack DM as needing attention", "person", who.Name, "channel", ev.Channel, "error", err)
 	}
 	// The user who asked hears what was said first. If they cannot be told, the person must
 	// not be left with silence and the answer lost: the bot answers normally instead. (A chat
@@ -137,37 +137,35 @@ func (d *dmRelay) handleInbound(ctx context.Context, client *slacksvc.Client, ev
 		return true
 	}
 	if decision == dmAck {
-		d.ackOnce(ctx, client, ev, c.RelayOwnerID)
+		d.ackOnce(ctx, client, ev, who.Name)
 	}
 	return false
 }
 
-// ackOnce sends the one short line telling the person their message was passed on. The right
-// to send it is claimed atomically first, and given back if posting fails so the next message
-// tries again.
-func (d *dmRelay) ackOnce(ctx context.Context, client *slacksvc.Client, ev slackInnerEvent, ownerID string) {
+// dmAckText is the one holding line. It reads like the person they messaged is looking into
+// it, so it never says the message was passed on or names who it went to.
+const dmAckText = "Let me check."
+
+// ackOnce sends the one short holding line. The right to send it is claimed atomically first,
+// and given back if posting fails so the next message tries again.
+func (d *dmRelay) ackOnce(ctx context.Context, client *slacksvc.Client, ev slackInnerEvent, person string) {
 	ok, err := d.store.ClaimAck(ctx, ev.Channel)
 	if err != nil {
-		log.Printf("[slack-dm] claim ack %s: %v", ev.Channel, err)
+		slog.WarnContext(ctx, "Could not claim the holding reply, none was sent", "person", person, "channel", ev.Channel, "error", err)
 		return
 	}
 	if !ok {
 		return
 	}
-	name, _ := d.owner(ctx, ownerID)
-	text := "Thanks, I have passed this on."
-	if name != "" {
-		text = "Thanks, I have passed this on to " + name + "."
-	}
-	ts, err := client.PostInThread(ctx, ev.Channel, ev.ThreadTS, text)
+	ts, err := client.PostInThread(ctx, ev.Channel, ev.ThreadTS, dmAckText)
 	if err != nil {
-		log.Printf("[slack-dm] post ack %s: %v", ev.Channel, err)
+		slog.WarnContext(ctx, "Could not send the holding reply, the next message will try again", "person", person, "channel", ev.Channel, "error", err)
 		if rerr := d.store.ReleaseAck(ctx, ev.Channel); rerr != nil {
-			log.Printf("[slack-dm] release ack %s: %v", ev.Channel, rerr)
+			slog.WarnContext(ctx, "Could not reset the holding reply after it failed, it will not be retried", "person", person, "channel", ev.Channel, "error", rerr)
 		}
 		return
 	}
-	d.record(ctx, ev.Channel, ts, ev.ThreadTS, database.DMKindAck, text)
+	d.record(ctx, ev.Channel, ts, ev.ThreadTS, database.DMKindAck, dmAckText)
 }
 
 // alertOwner tells the user who started the relay what the person said, and reports whether
@@ -175,7 +173,8 @@ func (d *dmRelay) ackOnce(ctx context.Context, client *slacksvc.Client, ev slack
 // hourly cap, false when it could not be delivered.
 func (d *dmRelay) alertOwner(ctx context.Context, client *slacksvc.Client, channelID, ownerID string, who dmSender, text string) bool {
 	if n, err := d.store.CountInboundSince(ctx, channelID, d.now().Add(-time.Hour)); err == nil && n > dmMaxAlertsPerHour {
-		log.Printf("[slack-dm] %s sent %d messages in an hour, holding back alerts to %s", channelID, n, ownerID)
+		ownerName, _ := d.owner(ctx, ownerID)
+		slog.InfoContext(ctx, "Holding back Slack DM alerts, too many messages in an hour", "person", who.Name, "owner", ownerName, "count", n)
 		return true
 	}
 	return d.notifyOwner(ctx, client, ownerID, who, text)
@@ -187,24 +186,24 @@ func (d *dmRelay) alertOwner(ctx context.Context, client *slacksvc.Client, chann
 func (d *dmRelay) notifyOwner(ctx context.Context, client *slacksvc.Client, ownerID string, who dmSender, text string) bool {
 	ownerName, ownerEmail := d.owner(ctx, ownerID)
 	if ownerEmail == "" {
-		log.Printf("[slack-dm] cannot notify relay owner %s: no email", ownerID)
+		slog.WarnContext(ctx, "Could not pass a Slack DM reply on, the owner has no email, so the bot answers instead", "person", who.Name, "owner", ownerName)
 		return false
 	}
 	u, err := client.GetUserByEmail(ctx, ownerEmail)
 	if err != nil {
-		log.Printf("[slack-dm] cannot notify relay owner %s: %v", ownerID, err)
+		slog.WarnContext(ctx, "Could not find the owner in Slack to pass a reply on, so the bot answers instead", "person", who.Name, "owner", ownerName, "error", err)
 		return false
 	}
 	notice := fmt.Sprintf("*%s* replied to your message:\n%s", cleanLabel(who.Name), quoteForSlack(text, 1500))
 	channelID, ts, err := client.PostDirectMessage(ctx, u.ID, notice)
 	if err != nil {
-		log.Printf("[slack-dm] notice to %s failed: %v", ownerID, err)
+		slog.WarnContext(ctx, "Could not DM the owner a Slack reply, so the bot answers instead", "person", who.Name, "owner", ownerName, "error", err)
 		return false
 	}
 	if err := d.store.EnsureConversation(ctx, database.SlackDMConversation{
 		ChannelID: channelID, SlackUserID: u.ID, SlackUserName: ownerName, SlackUserEmail: ownerEmail,
 	}); err != nil {
-		log.Printf("[slack-dm] ensure conversation %s: %v", channelID, err)
+		slog.WarnContext(ctx, "Could not save the owner alert conversation, the dashboard may miss it", "owner", ownerName, "error", err)
 	}
 	d.record(ctx, channelID, ts, "", database.DMKindNotice, notice)
 	return true
@@ -218,7 +217,7 @@ func (d *dmRelay) record(ctx context.Context, channelID, ts, threadTS, kind, tex
 	if _, err := d.store.RecordMessage(ctx, database.SlackDMMessage{
 		ChannelID: channelID, SlackTS: ts, ThreadTS: threadTS, Direction: database.DMDirOut, Kind: kind, Text: text,
 	}); err != nil {
-		log.Printf("[slack-dm] record %s %s/%s: %v", kind, channelID, ts, err)
+		slog.WarnContext(ctx, "Could not save a message the bot sent, the dashboard may miss it", "kind", kind, "channel", channelID, "error", err)
 	}
 }
 

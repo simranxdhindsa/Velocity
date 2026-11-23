@@ -22,7 +22,7 @@ const (
 	DMKindClaude    = "claude"     // sent through Claude / the Claude Queue for a Velocity user
 	DMKindDashboard = "dashboard"  // typed in the Velocity dashboard
 	DMKindAutoReply = "auto_reply" // the bot's own answer
-	DMKindAck       = "ack"        // the bot's one short "passed this on" line
+	DMKindAck       = "ack"        // the bot's one short "Let me check." holding line
 	DMKindNotice    = "notice"     // Velocity telling a user that someone replied
 
 	DMDirIn  = "in"
@@ -154,7 +154,7 @@ func (r *SlackDMRepository) RecordMessage(ctx context.Context, m SlackDMMessage)
 }
 
 // BeginRelay marks the conversation as one Velocity started for ownerID: the bot stays quiet
-// until `until`, and gets one fresh "passed this on" line. It never shortens a relay that is
+// until `until`, and gets one fresh holding line. It never shortens a relay that is
 // already open for longer, so a short placeholder window set before a send can't cut a real one.
 func (r *SlackDMRepository) BeginRelay(ctx context.Context, channelID, slackUserID, ownerID string, until time.Time) error {
 	pool := GetPool()
@@ -204,7 +204,7 @@ func (r *SlackDMRepository) AbortRelay(ctx context.Context, channelID, ownerID s
 	return err
 }
 
-// ClaimAck atomically takes the right to send the one "passed this on" line for the current
+// ClaimAck atomically takes the right to send the one holding line for the current
 // relay. Exactly one caller gets true, however many messages arrive at once.
 func (r *SlackDMRepository) ClaimAck(ctx context.Context, channelID string) (bool, error) {
 	pool := GetPool()
