@@ -193,9 +193,12 @@ func mcpGenerateDeploymentReport(ctx context.Context, h *MCPHandler, userID stri
 		}
 	}
 
-	issues, err := fetchDeploymentIssues(ctx, yt, columns, sprintID)
+	issues, truncated, err := fetchDeploymentIssues(ctx, yt, columns, sprintID)
 	if err != nil {
 		return toolError(id, "failed to fetch tickets: "+err.Error())
+	}
+	if truncated {
+		warnings = append(warnings, fmt.Sprintf("only the first %d tickets were read, so some may be missing. Pick a sprint to narrow it", youtrack.IssuesByStateLimit))
 	}
 
 	baseURL := strings.TrimRight(yt.GetBaseURL(), "/")

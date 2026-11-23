@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"regexp"
@@ -59,10 +60,11 @@ func deploymentColumnNames(ctx context.Context, client *youtrack.Client) ([]stri
 // sprintID it reads the sprint via the agile endpoint and filters by state;
 // without one it queries the whole project by state. Epic tickets are left
 // out: an epic is a heading for its tickets, never a line in the report.
-func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns []string, sprintID string) ([]youtrack.Issue, error) {
+// truncated is true when the whole-project query hit its result cap.
+func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns []string, sprintID string) (issues []youtrack.Issue, truncated bool, err error) {
 	if sprintID == "" {
 		issues, err := client.GetIssuesByState(ctx, columns)
-		return withoutEpics(issues), err
+		return withoutEpics(issues), len(issues) >= youtrack.IssuesByStateLimit, err
 	}
 	colSet := make(map[string]bool, len(columns))
 	for _, c := range columns {
@@ -70,15 +72,14 @@ func fetchDeploymentIssues(ctx context.Context, client *youtrack.Client, columns
 	}
 	all, err := client.GetAllSprintIssues(ctx, sprintID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	var issues []youtrack.Issue
 	for _, iss := range all {
 		if colSet[youtrack.GetStatus(iss)] {
 			issues = append(issues, iss)
 		}
 	}
-	return withoutEpics(issues), nil
+	return withoutEpics(issues), false, nil
 }
 
 func withoutEpics(issues []youtrack.Issue) []youtrack.Issue {
@@ -164,7 +165,7 @@ func isAIRateLimitError(errMsg string) bool {
 // parseRetryAfterFromGroq extracts the retry-after duration (in seconds) from a Groq rate-limit error.
 // Groq messages look like: "Please try again in 26.224s."
 func parseRetryAfterFromGroq(errMsg string) int {
-	re := regexp.MustCompile(`(?i)try again in (\d+(?:\.\d+)?)\s*(ms|s|m)`)
+	re := regexp.MustCompile(`(?i)try again in (\d+(?:\.\d+)?)\s*(ms|s|m|h)`)
 	m := re.FindStringSubmatch(errMsg)
 	if len(m) < 3 {
 		return 30
@@ -178,6 +179,8 @@ func parseRetryAfterFromGroq(errMsg string) int {
 		return int(math.Ceil(val/1000)) + 1
 	case "m":
 		return int(math.Ceil(val*60)) + 1
+	case "h":
+		return int(math.Ceil(val*3600)) + 1
 	default:
 		return int(math.Ceil(val)) + 1
 	}
@@ -341,7 +344,7 @@ func (h *BotConfigHandler) GetDeploymentTickets(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	issues, err := fetchDeploymentIssues(r.Context(), client, rawCols, sprintID)
+	issues, truncated, err := fetchDeploymentIssues(r.Context(), client, rawCols, sprintID)
 	if err != nil {
 		sendJSON(w, http.StatusInternalServerError, Response{Success: false, Message: "Failed to fetch issues: " + err.Error()})
 		return
@@ -351,12 +354,16 @@ func (h *BotConfigHandler) GetDeploymentTickets(w http.ResponseWriter, r *http.R
 	for _, issue := range issues {
 		tickets = append(tickets, deployTicketItemFromIssue(issue))
 	}
+	if truncated {
+		slog.WarnContext(r.Context(), "Deployment report ticket list hit the limit, some tickets may be missing", "columns", len(rawCols), "limit", youtrack.IssuesByStateLimit)
+	}
 
 	sendJSON(w, http.StatusOK, Response{
 		Success: true,
 		Data: map[string]interface{}{
-			"tickets":  tickets,
-			"base_url": client.GetBaseURL(),
+			"tickets":   tickets,
+			"base_url":  client.GetBaseURL(),
+			"truncated": truncated,
 		},
 	})
 }

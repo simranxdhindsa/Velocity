@@ -42,3 +42,18 @@ func TestWithoutEpicsDropsEpicTickets(t *testing.T) {
 		t.Fatalf("withoutEpics kept %v", got)
 	}
 }
+
+func TestParseRetryAfterFromGroq_Units(t *testing.T) {
+	cases := map[string]int{
+		"Please try again in 26.224s.": 28,
+		"try again in 500ms":           2,
+		"try again in 2m":              121,
+		"try again in 1h12m":           3601,
+		"no hint here":                 30,
+	}
+	for msg, want := range cases {
+		if got := parseRetryAfterFromGroq(msg); got != want {
+			t.Errorf("parseRetryAfterFromGroq(%q) = %d, want %d", msg, got, want)
+		}
+	}
+}

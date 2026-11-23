@@ -1457,6 +1457,11 @@ func (c *Client) AddIssueComment(ctx context.Context, issueID, text string) erro
 	return err
 }
 
+// IssuesByStateLimit is the most issues GetIssuesByState returns. A result of
+// exactly this size may be cut short.
+// shortcut: one page only, page through $skip if a caller needs every issue.
+const IssuesByStateLimit = 200
+
 // GetIssuesByState returns issues filtered by one or more states (live from YouTrack)
 func (c *Client) GetIssuesByState(ctx context.Context, states []string) ([]Issue, error) {
 	if len(states) == 0 {
@@ -1469,8 +1474,8 @@ func (c *Client) GetIssuesByState(ctx context.Context, states []string) ([]Issue
 		stateFilters[i] = "{" + s + "}"
 	}
 	query := fmt.Sprintf("project: %s State: %s", c.projectID, strings.Join(stateFilters, ", "))
-	fields := "id,idReadable,summary,created,updated,customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),project(shortName),parent(issues(idReadable,summary,customFields(name,value(name))))"
-	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=200", fields, url.QueryEscape(query))
+	fields := "id,idReadable,summary,description,created,updated,customFields(name,value(name,presentation,fullName,login,email,avatarUrl,id)),project(shortName),parent(issues(idReadable,summary,customFields(name,value(name))))"
+	path := fmt.Sprintf("/api/issues?fields=%s&query=%s&$top=%d", fields, url.QueryEscape(query), IssuesByStateLimit)
 
 	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
