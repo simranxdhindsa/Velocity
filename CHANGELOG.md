@@ -3,6 +3,8 @@
 ## 2026-11-23
 
 ### Enhancements
+- Deployment Report now groups each feature's tickets under its epic and shows the epic next to each ticket
+- `generate_deployment_report`: lists each feature epic first under "Features in this release", and only real epics count as a ticket's epic
 - Chats now label the bot's short holding reply as "holding reply"
 - when someone replies to a Slack DM sent for you, the bot now just says "Let me check." instead of saying it passed their message on to you
 - `edit_youtrack_ticket`: changing a ticket to Epic also marks it so it shows up in the epic list
