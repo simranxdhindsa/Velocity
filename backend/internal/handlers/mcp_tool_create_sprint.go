@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ var createSprintToolSchema = map[string]interface{}{
 	"description": "Creates a new sprint on the YouTrack board selected in the user's Velocity integration. " +
 		"start_date and finish_date are REQUIRED. If the user did not say the sprint period, ASK them first (for example 'next two weeks', 'Monday to Friday', or specific dates) and convert their answer to YYYY-MM-DD dates. Never invent a period. " +
 		"name is optional: if omitted it defaults to the next number after the latest numbered sprint on the board (e.g. 'Sprint 13' gives 'Sprint 14'). Duplicate names are rejected. " +
+		"Every open feature epic is added to the new sprint too, so the board keeps one swimlane per epic. " +
 		"There is no 'make current' option: Velocity treats the most recently started, not completed sprint as current, so a sprint becomes current once its start date arrives. " +
 		"Returns the created sprint's id, name and dates.",
 	"inputSchema": map[string]interface{}{
@@ -97,17 +99,46 @@ func mcpCreateSprint(ctx context.Context, h *MCPHandler, userID string, id inter
 	if err != nil {
 		return toolError(id, "failed to create sprint: "+err.Error())
 	}
+	added, epicWarning := addOpenEpicsToSprint(ctx, yt, created.ID, created.Name)
 	data, _ := json.Marshal(map[string]interface{}{
-		"id":          created.ID,
-		"name":        created.Name,
-		"goal":        created.Goal,
-		"start":       msToISO(created.Start),
-		"finish":      msToISO(created.Finish),
-		"start_date":  start.Format("2006-01-02"),
-		"finish_date": finishDay.Format("2006-01-02"),
-		"board_id":    boardID,
+		"epics_added":  added,
+		"epic_warning": epicWarning,
+		"id":           created.ID,
+		"name":         created.Name,
+		"goal":         created.Goal,
+		"start":        msToISO(created.Start),
+		"finish":       msToISO(created.Finish),
+		"start_date":   start.Format("2006-01-02"),
+		"finish_date":  finishDay.Format("2006-01-02"),
+		"board_id":     boardID,
 	})
 	return toolOK(id, string(data))
+}
+
+// addOpenEpicsToSprint puts every open feature epic in the sprint, because the
+// board draws a swimlane for an epic only when the epic is in that sprint.
+// It never fails the sprint: problems come back as a warning for the caller.
+func addOpenEpicsToSprint(ctx context.Context, yt *youtrack.Client, sprintID, sprintName string) ([]string, string) {
+	epics, err := openEpics(ctx, yt)
+	if err != nil {
+		slog.WarnContext(ctx, "New sprint created but its epic swimlanes could not be added", "sprint", sprintName, "error", err)
+		return []string{}, "could not load open epics, so add them to the sprint by hand: " + err.Error()
+	}
+	added := []string{}
+	var failed []string
+	for _, e := range epics {
+		if err := yt.AddIssueToSprint(ctx, sprintID, e.ID); err != nil {
+			failed = append(failed, e.IDReadable)
+			slog.WarnContext(ctx, "Could not add an epic to the new sprint, its swimlane will be missing", "sprint", sprintName, "epic", e.IDReadable, "error", err)
+			continue
+		}
+		added = append(added, e.IDReadable+" "+e.Summary)
+	}
+	slog.InfoContext(ctx, "Epics added to the new sprint", "sprint", sprintName, "count", len(added))
+	if len(failed) > 0 {
+		return added, "these epics were not added, so add them to the sprint by hand: " + strings.Join(failed, ", ")
+	}
+	return added, ""
 }
 
 var sprintNumberRe = regexp.MustCompile(`^(.*?)(\d+)\s*$`)
