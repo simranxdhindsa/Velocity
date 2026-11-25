@@ -1,0 +1,6 @@
+{
+  "name": "velocity-epic-swimlanes",
+  "title": "Velocity epic swimlanes",
+  "version": "1.0.0",
+  "description": "Every ticket goes under an epic, and the four catch-all epics (Bugs, Regressions, Hotfixes, Enhancements) always stay open, so no card shows as Uncategorized."
+}

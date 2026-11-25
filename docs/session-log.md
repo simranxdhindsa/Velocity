@@ -88,3 +88,9 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 
 ### 2026-11-23
 - Velocity: when someone answers a DM Velocity sent for you, the bot now only replies "Let me check." instead of saying it passed the message on to you by name; Slack DM relay logs moved to the readable log format
+
+## 2026-11-25: No Uncategorized cards
+- Every ticket now goes under an epic: its feature epic, or one of four catch-all epics (Bugs ARD-3258, Enhancements ARD-3259, Regressions ARD-3260, Hotfixes ARD-3261). Features and tasks with no feature epic use Enhancements.
+- `create_youtrack_ticket` always links an epic (no more `standalone`); `edit_youtrack_ticket` moves a ticket to its new type's catch-all epic on a type change. YouTrack workflow rule added in `docs/youtrack-workflows/`.
+- Backfilled Sprint 15 and 16: 70 tickets linked, catch-all epics added to both sprints. Older sprints untouched.
+- Bugs, Regressions, Hotfixes and Enhancements are now the default swimlanes of every new sprint; a closed one is reopened, a missing one created. Edit and delete tools refuse to change or delete them. YouTrack workflow `velocity-epic-swimlanes` installed on ARD (links tickets on create or type change, keeps catch-all epics open); type change tested live on ARD-3157 and ARD-3150.
