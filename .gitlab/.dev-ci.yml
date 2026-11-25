@@ -58,7 +58,7 @@ build-to-aws:
   stage: build
   # Both jobs use the pushed commit; the changelog job publishes separately.
   # Start building immediately. Deployment still waits for both jobs to pass.
-  needs: [check-source-changes]
+  needs: []
   image: docker:28.5.1-cli
   services:
     - name: docker:28.5.1-dind
