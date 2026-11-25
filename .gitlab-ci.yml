@@ -1,3 +1,28 @@
+check-source-changes:
+  stage: .pre
+  only:
+    - dev
+  image:
+    name: alpine/git
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"
+  tags:
+    - hetzner-docker
+  script:
+    - |
+      # Set FORCE_DEPLOY=true (manual/web pipeline run) to bypass this check.
+      [ "$FORCE_DEPLOY" = "true" ] && exit 0
+      # New branch or unknown previous commit: cannot compare, let it through.
+      case "$CI_COMMIT_BEFORE_SHA" in 0000*) exit 0;; esac
+      git cat-file -e "$CI_COMMIT_BEFORE_SHA^{commit}" 2>/dev/null || exit 0
+      SRC=$(git diff --name-only "$CI_COMMIT_BEFORE_SHA" "$CI_COMMIT_SHA" | grep -vE '\.(md|sql|pdf)$|(^|/)(docs|migrations|specs)/' || true)
+      if [ -z "$SRC" ]; then
+        echo "REJECTED: no source code file modified (only docs/SQL changed). Skipping build and deploy."
+        exit 1
+      fi
+      echo "Source files changed:"; echo "$SRC"
+
 dev:
   only:
     - dev
