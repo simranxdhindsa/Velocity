@@ -142,6 +142,11 @@ func main() {
 	asanaPMRoutes.HandleFunc("/deployment/sections/{sectionGid}/tasks", asanaPMHandler.GetSectionTasksForDeployment).Methods("GET")
 	asanaPMRoutes.HandleFunc("/backfill", asanaPMHandler.BackfillAsanaLog).Methods("POST")
 
+	// In-app guide images (protected): they show real board content.
+	demoMediaRoutes := api.PathPrefix("/demo-media").Subrouter()
+	demoMediaRoutes.Use(middleware.AuthMiddleware)
+	demoMediaRoutes.PathPrefix("/").Handler(handlers.DemoMedia()).Methods("GET")
+
 	// User data source preference routes (protected)
 	userPrefRoutes := api.PathPrefix("/user").Subrouter()
 	userPrefRoutes.Use(middleware.AuthMiddleware)
