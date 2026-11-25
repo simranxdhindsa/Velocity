@@ -17,8 +17,8 @@ var createYoutrackTicketToolSchema = map[string]interface{}{
 		"Who must fill what depends on the caller's ticket role (whoami youtrack.ticket_role): a developer (owns a subsystem) must pass testing_scenarios, " +
 		"QA (or anyone with no subsystem) must pass acceptance_criteria. Ask the user for the missing one before calling; the tool refuses without it. " +
 		"When a developer files a ticket without acceptance criteria, Velocity comments on it asking the QA team to add them. " +
-		"EPICS: a Feature or Enhancement must be linked to an open epic (pass epic) or confirmed as standalone (standalone: true); call list_youtrack_epics first and suggest the matching epic. " +
-		"Bugs, regressions and hotfixes may pass epic when they were found while testing that feature. " +
+		"EPICS: every ticket goes under an epic, so none lands in Uncategorized. Call list_youtrack_epics first and pass epic when the ticket belongs to a feature epic (e.g. a bug found while testing it). " +
+		"Otherwise leave epic out and it goes under its type's epic: Bugs, Regressions, Hotfixes, or Enhancements (also used for Features and Tasks with no feature epic). " +
 		"To create an epic itself, use type_name Epic with just a plain feature name as summary (e.g. 'Composer'); it gets Subsystem Epic, is added to the current sprint and any planned ones (not finished yet) so the board shows its swimlane, and needs no testing scenarios or acceptance criteria. " +
 		"Returns the created ticket ID (e.g. ARD-123) and its URL.",
 	"inputSchema": map[string]interface{}{
@@ -46,11 +46,7 @@ var createYoutrackTicketToolSchema = map[string]interface{}{
 			},
 			"epic": map[string]string{
 				"type":        "string",
-				"description": "Readable ID of the open epic this ticket belongs to, e.g. ARD-3233 (from list_youtrack_epics). The ticket is linked to it as a subtask.",
-			},
-			"standalone": map[string]string{
-				"type":        "boolean",
-				"description": "true when the user confirmed a Feature or Enhancement is a small change that belongs to no epic.",
+				"description": "Readable ID of the open epic this ticket belongs to, e.g. ARD-3233 (from list_youtrack_epics). The ticket is linked to it as a subtask. Leave it out to use the type's epic (Bugs, Regressions, Hotfixes or Enhancements).",
 			},
 			"priority": map[string]string{
 				"type":        "string",
@@ -85,7 +81,6 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 		Testing       string `json:"testing_scenarios"`
 		Acceptance    string `json:"acceptance_criteria"`
 		Epic          string `json:"epic"`
-		Standalone    bool   `json:"standalone"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil || a.Summary == "" {
 		return rpcErr(id, -32602, "invalid arguments: summary is required")
@@ -111,20 +106,15 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 		}
 	}
 
-	var epics []youtrack.Issue // open epics, loaded only when needed
+	var epic *youtrack.Issue // the epic this ticket goes under; nil only for an epic itself
 	if !isEpic {
-		reason := epicRequirement(a.TypeName, a.Epic, a.Standalone)
-		if reason != "" || a.Epic != "" {
-			var err error
-			if epics, err = openEpics(ctx, ytClient); err != nil {
-				return toolError(id, "could not load open epics: "+err.Error())
-			}
+		epics, err := openEpicsWithBuckets(ctx, ytClient)
+		if err != nil {
+			return toolError(id, "could not load open epics: "+err.Error())
 		}
-		if reason != "" {
-			return toolError(id, reason+" Open epics: "+epicChoices(epics)+".")
-		}
-		if a.Epic != "" && findEpic(epics, a.Epic) == nil {
-			return toolError(id, fmt.Sprintf("%s is not an open epic. Open epics: %s.", a.Epic, epicChoices(epics)))
+		var reason string
+		if epic, reason = epicFor(epics, a.TypeName, a.Epic); reason != "" {
+			return toolError(id, reason)
 		}
 	}
 
@@ -213,16 +203,11 @@ func mcpCreateYoutrackTicket(ctx context.Context, h *MCPHandler, userID string, 
 	if epicSprintNote != "" {
 		result = epicSprintNote + "\n" + result
 	}
-	if epic := findEpic(epics, a.Epic); epic != nil {
+	if epic != nil {
 		if note, ok := linkToEpic(ctx, ytClient, displayID, epic); ok {
 			result += "\n" + note
 		} else {
 			result = note + "\n" + result // lead with the failure so it is not missed
-		}
-	} else if !isEpic && epicRequirement(a.TypeName, "", false) == "" && !a.Standalone {
-		// Bugs and the like may skip the epic; show the open ones in case it was found while testing a feature.
-		if open, err := openEpics(ctx, ytClient); err == nil && len(open) > 0 {
-			result += "\nNot linked to an epic. If this was found while testing one of these features, link it with link_youtrack_tickets (subtask of): " + epicChoices(open)
 		}
 	}
 	if a.Acceptance == "" && !isEpic {

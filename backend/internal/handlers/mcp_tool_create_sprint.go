@@ -19,6 +19,7 @@ var createSprintToolSchema = map[string]interface{}{
 		"start_date and finish_date are REQUIRED. If the user did not say the sprint period, ASK them first (for example 'next two weeks', 'Monday to Friday', or specific dates) and convert their answer to YYYY-MM-DD dates. Never invent a period. " +
 		"name is optional: if omitted it defaults to the next number after the latest numbered sprint on the board (e.g. 'Sprint 13' gives 'Sprint 14'). Duplicate names are rejected. " +
 		"Every open feature epic is added to the new sprint too, so the board keeps one swimlane per epic. " +
+		"The four catch-all epics Bugs, Regressions, Hotfixes and Enhancements are always the default swimlanes: any that is missing is created first, and epics_added lists what was added. " +
 		"There is no 'make current' option: Velocity treats the most recently started, not completed sprint as current, so a sprint becomes current once its start date arrives. " +
 		"Returns the created sprint's id, name and dates.",
 	"inputSchema": map[string]interface{}{
@@ -116,13 +117,19 @@ func mcpCreateSprint(ctx context.Context, h *MCPHandler, userID string, id inter
 }
 
 // addOpenEpicsToSprint puts every open feature epic in the sprint, because the
-// board draws a swimlane for an epic only when the epic is in that sprint.
+// board draws a swimlane for an epic only when the epic is in that sprint. The
+// four catch-all epics (Bugs, Regressions, Hotfixes, Enhancements) are always
+// among them: a missing one is created first.
 // It never fails the sprint: problems come back as a warning for the caller.
 func addOpenEpicsToSprint(ctx context.Context, yt *youtrack.Client, sprintID, sprintName string) ([]string, string) {
 	epics, err := openEpics(ctx, yt)
 	if err != nil {
 		slog.WarnContext(ctx, "Could not load open epics, the sprint's epic swimlanes are missing", "sprint", sprintName, "error", err)
 		return []string{}, "could not load open epics, so add them to the sprint by hand: " + err.Error()
+	}
+	var bucketWarning string
+	if epics, _, err = withBucketEpics(ctx, yt, epics); err != nil {
+		bucketWarning = err.Error() + ", so create it with type_name Epic and add it to " + sprintName + ". "
 	}
 	current, err := yt.GetAllSprintIssuesWithEpics(ctx, sprintID)
 	if err != nil {
@@ -151,9 +158,9 @@ func addOpenEpicsToSprint(ctx context.Context, yt *youtrack.Client, sprintID, sp
 		failed = append(failed, fmt.Sprintf("any open epic past the first %d", openEpicsLimit))
 	}
 	if len(failed) > 0 {
-		return added, "these epics were not added, so add them to the sprint by hand: " + strings.Join(failed, ", ")
+		return added, bucketWarning + "these epics were not added, so add them to the sprint by hand: " + strings.Join(failed, ", ")
 	}
-	return added, ""
+	return added, strings.TrimSpace(bucketWarning)
 }
 
 var sprintNumberRe = regexp.MustCompile(`^(.*?)(\d+)\s*$`)

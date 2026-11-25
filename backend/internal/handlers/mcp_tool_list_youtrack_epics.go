@@ -13,7 +13,9 @@ import (
 var listYoutrackEpicsToolSchema = map[string]interface{}{
 	"name": "list_youtrack_epics",
 	"description": "Read-only. Lists the open feature epics in the YouTrack project (Type Epic, Subsystem Epic), how many there are, and for each one its tickets with their status, type and subsystem. " +
-		"Use it when the user asks which epics exist or what is in one, and before create_youtrack_ticket so you can suggest the right epic for a new feature, enhancement or bug.",
+		"Use it when the user asks which epics exist or what is in one, and before create_youtrack_ticket so you can suggest the right epic for a new ticket. " +
+		"Bugs, Regressions, Hotfixes and Enhancements are catch-all epics for tickets that belong to no feature, so no card shows as Uncategorized; suggest a feature epic first and use these only when none fits. " +
+		"These catch-all epics hold many tickets, so pass include_tickets false unless the user asks what is in them.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{

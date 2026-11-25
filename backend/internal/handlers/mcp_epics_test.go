@@ -7,25 +7,32 @@ import (
 	youtrack "github.com/dhindsa/project-management/internal/services/youtrack"
 )
 
-func TestEpicRequirement(t *testing.T) {
+func TestEpicFor(t *testing.T) {
+	epics := []youtrack.Issue{{IDReadable: "ARD-3233", Summary: "Composer"}, {IDReadable: "ARD-1", Summary: "Bugs"}, {IDReadable: "ARD-2", Summary: "Enhancements"}}
 	cases := []struct {
-		typ, epic  string
-		standalone bool
-		blocked    bool
+		typ, epic, want string // want "" means refused
 	}{
-		{"Feature", "", false, true},
-		{"enhancement", "", false, true},
-		{"Feature", "ARD-3233", false, false},
-		{"Enhancement", "", true, false},
-		{"Bug", "", false, false},
-		{"Regression", "", false, false},
-		{"Hotfix", "", false, false},
-		{"Epic", "", false, false},
+		{"Feature", "ARD-3233", "ARD-3233"},
+		{"Feature", "", "ARD-2"}, // no feature epic: Enhancements
+		{"task", "", "ARD-2"},
+		{"Bug", "", "ARD-1"},            // falls back to its type's epic
+		{"Bug", "ard-3233", "ARD-3233"}, // found while testing a feature
+		{"Regression", "", ""},          // the Regressions epic does not exist yet
+		{"Bug", "ARD-999", ""},          // not an open epic
+		{"", "", ""},                    // no type and no epic
 	}
 	for _, c := range cases {
-		if got := epicRequirement(c.typ, c.epic, c.standalone) != ""; got != c.blocked {
-			t.Errorf("epicRequirement(%q, %q, %v) blocked=%v, want %v", c.typ, c.epic, c.standalone, got, c.blocked)
+		e, reason := epicFor(epics, c.typ, c.epic)
+		got := ""
+		if e != nil {
+			got = e.IDReadable
 		}
+		if got != c.want || (got == "") != (reason != "") {
+			t.Errorf("epicFor(%q, %q) = %q, %q; want %q", c.typ, c.epic, got, reason, c.want)
+		}
+	}
+	if !isBucketEpic(youtrack.Issue{Summary: " hotfixes "}) || isBucketEpic(youtrack.Issue{Summary: "Composer"}) {
+		t.Fatal("isBucketEpic misclassified")
 	}
 }
 
