@@ -1,5 +1,17 @@
+# One pipeline per push: check -> build -> deploy (the per-branch file below supplies build/deploy).
+stages:
+  - check
+  - changelog
+  - build
+  - deploy
+
+include:
+  - local: .gitlab/.dev-ci.yml
+    rules:
+      - if: '$CI_COMMIT_BRANCH == "dev"'
+
 check-source-changes:
-  stage: .pre
+  stage: check
   only:
     - dev
   image:
@@ -22,10 +34,3 @@ check-source-changes:
         exit 1
       fi
       echo "Source files changed:"; echo "$SRC"
-
-dev:
-  only:
-    - dev
-  trigger:
-    strategy: depend
-    include: .gitlab/.dev-ci.yml
