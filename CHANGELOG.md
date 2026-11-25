@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-25
+
+### Bug Fixes
+- Guide images are only served to signed in users
+
+
+### Features
+- Signed in users can open a step by step guide for moving cards into epic swimlanes at /demo/epic-swimlanes
+
 ## 2026-11-23
 
 ### Enhancements
