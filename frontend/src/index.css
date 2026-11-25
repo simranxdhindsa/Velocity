@@ -38,6 +38,7 @@
 @import "./styles/pages/reminders.css";
 @import "./styles/pages/settings.css";
 @import "./styles/pages/no-access.css";
+@import "./styles/pages/demo-guide.css";
 @import "./styles/pages/gateway-error.css";
 @import "./styles/pages/admin.css";
 @import "./styles/pages/reports.css";

@@ -1,6 +1,6 @@
 // Dynamically resolve the API host so the app works on both localhost (desktop)
 // and any LAN IP (mobile testing) without changing env files.
-const API_URL = (() => {
+export const API_URL = (() => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
   const { hostname } = window.location
   return `http://${hostname}:8080/api`

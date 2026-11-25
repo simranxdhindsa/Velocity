@@ -1,0 +1,27 @@
+/* In-app how-to guides (pages/demo/*). Theme tokens only, so light and dark both work. */
+.dg-page { height: 100vh; overflow-y: auto; background: var(--bg-base); color: var(--text-primary); }
+.dg-wrap { max-width: 820px; margin: 0 auto; padding: 40px 16px 64px; display: grid; gap: 32px; line-height: 1.6; }
+.dg-back { color: var(--text-muted); font-size: 0.875rem; text-decoration: none; width: fit-content; }
+.dg-back:hover, .dg-back:focus-visible { color: var(--text-primary); }
+.dg-title { font-size: 2rem; line-height: 1.2; margin: 0; text-wrap: balance; }
+.dg-lede { color: var(--text-secondary); margin: 8px 0 0; max-width: 65ch; }
+.dg-figure { margin: 0; display: grid; gap: 8px; }
+.dg-figure figcaption { color: var(--text-muted); font-size: 0.85rem; }
+.dg-img { width: 100%; max-width: 100%; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.dg-img--loading { aspect-ratio: 16 / 8; }
+.dg-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.dg-fact { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px 14px; }
+.dg-fact b { display: block; margin-bottom: 2px; }
+.dg-fact span { color: var(--text-secondary); font-size: 0.9rem; }
+.dg-section { display: grid; gap: 14px; }
+.dg-section h2 { font-size: 1.25rem; margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.dg-tag { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); background: rgba(var(--color-primary-rgb), 0.12); padding: 5px 8px; border-radius: var(--radius-sm); }
+.dg-section ol { margin: 0; padding-left: 1.4em; display: grid; gap: 10px; max-width: 68ch; }
+.dg-section li::marker { color: var(--color-primary); font-weight: 600; }
+.dg-ui { font-size: 0.85em; font-weight: 500; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-xs); padding: 1px 6px; white-space: nowrap; }
+.dg-note { background: rgba(var(--color-primary-rgb), 0.1); border-radius: var(--radius-md); padding: 12px 16px; max-width: 68ch; }
+
+@media (max-width: 768px) {
+  .dg-title { font-size: 1.6rem; }
+  .dg-ui { white-space: normal; }
+}

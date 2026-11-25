@@ -13,6 +13,7 @@ import NoAccessPage from '@/pages/NoAccessPage'
 import GatewayError502Page from '@/pages/GatewayError502Page'
 import OAuthAuthorizePage from '@/pages/OAuthAuthorizePage'
 import OnboardingFlow from '@/pages/onboarding/OnboardingFlow'
+import EpicSwimlanesGuide from '@/pages/demo/EpicSwimlanesGuide'
 
 function AppContent() {
   const { isAuthenticated, isLoading, accessDenied, accessDeniedMessage, clearAccessDenied } = useAuth()
@@ -50,6 +51,9 @@ function AppContent() {
   }
 
   if (!isAuthenticated) return <Login />
+
+  // Guides sit behind login: their screenshots show real board content.
+  if (location.pathname.replace(/\/$/, '') === '/demo/epic-swimlanes') return <EpicSwimlanesGuide />
 
   if (onboardingLoading) {
     return (
