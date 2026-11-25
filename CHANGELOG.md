@@ -7,7 +7,11 @@
 
 
 ### Features
+- Tickets created in YouTrack are filed under their Bugs, Regressions, Hotfixes or Enhancements row automatically, and those rows never close
 - Signed in users can open a step by step guide for moving cards into epic swimlanes at /demo/epic-swimlanes
+
+### Enhancements
+- Every ticket now goes under an epic, and every sprint always has Bugs, Regressions, Hotfixes and Enhancements rows, so no card shows as Uncategorized
 
 ## 2026-11-23
 
