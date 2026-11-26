@@ -16,7 +16,8 @@ import (
 var createSprintToolSchema = map[string]interface{}{
 	"name": "create_sprint",
 	"description": "Creates a new sprint on the YouTrack board selected in the user's Velocity integration. " +
-		"start_date and finish_date are REQUIRED. If the user did not say the sprint period, ASK them first (for example 'next two weeks', 'Monday to Friday', or specific dates) and convert their answer to YYYY-MM-DD dates. Never invent a period. " +
+		"ALWAYS call it first with plan: true, which changes nothing and returns the suggested name, suggested dates (Monday of week 1 to Friday of week 2, or a one-week option), the last sprint and its tickets grouped by column, then ask the user the sprint questions described in the server instructions before creating anything. " +
+		"start_date and finish_date are REQUIRED to create. Never invent a period: use the dates the user picked. " +
 		"name is optional: if omitted it defaults to the next number after the latest numbered sprint on the board (e.g. 'Sprint 13' gives 'Sprint 14'). Duplicate names are rejected. " +
 		"Every open feature epic is added to the new sprint too, so the board keeps one swimlane per epic. " +
 		"The four catch-all epics Bugs, Regressions, Hotfixes and Enhancements are always the default swimlanes: any that is missing is created first, and epics_added lists what was added. " +
@@ -25,6 +26,10 @@ var createSprintToolSchema = map[string]interface{}{
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
+			"plan": map[string]string{
+				"type":        "boolean",
+				"description": "true: create nothing, return what to ask the user (suggested name and dates, the last sprint's tickets by column). Call this first.",
+			},
 			"name": map[string]string{
 				"type":        "string",
 				"description": "Sprint name. Omit to use the next number after the latest numbered sprint.",
@@ -42,7 +47,7 @@ var createSprintToolSchema = map[string]interface{}{
 				"description": "Optional sprint goal.",
 			},
 		},
-		"required": []string{"start_date", "finish_date"},
+		"required": []string{},
 	},
 }
 
@@ -52,12 +57,16 @@ func mcpCreateSprint(ctx context.Context, h *MCPHandler, userID string, id inter
 		StartDate  string `json:"start_date"`
 		FinishDate string `json:"finish_date"`
 		Goal       string `json:"goal"`
+		Plan       bool   `json:"plan"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return rpcErr(id, -32602, "invalid arguments")
 	}
+	if a.Plan {
+		return mcpPlanSprint(ctx, userID, id)
+	}
 	if strings.TrimSpace(a.StartDate) == "" || strings.TrimSpace(a.FinishDate) == "" {
-		return toolError(id, "start_date and finish_date are required. Ask the user for the sprint period (e.g. 'next two weeks' or specific dates) and pass them as YYYY-MM-DD")
+		return toolError(id, "start_date and finish_date are required. Call create_sprint with plan: true, ask the user which dates to use, and pass them as YYYY-MM-DD")
 	}
 	// Existing sprints on the board run from 00:00 UTC on the first day to
 	// 23:59:59.999 UTC on the last day, so match that.

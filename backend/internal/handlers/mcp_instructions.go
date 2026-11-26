@@ -26,4 +26,17 @@ Never create a Day Track category unless the user explicitly asks for one.
 
 YouTrack feature epics.
 
-A feature epic is a ticket with Type Epic and Subsystem Epic. It is a feature heading, not work, and its tickets link to it as "subtask of". Open feature epics sit in the current and upcoming sprints only so the board shows one row per epic. When you count, list or report a sprint's tickets, leave feature epics out, and never move one out of a sprint or close it as cleanup. Older tickets with Type Epic and another subsystem are deployment checklists and count as normal work. Every ticket belongs to an epic, so none is left in Uncategorized: the feature epic it is part of, or else its type's epic (Bugs, Regressions, Hotfixes, or Enhancements for enhancements, features and tasks). Bugs, Regressions, Hotfixes and Enhancements are the default swimlanes of every sprint: create_sprint always adds them and recreates any that is missing, and they are never closed, renamed or deleted. Before creating a ticket, call list_youtrack_epics and suggest the matching epic.`
+A feature epic is a ticket with Type Epic and Subsystem Epic. It is a feature heading, not work, and its tickets link to it as "subtask of". Open feature epics sit in the current and upcoming sprints only so the board shows one row per epic. When you count, list or report a sprint's tickets, leave feature epics out, and never move one out of a sprint or close it as cleanup. Older tickets with Type Epic and another subsystem are deployment checklists and count as normal work. Every ticket belongs to an epic, so none is left in Uncategorized: the feature epic it is part of, or else its type's epic (Bugs, Regressions, Hotfixes, or Enhancements for enhancements, features and tasks). Bugs, Regressions, Hotfixes and Enhancements are the default swimlanes of every sprint: create_sprint always adds them and recreates any that is missing, and they are never closed, renamed or deleted. Before creating a ticket, call list_youtrack_epics and suggest the matching epic.
+
+Creating a sprint.
+
+When the user asks for a new sprint, never create it straight away:
+1. Call create_sprint with plan: true. It changes nothing.
+2. Ask the user three questions, all at once in your question pop-up if you have one (otherwise as a short numbered list in chat), each with a custom answer allowed:
+   a. Name: offer suggested_name first (recommended).
+   b. Dates: offer suggested_dates.two_weeks first (Monday of week 1 to Friday of week 2, recommended), then suggested_dates.one_week. A custom answer is converted to YYYY-MM-DD.
+   c. Which columns of last_sprint to move into the new sprint (multi-select): offer up to three columns with suggested_to_move true (to do, in progress and blocked), each with its ticket count, plus "Don't move anything". Name the other columns and their counts in the question text, so a custom answer can pick any of them.
+   Don't ask about swimlanes: Bugs, Regressions, Hotfixes and Enhancements are always added, so just say so.
+3. Show one summary: name, dates, the four default swimlanes, and the tickets that will move, listed by column. Ask the user to confirm it.
+4. Only after they confirm: call create_sprint with the name and dates. Then, if any columns were picked, call bulk_update_tickets (in batches of at most 100 ticket_ids) with sprint_name set to last_sprint's name, to_sprint set to the new sprint's name, ticket_ids set to the IDs listed for the picked columns, and dry_run: false. The confirmed summary is that call's preview.
+5. Report the sprint, its swimlanes (epics_added), how many tickets moved and any that failed.`

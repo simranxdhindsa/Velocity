@@ -94,3 +94,10 @@ Brief, dated record of what was worked on per day, in the `Velocity: <summary>` 
 - `create_youtrack_ticket` always links an epic (no more `standalone`); `edit_youtrack_ticket` moves a ticket to its new type's catch-all epic on a type change. YouTrack workflow rule added in `docs/youtrack-workflows/`.
 - Backfilled Sprint 15 and 16: 70 tickets linked, catch-all epics added to both sprints. Older sprints untouched.
 - Bugs, Regressions, Hotfixes and Enhancements are now the default swimlanes of every new sprint; a closed one is reopened, a missing one created. Edit and delete tools refuse to change or delete them. YouTrack workflow `velocity-epic-swimlanes` installed on ARD (links tickets on create or type change, keeps catch-all epics open); type change tested live on ARD-3157 and ARD-3150.
+
+## 2026-11-26: Guided new sprint
+
+- `create_sprint` has a `plan: true` mode that suggests the next name, Monday to Friday dates (two weeks or one) and lists the last sprint's tickets by column.
+- The MCP instructions now make the agent ask name, dates and which columns to carry over (to do, in progress, blocked, or custom) before creating, then move the picked tickets in one confirmed step. Bugs, Regressions, Hotfixes and Enhancements are always added.
+- Checked live, read-only, on Ardoise Board: Sprint 17, 2026-12-07 to 2026-12-18.
+
