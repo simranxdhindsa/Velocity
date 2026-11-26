@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-26
+
+### Enhancements
+- create_sprint: asks the sprint name, dates and which columns to carry over before creating it, then moves those tickets into the new sprint
+
+
 ## 2026-11-25
 
 ### Bug Fixes
