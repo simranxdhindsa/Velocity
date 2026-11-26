@@ -3,8 +3,19 @@
 ## 2026-11-26
 
 ### Enhancements
+- Board can be grouped by Subsystem, and grouped lanes now respect the search, assignee, priority and subsystem filters instead of ignoring them
+- Board top bar is cleaner, with a ticket count that says what it counts, no YouTrack badge, and a new Subsystem filter built from your project subsystems
+- `create_youtrack_ticket`: new tickets end with a "#Created by Velocity 🤖" line, linked to Velocity, that AI edits can't remove
+- `get_youtrack_ticket`: shows the status history, every column move with who moved it, when, and how long it sat in the previous column
+- PM Assistant redesigned: questions fly from a glowing input into a thinking orb that turns green and unfolds into the answer card, and Delay Analysis ticket IDs no longer run under their bars
 - create_sprint: asks the sprint name, dates and which columns to carry over before creating it, then moves those tickets into the new sprint
 
+
+### Bug Fixes
+- Claude can now edit and delete the Slack DMs Velocity sends, queued DMs keep the right message so Delete from Slack works, and edits update the text shown in Claude Queue
+- Claude actions show the full Slack message laid out like Slack, with line breaks, bullets and bold, and a Show full message toggle for long ones, instead of a cut-off two-line preview
+- When Claude can't find a Velocity message to delete in the place you named, it now tells you where that message was actually sent instead of asking for a link
+- Claude can no longer send Slack messages to #project-managers by copying an example channel ID, messages sent by channel ID show the channel name, and Claude actions show a preview of what was sent
 
 ## 2026-11-25
 
