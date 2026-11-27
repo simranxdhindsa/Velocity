@@ -14,13 +14,13 @@ var addDaytrackEntriesToolSchema = map[string]interface{}{
 	"name": "add_daytrack_entries",
 	"description": "Adds work to the caller's own Day Track. RULE: one entry is one task on one line. When the user did several things, pass one item in `entries` per task, never one line joined with 'and'. " +
 		"Multi-line, bulleted or semicolon-separated names are split into separate entries automatically, and a name over 160 characters is refused rather than cut off. " +
-		"Write each name as '<Project>: <what changed>', for example 'Velocity: fixed the Chats AI buttons failing, caused by a removed Groq model'. " +
+		"Always draft each name as '<Project>: <what changed>', project name first, before the first call, for example 'Velocity: new feature added to the MCP' or 'Velocity: fixed the Chats AI buttons failing, caused by a removed Groq model'. " +
 		"Leave out `category` unless the user named one: Velocity picks it from the task, and the result says which it chose in `category_source`. " +
 		"Leave out times unless the user stated them: a single task runs from one minute after the last entry until now, several tasks in one call are stamped with the current time and no duration, and on a past date times stay blank. Never invent times or durations. " +
 		"`status` done (default) goes to Today's Log. in_progress and planned go to Planned & Carry Over, because Today's Log only holds finished work. " +
 		"A task already logged that day is skipped and listed under `skipped`, so retrying is safe. " +
 		"NEVER call this on your own after finishing a task. Call it only when the user explicitly asked in this conversation to add work to Day Track, with user_requested: true. " +
-		"That first call saves nothing and returns a preview: show it to the user and ask them to confirm. Only after they reply yes, call again with the same entries and confirmed: true. If they say no, add nothing.",
+		"That first call saves nothing and returns a preview: show it to the user and ask them to add it as is or edit it. If they edit, call again without confirmed and show the new preview. Only after they reply yes, call again with the same entries and confirmed: true. If they say no, add nothing.",
 	"inputSchema": map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -116,7 +116,7 @@ type mcpDTTask struct {
 // mcpDTPreview lists what a confirmed call would add, so the user can say yes or no first.
 func mcpDTPreview(date string, tasks []mcpDTTask) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Nothing was added yet. Show the user these %d Day Track entries for %s and ask them to confirm:\n", len(tasks), date)
+	fmt.Fprintf(&b, "Nothing was added yet. Show the user these %d Day Track entries for %s and ask them to add them as is or edit them. Each should read '<Project>: <what changed>':\n", len(tasks), date)
 	for _, t := range tasks {
 		line := "• " + t.Name
 		if t.Category != "" {

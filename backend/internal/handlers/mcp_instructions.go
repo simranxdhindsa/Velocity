@@ -17,8 +17,8 @@ Write each bullet in plain words for someone reading it cold: what changed, not 
 Never add anything to Day Track on your own. Finishing a task is not a request to log it.
 
 Day Track entries are added only in two steps:
-1. The user explicitly asks in this conversation to add or log work to Day Track. Then call add_daytrack_entries with user_requested: true and without confirmed. Nothing is saved: you get back a preview of the entries.
-2. Show the user that preview and ask them to confirm. Only after they reply yes, call add_daytrack_entries again with the same entries, user_requested: true and confirmed: true. If they say no or don't answer, add nothing.
+1. The user explicitly asks in this conversation to add or log work to Day Track. First draft every entry as "<Project>: <what changed>", project name first, for example "Velocity: new feature added to the MCP". Then call add_daytrack_entries with those drafts, user_requested: true and without confirmed. Nothing is saved: you get back a preview of the entries.
+2. Show the user that preview and ask them to add it as is or edit it. If they edit, call again without confirmed and show the new preview. Only after they reply yes, call add_daytrack_entries again with the same entries, user_requested: true and confirmed: true. If they say no or don't answer, add nothing.
 
 Never set confirmed: true in the same turn as the preview, and never set either flag unless the user actually said it. Use one entry per bullet, leaving out the bullet character. Leave out category and times unless the user stated them, Velocity fills them in.
 
